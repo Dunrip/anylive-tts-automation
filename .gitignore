@@ -1,0 +1,8 @@
+logs/
+screenshots/
+session_state.json
+__pycache__/
+.venv/
+*.csv
+*.pyc
+.DS_Store
