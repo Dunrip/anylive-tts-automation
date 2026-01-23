@@ -14,22 +14,12 @@ from typing import List, Optional
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
-BASE_URL = "https://app.anylive.jp/scripts/207"
-VERSION_PREFIX = "MAHAJAK_"
-VERSION_TEMPLATE = "Version_Template"
-VOICE_NAME = "Mahajak"
-PRODUCTS_PER_VERSION = 3
-SCRIPTS_PER_PRODUCT = 3
-TOTAL_SLOTS_PER_VERSION = 9
 DEFAULT_TIMEOUT = 30000
 CLICK_TIMEOUT = 15000
 NAVIGATION_TIMEOUT = 60000
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 SESSION_FILE = "session_state.json"
-
-ENABLE_VOICE_SELECTION = False
-ENABLE_PRODUCT_INFO = False
 
 SELECTORS = {
     "add_version_btn": [
@@ -47,11 +37,6 @@ SELECTORS = {
         '[role="combobox"]',
         'select',
     ],
-    "template_option": [
-        f'text="{VERSION_TEMPLATE}"',
-        f'[role="option"]:has-text("{VERSION_TEMPLATE}")',
-        f'option:has-text("{VERSION_TEMPLATE}")',
-    ],
     "save_changes_btn": [
         'button:has-text("Save Changes")',
         '[class*="modal"] button:has-text("Save")',
@@ -61,10 +46,6 @@ SELECTORS = {
         'button[placeholder="Select Voice Clone"]',
         'button:has-text("Select Voice Clone")',
         '[role="combobox"]',
-    ],
-    "voice_option": [
-        f'text="{VOICE_NAME}"',
-        f'[role="option"]:has-text("{VOICE_NAME}")',
     ],
     "product_name_input": [
         'input[placeholder*="Product Name"]',
@@ -91,7 +72,35 @@ SELECTORS = {
 
 
 @dataclass
+class ClientConfig:
+    base_url: str
+    version_template: str
+    voice_name: str
+    max_scripts_per_version: int
+    enable_voice_selection: bool
+    enable_product_info: bool
+    csv_columns: dict
+
+
+def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> ClientConfig:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"Config file not found: {config_path}\n"
+            f"Please create a config file or use the template at configs/template.json"
+        )
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config_data = json.load(f)
+    
+    if cli_overrides:
+        config_data.update(cli_overrides)
+    
+    return ClientConfig(**config_data)
+
+
+@dataclass
 class ScriptRow:
+    product_number: str
     product_name: str
     script_content: str
     audio_code: str
@@ -104,6 +113,8 @@ class Version:
     products: List[str]
     scripts: List[str]
     audio_codes: List[str]
+    product_number: str = ""
+    version_suffix: Optional[str] = None
     success: bool = False
     error: Optional[str] = None
 
@@ -170,65 +181,90 @@ def load_csv(path: str, logger: logging.Logger) -> pd.DataFrame:
     return df
 
 
-def parse_csv_data(df: pd.DataFrame, logger: logging.Logger) -> List[Version]:
+def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logger) -> List[Version]:
     df.columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"][:len(df.columns)]
     
-    valid_rows = df[df["Product Name"].notna() & (df["Product Name"].str.strip() != "")]
-    valid_rows = valid_rows[valid_rows["Product Name"] != "Product Name"]
-    logger.info(f"Valid rows (with Product Name): {len(valid_rows)}")
+    col_product_no = config.csv_columns.get("product_number", "No")
+    col_product_name = config.csv_columns.get("product_name", "Product Name")
+    col_script = config.csv_columns.get("script_content", "TH Script")
+    col_audio = config.csv_columns.get("audio_code", "Audio Code")
+    
+    df = df[df[col_product_name] != col_product_name]
+    df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
+    
+    df[col_product_name] = df[col_product_name].replace('', pd.NA)
+    df[col_product_name] = df[col_product_name].ffill()
+    
+    df[col_product_no] = df[col_product_no].replace('', pd.NA)
+    df[col_product_no] = df[col_product_no].ffill()
+    
+    valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
+    logger.info(f"Valid rows: {len(valid_rows)}")
     
     script_rows: List[ScriptRow] = []
     for idx, row in valid_rows.iterrows():
+        raw_number = str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "XX"
+        
+        try:
+            num_value = float(raw_number)
+            product_number = f"{int(num_value):02d}"
+        except ValueError:
+            product_number = raw_number
+        
+        product_name = str(row[col_product_name]).strip() if pd.notna(row[col_product_name]) else ""
         script_rows.append(ScriptRow(
-            product_name=str(row["Product Name"]).strip(),
-            script_content=str(row["TH Script"]).strip() if pd.notna(row["TH Script"]) else "",
-            audio_code=str(row["Audio Code"]).strip() if pd.notna(row["Audio Code"]) else "",
+            product_number=product_number,
+            product_name=product_name,
+            script_content=str(row[col_script]).strip() if pd.notna(row[col_script]) else "",
+            audio_code=str(row[col_audio]).strip() if pd.notna(row[col_audio]) else "",
             row_number=int(idx) + 2
         ))
     
-    products: List[List[ScriptRow]] = []
-    current_product: List[ScriptRow] = []
-    current_name = None
+    logger.info(f"Total script rows: {len(script_rows)}")
     
+    from collections import defaultdict
+    product_groups = defaultdict(list)
     for row in script_rows:
-        if row.product_name != current_name:
-            if current_product:
-                products.append(current_product)
-            current_product = [row]
-            current_name = row.product_name
-        else:
-            current_product.append(row)
-    if current_product:
-        products.append(current_product)
+        key = (row.product_number, row.product_name)
+        product_groups[key].append(row)
     
-    logger.info(f"Total products found: {len(products)}")
+    logger.info(f"Found {len(product_groups)} unique products")
+    
+    def sanitize_product_name(name: str) -> str:
+        import re
+        sanitized = re.sub(r'[^\w\s-]', '', name)
+        sanitized = re.sub(r'\s+', '_', sanitized)
+        return sanitized
     
     versions: List[Version] = []
-    version_num = 1
     
-    for i in range(0, len(products), PRODUCTS_PER_VERSION):
-        product_group = products[i:i + PRODUCTS_PER_VERSION]
-        version_name = f"{VERSION_PREFIX}{version_num:02d}"
+    for (product_number, product_name), rows in product_groups.items():
+        sanitized_name = sanitize_product_name(product_name)
         
-        product_names = []
-        scripts = []
-        audio_codes = []
-        
-        for product in product_group:
-            product_names.append(product[0].product_name)
-            for row in product[:SCRIPTS_PER_PRODUCT]:
-                scripts.append(row.script_content)
-                audio_codes.append(row.audio_code)
-        
-        versions.append(Version(
-            name=version_name,
-            products=product_names,
-            scripts=scripts,
-            audio_codes=audio_codes
-        ))
-        version_num += 1
+        for chunk_idx in range(0, len(rows), config.max_scripts_per_version):
+            chunk = rows[chunk_idx:chunk_idx + config.max_scripts_per_version]
+            chunk_number = chunk_idx // config.max_scripts_per_version
+            
+            if chunk_number == 0:
+                version_name = f"{product_number}_{sanitized_name}"
+            else:
+                version_name = f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
+            
+            scripts = [row.script_content for row in chunk]
+            audio_codes = [row.audio_code for row in chunk]
+            
+            versions.append(Version(
+                name=version_name,
+                products=[product_name],
+                scripts=scripts,
+                audio_codes=audio_codes,
+                product_number=product_number,
+                version_suffix=f"_v{chunk_number + 1}" if chunk_number > 0 else None
+            ))
+            
+            logger.debug(f"Created version: {version_name} with {len(scripts)} scripts")
     
-    logger.info(f"Created {len(versions)} versions ({PRODUCTS_PER_VERSION} products each)")
+    logger.info(f"Created {len(versions)} versions total")
     return versions
 
 
@@ -237,6 +273,34 @@ async def setup_login(logger: logging.Logger):
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
+        
+        # Check if existing session exists and try to reuse it
+        if is_session_valid():
+            logger.info(f"📦 Found existing session file: {SESSION_FILE}")
+            logger.info("🔍 Verifying session validity...")
+            
+            context = await browser.new_context(storage_state=SESSION_FILE)
+            page = await context.new_page()
+            
+            try:
+                await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
+                
+                # Check if we're still logged in (not redirected to login page)
+                current_url = page.url
+                if "login" not in current_url.lower():
+                    logger.info("✅ Existing session is still valid!")
+                    logger.info("🎉 Setup complete! You can now run without --setup")
+                    await browser.close()
+                    return
+                else:
+                    logger.warning("⚠️ Session expired. Need to login again.")
+            except Exception as e:
+                logger.warning(f"⚠️ Session validation failed: {e}")
+        else:
+            logger.info("📭 No existing session found.")
+        
+        # If we reach here, need manual login
+        logger.info("🌐 Opening browser for manual login...")
         context = await browser.new_context()
         page = await context.new_page()
         
@@ -258,10 +322,12 @@ def is_session_valid() -> bool:
 
 
 class TTSAutomation:
-    def __init__(self, headless: bool, logger: logging.Logger, dry_run: bool = False):
+    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, no_save: bool = False):
+        self.config = config
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
+        self.no_save = no_save
         self.browser = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -273,19 +339,44 @@ class TTSAutomation:
         
         if is_session_valid():
             self.context = await self.browser.new_context(storage_state=SESSION_FILE)
-            self.logger.debug("Loaded session from session_state.json")
+            self.logger.info(f"📦 Loaded session from {SESSION_FILE}")
+            self.page = await self.context.new_page()
+            self.page.set_default_timeout(DEFAULT_TIMEOUT)
+            
+            if not await self.validate_session():
+                await self.close()
+                raise Exception(
+                    "Session expired or invalid. Please run setup again:\n"
+                    "  python mahajak_tts.py --setup"
+                )
+            
+            self.logger.info("✅ Session is valid and authenticated")
         else:
-            self.context = await self.browser.new_context()
-            self.logger.warning("⚠️ No session found. Run with --setup first.")
-        
-        self.page = await self.context.new_page()
-        self.page.set_default_timeout(DEFAULT_TIMEOUT)
+            self.logger.error("❌ No session found. Please run setup first:")
+            self.logger.error("  python mahajak_tts.py --setup")
+            raise Exception("No session file found")
     
     async def close(self):
         if self.browser:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+    
+    async def validate_session(self) -> bool:
+        try:
+            self.logger.debug("Validating session...")
+            await self.page.goto(self.config.base_url, wait_until="networkidle", timeout=30000)
+            
+            current_url = self.page.url
+            if "login" in current_url.lower():
+                self.logger.error("❌ Session expired - redirected to login page")
+                return False
+            
+            self.logger.debug("✓ Session validated successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Session validation failed: {e}")
+            return False
     
     async def safe_click(self, selector_key: str, description: str) -> bool:
         selectors = SELECTORS.get(selector_key, [selector_key])
@@ -323,27 +414,103 @@ class TTSAutomation:
         await self.page.screenshot(path=str(path))
         self.logger.info(f"📸 Screenshot saved: {path}")
     
-    async def clear_and_fill(self, element, value: str) -> bool:
+    async def clear_and_fill(self, element, value: str, max_retries: int = 3) -> bool:
+        for attempt in range(max_retries):
+            try:
+                await element.evaluate('el => el.scrollIntoView({ behavior: "instant", block: "center" })')
+                await asyncio.sleep(0.3)
+                await element.wait_for_element_state("visible", timeout=5000)
+                await element.wait_for_element_state("enabled", timeout=5000)
+                await element.click()
+                await element.fill('')
+                await element.fill(value)
+                await asyncio.sleep(0.1)
+                
+                actual_value = await element.input_value()
+                if actual_value == value:
+                    return True
+                
+                self.logger.debug(f"fill() didn't persist, trying JavaScript approach")
+                await element.evaluate('''(el, val) => {
+                    el.focus();
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.blur();
+                }''', value)
+                await asyncio.sleep(0.1)
+                
+                actual_value = await element.input_value()
+                if actual_value == value:
+                    return True
+                    
+                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{actual_value}'")
+                
+            except Exception as e:
+                self.logger.debug(f"clear_and_fill attempt {attempt + 1}/{max_retries} failed: {e}")
+            
+            if attempt < max_retries - 1:
+                await asyncio.sleep(0.5)
+        
+        self.logger.warning(f"clear_and_fill failed after {max_retries} attempts for value: {value}")
+        return False
+    
+    async def validate_slot_fields(self, slot_index: int, expected_title: str, expected_content: str) -> tuple[bool, str]:
+        slot_num = slot_index + 1
+        self.logger.debug(f"Validating slot {slot_num} fields...")
+        
         try:
-            await element.scroll_into_view_if_needed()
-            await element.click()
-            await element.fill('')
-            await element.fill(value)
-            return True
-        except Exception:
-            return False
+            title_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
+            content_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
+            
+            title_input = await self.page.wait_for_selector(title_selector, timeout=5000)
+            content_textarea = await self.page.wait_for_selector(content_selector, timeout=5000)
+            
+            if not title_input or not content_textarea:
+                error_msg = f"Slot {slot_num}: Could not find form fields"
+                return False, error_msg
+            
+            title_value = await title_input.input_value()
+            content_value = await content_textarea.input_value()
+            
+            empty_fields = []
+            
+            if not title_value or not title_value.strip():
+                empty_fields.append(f"Section Title (expected: '{expected_title}')")
+            
+            if not content_value or not content_value.strip():
+                empty_fields.append(f"Section Content (expected: '{expected_content[:50]}...')")
+            
+            if empty_fields:
+                error_msg = f"Slot {slot_num}: Empty fields - {', '.join(empty_fields)}"
+                return False, error_msg
+            
+            self.logger.debug(f"Slot {slot_num} validation passed")
+            return True, ""
+            
+        except Exception as e:
+            error_msg = f"Slot {slot_num}: Validation error - {e}"
+            return False, error_msg
     
     async def select_template_from_dropdown(self) -> bool:
         try:
+            search_input = await self.page.wait_for_selector(
+                'input[data-slot="combobox-search"]', 
+                timeout=CLICK_TIMEOUT
+            )
+            if search_input:
+                await search_input.fill(self.config.version_template)
+                await asyncio.sleep(0.3)
+            
             await self.page.wait_for_selector('[role="option"]', timeout=CLICK_TIMEOUT)
             options = await self.page.query_selector_all('[role="option"]')
             for option in options:
                 text = await option.inner_text()
-                if text.strip() == VERSION_TEMPLATE:
+                if text.strip() == self.config.version_template:
                     await option.click()
-                    self.logger.debug(f"Selected exact match: {VERSION_TEMPLATE}")
+                    self.logger.debug(f"Selected exact match: {self.config.version_template}")
                     return True
-            self.logger.error(f"Could not find exact match for {VERSION_TEMPLATE}")
+            self.logger.error(f"Could not find exact match for {self.config.version_template}")
             return False
         except Exception as e:
             self.logger.error(f"Failed to select template: {e}")
@@ -355,23 +522,56 @@ class TTSAutomation:
             options = await self.page.query_selector_all('[role="option"]')
             for option in options:
                 text = await option.inner_text()
-                if text.strip() == VOICE_NAME:
+                if text.strip() == self.config.voice_name:
                     await option.click()
-                    self.logger.debug(f"Selected exact match: {VOICE_NAME}")
+                    self.logger.debug(f"Selected exact match: {self.config.voice_name}")
                     return True
-            self.logger.error(f"Could not find exact match for {VOICE_NAME}")
+            self.logger.error(f"Could not find exact match for {self.config.voice_name}")
             return False
         except Exception as e:
             self.logger.error(f"Failed to select voice: {e}")
             return False
     
+    async def wait_for_form_ready(self, expected_count: int, timeout: int = 30) -> bool:
+        self.logger.info(f"Waiting for {expected_count} form fields to load...")
+        
+        template_selector = 'input[aria-label="Section Title"]'
+        script_selector = 'textarea[aria-label="Section Content"]'
+        
+        start_time = asyncio.get_event_loop().time()
+        
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            try:
+                template_inputs = await self.page.query_selector_all(template_selector)
+                script_textareas = await self.page.query_selector_all(script_selector)
+                
+                template_count = len(template_inputs)
+                script_count = len(script_textareas)
+                
+                self.logger.debug(f"Found {template_count} template inputs, {script_count} script textareas")
+                
+                if template_count >= expected_count and script_count >= expected_count:
+                    self.logger.info(f"Form ready: {template_count} template inputs, {script_count} script textareas")
+                    return True
+                
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                self.logger.debug(f"Error checking form fields: {e}")
+                await asyncio.sleep(0.5)
+        
+        self.logger.warning(f"Timeout waiting for form fields. Found {template_count}/{expected_count} templates, {script_count}/{expected_count} scripts")
+        return False
+    
     async def navigate_to_scripts(self):
         current_url = self.page.url
-        if BASE_URL in current_url:
+        
+        base_without_params = self.config.base_url.split('?')[0]
+        if base_without_params in current_url:
             self.logger.debug("Already on scripts page, skipping navigation")
             return
-        self.logger.info(f"🌐 Navigating to {BASE_URL}")
-        await self.page.goto(f"{BASE_URL}?page=1", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+        
+        self.logger.info(f"🌐 Navigating to {self.config.base_url}")
+        await self.page.goto(f"{self.config.base_url}?page=1", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
     
     async def create_new_version(self, name: str) -> bool:
         self.logger.info(f"📝 Creating version: {name}")
@@ -397,8 +597,8 @@ class TTSAutomation:
         if not await self.safe_click("save_changes_btn", "Save Changes button"):
             return False
         
-        await asyncio.sleep(1)
-        self.logger.info(f"✅ Created: {name}")
+        await self.page.wait_for_load_state("networkidle")
+        self.logger.info(f"Created: {name}")
         return True
     
     async def open_version(self, name: str) -> bool:
@@ -415,7 +615,7 @@ class TTSAutomation:
         return False
     
     async def select_voice_clone(self) -> bool:
-        self.logger.info(f"🎙️ Selecting voice: {VOICE_NAME}")
+        self.logger.info(f"🎙️ Selecting voice: {self.config.voice_name}")
         
         if not await self.safe_click("voice_clone_dropdown", "Voice Clone dropdown"):
             return False
@@ -429,54 +629,63 @@ class TTSAutomation:
         return True
     
     async def fill_script_slots(self, scripts: List[str]) -> int:
-        self.logger.info(f"📝 Filling {len(scripts)} script textareas...")
+        self.logger.info(f"Filling {len(scripts)} script textareas...")
         
         filled = 0
         
         try:
             await self.page.wait_for_selector('textarea[aria-label="Section Content"]', timeout=CLICK_TIMEOUT)
             textareas = await self.page.query_selector_all('textarea[aria-label="Section Content"]')
-            self.logger.debug(f"Found {len(textareas)} script textareas")
+            textarea_count = len(textareas)
+            self.logger.info(f"Found {textarea_count} script textareas in DOM")
+            
+            if textarea_count < len(scripts):
+                self.logger.warning(f"Expected {len(scripts)} script textareas, but found only {textarea_count}")
         except Exception as e:
             self.logger.error(f"Failed to find script textareas: {e}")
             return 0
         
         for i, script in enumerate(scripts):
             if i < len(textareas):
-                try:
-                    if await self.clear_and_fill(textareas[i], script):
-                        filled += 1
-                        await asyncio.sleep(0.1)
-                except Exception as e:
-                    self.logger.debug(f"Failed to fill slot {i+1}: {e}")
+                self.logger.info(f"Filling script slot {i+1}/{len(scripts)}...")
+                if await self.clear_and_fill(textareas[i], script):
+                    filled += 1
+                    self.logger.info(f"Successfully filled script slot {i+1}")
+                else:
+                    self.logger.error(f"Failed to fill script slot {i+1}")
+                await asyncio.sleep(0.1)
         
-        self.logger.info(f"📊 Filled {filled}/{len(scripts)} slots")
+        self.logger.info(f"Filled {filled}/{len(scripts)} script slots")
         return filled
     
     async def fill_template_fields(self, audio_codes: List[str]) -> int:
-        self.logger.info(f"🎵 Filling {len(audio_codes)} template fields with audio codes...")
+        self.logger.info(f"Filling {len(audio_codes)} template fields with audio codes...")
         
         filled = 0
         
         try:
             await self.page.wait_for_selector('input[aria-label="Section Title"]', timeout=CLICK_TIMEOUT)
             template_inputs = await self.page.query_selector_all('input[aria-label="Section Title"]')
-            self.logger.debug(f"Found {len(template_inputs)} template inputs")
+            input_count = len(template_inputs)
+            self.logger.info(f"Found {input_count} template inputs in DOM")
+            
+            if input_count < len(audio_codes):
+                self.logger.warning(f"Expected {len(audio_codes)} template inputs, but found only {input_count}")
         except Exception as e:
             self.logger.error(f"Failed to find template inputs: {e}")
             return 0
         
         for i, audio_code in enumerate(audio_codes):
             if i < len(template_inputs) and audio_code:
-                try:
-                    if await self.clear_and_fill(template_inputs[i], audio_code):
-                        filled += 1
-                        self.logger.debug(f"Filled template_{i+1} with: {audio_code}")
-                        await asyncio.sleep(0.1)
-                except Exception as e:
-                    self.logger.debug(f"Failed to fill template {i+1}: {e}")
+                self.logger.info(f"Filling template field {i+1}/{len(audio_codes)} with: {audio_code}")
+                if await self.clear_and_fill(template_inputs[i], audio_code):
+                    filled += 1
+                    self.logger.info(f"Successfully filled template field {i+1}")
+                else:
+                    self.logger.error(f"Failed to fill template field {i+1}")
+                await asyncio.sleep(0.1)
         
-        self.logger.info(f"🎵 Filled {filled}/{len(audio_codes)} template fields")
+        self.logger.info(f"Filled {filled}/{len(audio_codes)} template fields")
         return filled
     
     async def fill_product_info(self) -> bool:
@@ -502,17 +711,175 @@ class TTSAutomation:
             except Exception as e:
                 self.logger.debug(f"Failed to click Generate Speech {i+1}: {e}")
         
-        self.logger.info(f"🔊 Triggered {triggered} generations")
+        self.logger.info(f"Triggered {triggered} generations")
         return triggered
     
-    async def save_version(self) -> bool:
+    async def fill_and_generate_slot(self, slot_index: int, audio_code: str, script: str, dry_run: bool = False) -> bool:
+        slot_num = slot_index + 1
+        self.logger.info(f"Processing slot {slot_num}: {audio_code}")
+        
+        try:
+            template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
+            template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
+            if not await self.clear_and_fill(template, audio_code):
+                self.logger.error(f"Failed to fill template for slot {slot_num}")
+                return False
+            
+            script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
+            textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
+            if not await self.clear_and_fill(textarea, script):
+                self.logger.error(f"Failed to fill script for slot {slot_num}")
+                return False
+            
+            await asyncio.sleep(0.2)
+            
+            validation_passed, validation_error = await self.validate_slot_fields(slot_index, audio_code, script)
+            if not validation_passed:
+                self.logger.warning(f"Slot {slot_num} validation failed: {validation_error}")
+                self.logger.warning(f"Skipping Generate Speech for slot {slot_num} due to empty fields")
+                return False
+            
+            if not dry_run:
+                button_clicked = False
+                
+                await asyncio.sleep(0.3)
+                
+                template_fresh = await self.page.wait_for_selector(template_selector, timeout=5000)
+                
+                try:
+                    parent_container = await template_fresh.evaluate_handle(
+                        '(el) => { let p = el; for(let i=0; i<6; i++) { if(p.parentElement) p = p.parentElement; } return p; }'
+                    )
+                    
+                    if parent_container:
+                        button = await parent_container.query_selector('button:has-text("Generate Speech")')
+                        if button:
+                            await button.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.2)
+                            await button.click()
+                            self.logger.debug(f"Clicked Generate Speech for slot {slot_num} via parent container")
+                            await asyncio.sleep(0.3)
+                            button_clicked = True
+                except Exception as e:
+                    self.logger.debug(f"Parent container approach failed for slot {slot_num}: {e}")
+                
+                if not button_clicked:
+                    try:
+                        self.logger.debug(f"Falling back to nth-index approach for slot {slot_num}")
+                        button_selector = f'button:has-text("Generate Speech") >> nth={slot_index}'
+                        button = await self.page.wait_for_selector(button_selector, timeout=5000)
+                        
+                        if button:
+                            await button.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.2)
+                            await button.click()
+                            self.logger.debug(f"Clicked Generate Speech for slot {slot_num} via nth-index fallback")
+                            await asyncio.sleep(0.3)
+                            button_clicked = True
+                        else:
+                            self.logger.warning(f"Generate Speech button not found for slot {slot_num}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to click Generate Speech for slot {slot_num}: {e}")
+            
+            self.logger.info(f"Completed slot {slot_num}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error processing slot {slot_num}: {e}")
+            return False
+    
+    async def validate_form_fields(self, expected_count: int) -> tuple[bool, str]:
+        self.logger.info("🔍 Validating form fields before save...")
+        
+        try:
+            title_selector = 'input[aria-label="Section Title"]'
+            content_selector = 'textarea[aria-label="Section Content"]'
+            
+            title_inputs = await self.page.query_selector_all(title_selector)
+            content_textareas = await self.page.query_selector_all(content_selector)
+            
+            title_count = len(title_inputs)
+            content_count = len(content_textareas)
+            
+            self.logger.debug(f"Found {title_count} title fields, {content_count} content fields")
+            
+            if title_count < expected_count or content_count < expected_count:
+                error_msg = f"Template has insufficient fields: expected at least {expected_count}, found {title_count} titles and {content_count} contents"
+                self.logger.error(error_msg)
+                return False, error_msg
+            
+            if title_count > expected_count or content_count > expected_count:
+                self.logger.debug(f"Template has {title_count} slots, using first {expected_count} for this version")
+            
+            empty_titles = []
+            empty_contents = []
+            
+            for i in range(min(expected_count, len(title_inputs))):
+                try:
+                    value = await title_inputs[i].input_value()
+                    if not value or not value.strip():
+                        empty_titles.append(i + 1)
+                        self.logger.warning(f"Section Title slot {i + 1} is empty")
+                except Exception as e:
+                    self.logger.debug(f"Error checking title slot {i + 1}: {e}")
+                    empty_titles.append(i + 1)
+            
+            for i in range(min(expected_count, len(content_textareas))):
+                try:
+                    value = await content_textareas[i].input_value()
+                    if not value or not value.strip():
+                        empty_contents.append(i + 1)
+                        self.logger.warning(f"Section Content slot {i + 1} is empty")
+                except Exception as e:
+                    self.logger.debug(f"Error checking content slot {i + 1}: {e}")
+                    empty_contents.append(i + 1)
+            
+            if empty_titles or empty_contents:
+                error_parts = []
+                if empty_titles:
+                    error_parts.append(f"Missing Section Title in slots: {empty_titles}")
+                if empty_contents:
+                    error_parts.append(f"Missing Section Content in slots: {empty_contents}")
+                error_msg = " and ".join(error_parts)
+                self.logger.error(error_msg)
+                return False, error_msg
+            
+            self.logger.info(f"✓ All {expected_count} slots validated successfully")
+            return True, ""
+            
+        except Exception as e:
+            error_msg = f"Validation error: {e}"
+            self.logger.error(error_msg)
+            return False, error_msg
+    
+    async def save_version(self, expected_slots: int) -> bool:
+        if self.no_save:
+            self.logger.info("⏭️ SKIPPING SAVE (--no-save mode)")
+            return True
+        
+        self.logger.debug("Waiting for form state to stabilize...")
+        await asyncio.sleep(1.0)
+        
+        try:
+            await self.page.evaluate('document.activeElement?.blur()')
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
+        
+        validation_passed, error_msg = await self.validate_form_fields(expected_slots)
+        if not validation_passed:
+            self.logger.error(f"❌ Validation failed: {error_msg}")
+            return False
+        
+        await asyncio.sleep(2.0)
+        
         self.logger.info("💾 Saving...")
         
         if not await self.safe_click("save_btn", "Save button"):
             return False
         
         await asyncio.sleep(2)
-        await self.page.wait_for_url(f"{BASE_URL}*", timeout=NAVIGATION_TIMEOUT)
+        await self.page.wait_for_url(f"{self.config.base_url}*", timeout=NAVIGATION_TIMEOUT)
         return True
     
     async def process_version(self, version: Version) -> bool:
@@ -522,29 +889,36 @@ class TTSAutomation:
             if not await self.create_new_version(version.name):
                 raise Exception("Failed to create version")
             
-            if ENABLE_VOICE_SELECTION:
+            if not await self.wait_for_form_ready(len(version.scripts)):
+                raise Exception("Form fields did not load in time")
+            
+            if self.config.enable_voice_selection:
                 if not await self.select_voice_clone():
                     raise Exception("Failed to select voice")
             
-            template_filled = await self.fill_template_fields(version.audio_codes)
-            self.logger.debug(f"Template fields filled: {template_filled}")
-            
-            filled = await self.fill_script_slots(version.scripts)
-            if filled == 0:
-                raise Exception("Failed to fill any script slots")
-            
-            if ENABLE_PRODUCT_INFO:
+            if self.config.enable_product_info:
                 await self.fill_product_info()
             
-            if self.dry_run:
-                self.logger.info(f"🔇 DRY RUN: Skipping Generate Speech ({len(version.scripts)} buttons)")
-            else:
-                await self.trigger_generate_speech(len(version.scripts))
+            self.logger.info(f"Processing {len(version.scripts)} slots...")
+            successful_slots = 0
+            for i in range(len(version.scripts)):
+                audio_code = version.audio_codes[i] if i < len(version.audio_codes) else ""
+                script = version.scripts[i]
+                if await self.fill_and_generate_slot(i, audio_code, script, dry_run=self.dry_run):
+                    successful_slots += 1
             
-            if not await self.save_version():
+            self.logger.info(f"Completed {successful_slots}/{len(version.scripts)} slots")
+            
+            if successful_slots == 0:
+                raise Exception("Failed to fill any slots")
+            
+            if not await self.save_version(len(version.scripts)):
                 raise Exception("Failed to save version")
             
-            self.logger.info(f"✅ SUCCESS: {version.name}")
+            if self.no_save:
+                self.logger.info(f"COMPLETED (not saved): {version.name}")
+            else:
+                self.logger.info(f"SUCCESS: {version.name}")
             version.success = True
             return True
             
@@ -559,22 +933,21 @@ class TTSAutomation:
 def print_version_info(version: Version, logger: logging.Logger):
     logger.info("")
     logger.info("=" * 70)
-    logger.info(f"🎯 {version.name}")
-    for i, product in enumerate(version.products, 1):
-        slots = f"slots {(i-1)*3+1}-{i*3}"
-        logger.info(f"   Product {i}: {product} ({slots})")
+    logger.info(f"{version.name} - {len(version.scripts)} scripts")
+    if version.products:
+        logger.info(f"   Products: {', '.join(version.products[:3])}{'...' if len(version.products) > 3 else ''}")
     logger.info("=" * 70)
 
 
-def generate_report(versions: List[Version], timestamp: str, logger: logging.Logger) -> Report:
+def generate_report(versions: List[Version], config: ClientConfig, timestamp: str, logger: logging.Logger) -> Report:
     successful = sum(1 for v in versions if v.success)
     failed = len(versions) - successful
     
     report = Report(
         timestamp=datetime.now().isoformat(),
         config={
-            "products_per_version": PRODUCTS_PER_VERSION,
-            "scripts_per_product": SCRIPTS_PER_PRODUCT
+            "grouping_strategy": "product_based",
+            "max_scripts_per_version": config.max_scripts_per_version
         },
         total=len(versions),
         successful=successful,
@@ -582,6 +955,7 @@ def generate_report(versions: List[Version], timestamp: str, logger: logging.Log
         versions=[
             {
                 "version": v.name,
+                "product_number": v.product_number,
                 "products": v.products,
                 "scripts": len(v.scripts),
                 "success": v.success,
@@ -602,13 +976,10 @@ def generate_report(versions: List[Version], timestamp: str, logger: logging.Log
     logger.info("-" * 70)
     
     for v in versions:
-        status = "✅" if v.success else "❌"
-        logger.info(f"{status} {v.name}:")
-        for i, product in enumerate(v.products, 1):
-            slots = f"slots {(i-1)*3+1}-{i*3}"
-            logger.info(f"      Product {i}: {product} ({slots})")
+        status = "OK" if v.success else "FAILED"
+        logger.info(f"{status} {v.name}: {len(v.scripts)} scripts")
         if v.error:
-            logger.info(f"      ⚠️ Error: {v.error}")
+            logger.info(f"      Error: {v.error}")
         logger.info("")
     
     logs_dir = Path("logs")
@@ -630,6 +1001,15 @@ async def main():
     parser.add_argument("--limit", type=int, help="Limit number of versions to process")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
     parser.add_argument("--dry-run", action="store_true", help="Run without clicking Generate Speech")
+    parser.add_argument("--no-save", action="store_true", help="Run without clicking Save button")
+    parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
+    
+    parser.add_argument("--config", type=str, help="Path to client config JSON file")
+    parser.add_argument("--client", type=str, help="Client name (loads configs/{NAME}.json)")
+    parser.add_argument("--base-url", type=str, help="Override base URL")
+    parser.add_argument("--voice", type=str, help="Override voice clone name")
+    parser.add_argument("--template", type=str, help="Override version template name")
+    parser.add_argument("--max-scripts", type=int, help="Override max scripts per version")
     
     args = parser.parse_args()
     
@@ -648,6 +1028,36 @@ async def main():
         logger.info("   python mahajak_tts.py --setup")
         return
     
+    config_path = None
+    if args.client:
+        config_path = f"configs/{args.client}.json"
+    elif args.config:
+        config_path = args.config
+    else:
+        config_path = "configs/mahajak.json"
+    
+    cli_overrides = {}
+    if args.base_url:
+        cli_overrides['base_url'] = args.base_url
+    if args.voice:
+        cli_overrides['voice_name'] = args.voice
+    if args.template:
+        cli_overrides['version_template'] = args.template
+    if args.max_scripts:
+        cli_overrides['max_scripts_per_version'] = args.max_scripts
+    
+    try:
+        config = load_config(config_path, cli_overrides if cli_overrides else None)
+        logger.info(f"📋 Loaded config: {config_path}")
+        if cli_overrides:
+            logger.debug(f"Applied CLI overrides: {cli_overrides}")
+    except FileNotFoundError as e:
+        logger.error(f"❌ {e}")
+        return
+    except Exception as e:
+        logger.error(f"❌ Failed to load config: {e}")
+        return
+    
     try:
         csv_path = find_csv_file(args.csv)
     except (FileNotFoundError, ValueError) as e:
@@ -655,7 +1065,7 @@ async def main():
         return
     
     df = load_csv(csv_path, logger)
-    versions = parse_csv_data(df, logger)
+    versions = parse_csv_data(df, config, logger)
     
     if not versions:
         logger.error("❌ No versions to process")
@@ -673,7 +1083,13 @@ async def main():
     if args.dry_run:
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
     
-    automation = TTSAutomation(headless=args.headless, logger=logger, dry_run=args.dry_run)
+    if args.no_save:
+        logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
+    
+    if args.debug:
+        logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
+    
+    automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run, no_save=args.no_save)
     
     try:
         await automation.start_browser()
@@ -683,9 +1099,16 @@ async def main():
             await automation.process_version(version)
         
     finally:
+        if args.debug:
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info("🐛 DEBUG MODE: Browser is still open for inspection")
+            logger.info("   Press Enter to close browser and exit...")
+            logger.info("=" * 70)
+            input()
         await automation.close()
     
-    generate_report(versions, timestamp, logger)
+    generate_report(versions, config, timestamp, logger)
 
 
 if __name__ == "__main__":
