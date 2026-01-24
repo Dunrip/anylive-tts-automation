@@ -1,15 +1,19 @@
-# MAHAJAK TTS Automation
+# AnyLive TTS Automation
 
-Automate the creation of TTS (Text-to-Speech) script versions on the AnyLive platform for MAHAJAK brand live streaming content.
+Automate the creation of TTS (Text-to-Speech) script versions on the AnyLive platform. Supports multi-client configuration with product-based version grouping.
 
 ## Features
 
+- ✅ **Multi-Client Support**: External JSON configuration for different brands/clients
+- ✅ **Product-Based Grouping**: 1 product = 1 version (auto-splits if >10 scripts)
 - ✅ **Session Management**: One-time login with `--setup`, session persists for future runs
 - ✅ **Auto CSV Detection**: Automatically detects CSV files in project folder
-- ✅ **Version Grouping**: Groups products into versions (3 products × 3 scripts = 9 slots per version)
+- ✅ **Smart Version Naming**: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2` for overflow
 - ✅ **Error Handling**: Retry logic with screenshot capture on failures
 - ✅ **Detailed Logging**: Console output with emoji indicators + file logs
 - ✅ **JSON Reports**: Final execution report saved to `logs/`
+- ✅ **Dry Run Mode**: Test without generating speech
+- ✅ **Debug Mode**: Keep browser open for inspection
 
 ## Installation
 
@@ -29,12 +33,81 @@ playwright install chromium
 
 ### 2. Prepare CSV File
 
-Place your `MAHAJAK_SCRIPT.csv` file in the project root directory. The script will auto-detect it.
+Place your CSV file in the project root directory. The script will auto-detect it.
 
-**CSV Structure** (columns A-I):
-- **Column B** (Product Name): Filter criteria - only process rows where this is NOT empty
-- **Column E** (TH Script): Thai script content → maps to script_1 through script_9
-- **Column G** (Audio Code): Audio identifier → maps to template_1 through template_9
+**CSV Structure**:
+- **Column A** (No): Product number (e.g., "01", "02")
+- **Column B** (Product Name): Product name (used for grouping and version naming)
+- **Column E** (TH Script): Thai script content → Section Content fields
+- **Column G** (Audio Code): Audio identifier → Section Title fields
+
+**Version Grouping Logic**:
+- Scripts are grouped by product name (column B)
+- Each product gets its own version: `{ProductNo}_{ProductName}`
+- If a product has >10 scripts, it splits into multiple versions:
+  - First 10 scripts: `01_Product_Name`
+  - Next 10 scripts: `01_Product_Name_v2`
+  - Next 10 scripts: `01_Product_Name_v3`, etc.
+
+### ⚠️ Breaking Change from Previous Versions
+
+**Version Naming Change**:
+- **Old logic (v1.x)**: Fixed 3 products per version, 3 scripts per product
+  - Example: `MAHAJAK_01` contains Products 1-3 (9 scripts total)
+- **New logic (v2.x)**: 1 product per version, variable scripts (default max: 10)
+  - Example: `01_JBL_Speaker` contains Product 1 only (8 scripts)
+
+**Impact**: Version names will differ from historical data. This change enables:
+- Flexible script counts per product (not fixed to 3)
+- Auto-splitting for products with >10 scripts
+- Clearer product-to-version mapping
+
+**Migration**: No code changes needed. New versions will use new naming. Existing versions in AnyLive remain unchanged.
+
+## Multi-Client Setup
+
+### Quick Start (Using Default Config)
+
+```bash
+# Uses configs/mahajak.json by default
+python mahajak_tts.py --setup
+python mahajak_tts.py
+```
+
+### Creating a New Client Configuration
+
+1. **Copy the template**:
+   ```bash
+   cp configs/template.json configs/new_client.json
+   ```
+
+2. **Edit the config**:
+   ```json
+   {
+     "base_url": "https://app.anylive.jp/scripts/XXX",
+     "version_template": "Version_Template",
+     "voice_name": "Voice Clone Name",
+     "max_scripts_per_version": 10,
+     "enable_voice_selection": false,
+     "enable_product_info": false,
+     "csv_columns": {
+       "product_number": "No",
+       "product_name": "Product Name",
+       "script_content": "TH Script",
+       "audio_code": "Audio Code"
+     }
+   }
+   ```
+
+3. **Run with your client**:
+   ```bash
+   python mahajak_tts.py --client new_client
+   ```
+
+### Available Configurations
+
+- `configs/mahajak.json` - MAHAJAK brand configuration (default)
+- `configs/template.json` - Template for creating new client configs
 
 ## Usage
 
@@ -53,8 +126,17 @@ This will:
 ### Normal Run
 
 ```bash
-# Auto-detects CSV in project folder
+# Default (uses configs/mahajak.json)
 python mahajak_tts.py
+
+# Specify client config
+python mahajak_tts.py --client mahajak
+
+# Custom config file
+python mahajak_tts.py --config /path/to/config.json
+
+# Override config values via CLI
+python mahajak_tts.py --client mahajak --voice "Custom Voice" --max-scripts 5
 
 # Or specify CSV explicitly
 python mahajak_tts.py --csv /path/to/other.csv
@@ -64,17 +146,42 @@ python mahajak_tts.py --start-version 5 --limit 3
 
 # Run in headless mode (no browser window)
 python mahajak_tts.py --headless
+
+# Dry run mode (fill forms but skip Generate Speech)
+python mahajak_tts.py --dry-run
+
+# No-save mode (fill and generate but skip Save button)
+python mahajak_tts.py --no-save
+
+# Debug mode (keep browser open after execution)
+python mahajak_tts.py --debug
 ```
 
 ## CLI Options
 
+### Basic Options
+
 | Option | Type | Description |
 |--------|------|-------------|
 | `--setup` | flag | One-time login setup, saves session to `session_state.json` |
-| `--csv` | optional | Path to CSV file (auto-detects if not specified) |
-| `--start-version` | optional | Starting version number (default: 1) |
-| `--limit` | optional | Max versions to process |
+| `--csv` | path | Path to CSV file (auto-detects if not specified) |
+| `--start-version` | int | Starting version number (default: 1) |
+| `--limit` | int | Max versions to process |
 | `--headless` | flag | Run browser in headless mode |
+| `--dry-run` | flag | Fill forms but skip Generate Speech buttons |
+| `--no-save` | flag | Fill and generate but skip Save button |
+| `--debug` | flag | Keep browser open after execution for debugging |
+
+### Configuration Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `--client` | name | Load config from `configs/{NAME}.json` |
+| `--config` | path | Path to custom config JSON file |
+| `--base-url` | url | Override base URL from config |
+| `--voice` | name | Override voice clone name from config |
+| `--template` | name | Override version template name from config |
+| `--max-scripts` | int | Override max scripts per version from config |
 
 ## Project Structure
 
@@ -83,8 +190,11 @@ anylive-tts-automation/
 ├── mahajak_tts.py          # Main automation script
 ├── requirements.txt        # Dependencies
 ├── .gitignore              # Ignore logs, screenshots, session, csv
+├── configs/                # Client configurations
+│   ├── template.json       # Template for new clients
+│   └── mahajak.json        # MAHAJAK client config
 ├── session_state.json      # Saved login session (generated by --setup)
-├── MAHAJAK_SCRIPT.csv      # Input data (place here)
+├── *.csv                   # Input CSV files
 ├── logs/                   # Created at runtime
 │   ├── mahajak_*.log
 │   └── report_*.json
@@ -99,36 +209,144 @@ anylive-tts-automation/
 ```
 12:34:56 | INFO | 🚀 MAHAJAK TTS AUTOMATION
 12:34:56 | INFO | ======================================================================
+12:34:57 | INFO | 📋 Loaded config: configs/mahajak.json
 12:34:57 | INFO | 📂 Loading CSV: MAHAJAK_SCRIPT.csv
-12:34:57 | INFO | Valid rows (with Product Name): 123
-12:34:57 | INFO | Total products found: 41
-12:34:57 | INFO | Created 14 versions (3 products each)
-12:35:00 | INFO | 🎯 MAHAJAK_01
-12:35:00 | INFO |    Product 1: JBL Endurance Zone (slots 1-3)
-12:35:00 | INFO |    Product 2: JBL Grip (slots 4-6)
-12:35:00 | INFO |    Product 3: JBL Partybox 520 (slots 7-9)
-12:35:01 | INFO | ✅ SUCCESS: MAHAJAK_01
+12:34:57 | INFO | Valid rows: 45
+12:34:57 | INFO | Total script rows: 45
+12:34:57 | INFO | Found 3 unique products
+12:34:57 | INFO | Created 4 versions total
+12:35:00 | INFO | ======================================================================
+12:35:00 | INFO | 01_JBL_Endurance_Zone - 8 scripts
+12:35:00 | INFO |    Products: JBL Endurance Zone
+12:35:00 | INFO | ======================================================================
+12:35:01 | INFO | ✅ SUCCESS: 01_JBL_Endurance_Zone
+12:35:02 | INFO | ======================================================================
+12:35:02 | INFO | 02_Samsung_Galaxy - 10 scripts
+12:35:02 | INFO |    Products: Samsung Galaxy
+12:35:02 | INFO | ======================================================================
+12:35:03 | INFO | ✅ SUCCESS: 02_Samsung_Galaxy
+12:35:04 | INFO | ======================================================================
+12:35:04 | INFO | 02_Samsung_Galaxy_v2 - 12 scripts
+12:35:04 | INFO |    Products: Samsung Galaxy
+12:35:04 | INFO | ======================================================================
+12:35:05 | INFO | ✅ SUCCESS: 02_Samsung_Galaxy_v2
 ```
 
 ### JSON Report (`logs/report_*.json`)
 
 ```json
 {
-  "timestamp": "2026-01-22T12:34:56.789Z",
-  "total": 14,
-  "successful": 13,
-  "failed": 1,
+  "timestamp": "2026-01-23T12:34:56.789Z",
+  "config": {
+    "grouping_strategy": "product_based",
+    "max_scripts_per_version": 10
+  },
+  "total": 4,
+  "successful": 4,
+  "failed": 0,
   "versions": [
     {
-      "version": "MAHAJAK_01",
-      "products": ["JBL Endurance Zone", "JBL Grip", "JBL Partybox 520"],
-      "scripts": 9,
+      "version": "01_JBL_Endurance_Zone",
+      "product_number": "01",
+      "products": ["JBL Endurance Zone"],
+      "scripts": 8,
+      "success": true,
+      "error": null
+    },
+    {
+      "version": "02_Samsung_Galaxy",
+      "product_number": "02",
+      "products": ["Samsung Galaxy"],
+      "scripts": 10,
+      "success": true,
+      "error": null
+    },
+    {
+      "version": "02_Samsung_Galaxy_v2",
+      "product_number": "02",
+      "products": ["Samsung Galaxy"],
+      "scripts": 12,
       "success": true,
       "error": null
     }
   ]
 }
 ```
+
+## Version Grouping Examples
+
+### Example 1: Single Product, <10 Scripts
+
+**CSV Input:**
+```
+No  | Product Name         | TH Script | Audio Code
+01  | JBL Endurance Zone   | Script 1  | Audio 1
+01  | JBL Endurance Zone   | Script 2  | Audio 2
+... (total 8 scripts)
+```
+
+**Result:**
+- 1 version created: `01_JBL_Endurance_Zone` (8 scripts)
+
+### Example 2: Single Product, >10 Scripts (Overflow)
+
+**CSV Input:**
+```
+No  | Product Name    | TH Script  | Audio Code
+02  | Samsung Galaxy  | Script 1   | Audio 1
+02  | Samsung Galaxy  | Script 2   | Audio 2
+... (total 23 scripts)
+```
+
+**Result:**
+- 3 versions created:
+  - `02_Samsung_Galaxy` (scripts 1-10)
+  - `02_Samsung_Galaxy_v2` (scripts 11-20)
+  - `02_Samsung_Galaxy_v3` (scripts 21-23)
+
+### Example 3: Multiple Products
+
+**CSV Input:**
+```
+No  | Product Name    | Scripts Count
+01  | JBL Speaker     | 8
+02  | Samsung TV      | 15
+03  | LG Monitor      | 3
+```
+
+**Result:**
+- 4 versions created:
+  - `01_JBL_Speaker` (8 scripts)
+  - `02_Samsung_TV` (10 scripts)
+  - `02_Samsung_TV_v2` (5 scripts)
+  - `03_LG_Monitor` (3 scripts)
+
+## Configuration Reference
+
+### Client Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `base_url` | string | required | AnyLive scripts page URL |
+| `version_template` | string | required | Template version to clone from |
+| `voice_name` | string | required | Voice clone name for TTS |
+| `max_scripts_per_version` | int | 10 | Maximum scripts per version (triggers split) |
+| `enable_voice_selection` | bool | false | Enable voice clone dropdown selection |
+| `enable_product_info` | bool | false | Enable product name/selling point fields |
+| `csv_columns` | object | required | CSV column mapping (see below) |
+
+### CSV Column Mapping
+
+```json
+{
+  "product_number": "No",
+  "product_name": "Product Name",
+  "script_content": "TH Script",
+  "audio_code": "Audio Code"
+}
+```
+
+Allows different clients to have different CSV structures.
 
 ## Troubleshooting
 
@@ -148,6 +366,18 @@ If you have multiple CSV files in the project folder:
 python mahajak_tts.py --csv MAHAJAK_SCRIPT.csv
 ```
 
+### Config File Not Found
+
+Make sure you're using the correct client name:
+
+```bash
+# Check available configs
+ls configs/
+
+# Use correct client name
+python mahajak_tts.py --client mahajak
+```
+
 ### Check Logs
 
 Detailed logs are saved to `logs/mahajak_TIMESTAMP.log`
@@ -156,13 +386,57 @@ Detailed logs are saved to `logs/mahajak_TIMESTAMP.log`
 
 When errors occur, screenshots are automatically saved to `screenshots/error_VERSION_TIMESTAMP.png`
 
+## Migration from Hardcoded Configuration
+
+If you have an older version with hardcoded constants, the new version is backward compatible:
+
+1. **Default behavior**: Runs with `configs/mahajak.json` which has the same values as old hardcoded constants
+2. **To customize**: Create a new config file or use CLI overrides
+3. **Old constants removed**:
+   - `BASE_URL` → `config.base_url`
+   - `VERSION_PREFIX` → Replaced by product number from CSV column A
+   - `VERSION_TEMPLATE` → `config.version_template`
+   - `VOICE_NAME` → `config.voice_name`
+   - `ENABLE_VOICE_SELECTION` → `config.enable_voice_selection`
+   - `ENABLE_PRODUCT_INFO` → `config.enable_product_info`
+   - `PRODUCTS_PER_VERSION` / `SCRIPTS_PER_PRODUCT` → Removed; replaced by product-based grouping with `max_scripts_per_version`
+
+## Future App Compilation
+
+The modular design supports future app compilation:
+
+- Single-file script maintained for easier PyInstaller packaging
+- `configs/` directory can be bundled as data files
+- External config loading supports both file paths and bundled resources
+- Session and logs remain external for persistence
+
+**Recommended structure for compiled app:**
+```
+AnyLiveTTS.app/
+├── Contents/
+│   ├── MacOS/
+│   │   └── mahajak_tts (executable)
+│   └── Resources/
+│       └── configs/
+│           ├── template.json
+│           └── mahajak.json
+├── configs/ (user-editable, symlinked or external)
+├── logs/
+└── screenshots/
+```
+
 ## Notes
 
-- The last version may have fewer than 3 products (e.g., MAHAJAK_14 has only 2 products)
+- Each product is grouped by product name (column B) regardless of how many rows it spans
+- Same product number (column A) across different products is allowed
+- Product names are sanitized for version naming (spaces → underscores, special chars removed)
 - Clicking "Generate Speech" triggers background AI processing - the script doesn't wait for completion
-- Product Name and Selling Point fields are filled with `-` as per spec
+- Voice selection and product info filling are disabled by default (can be enabled in config)
 - Session file (`session_state.json`) is excluded from git via `.gitignore`
+- Use `--dry-run` to test form filling without generating speech
+- Use `--no-save` to test without saving (useful for debugging)
+- Use `--debug` to inspect the browser state after execution
 
 ## Support
 
-For issues or questions, please contact the MAHAJAK team or check the logs for detailed error messages.
+For issues or questions, please check the logs for detailed error messages or review the configuration documentation above.
