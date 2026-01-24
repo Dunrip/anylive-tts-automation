@@ -138,7 +138,7 @@ def setup_logging(timestamp: str) -> logging.Logger:
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
     
-    logger = logging.getLogger("mahajak_tts")
+    logger = logging.getLogger("auto_tts")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
     
@@ -147,7 +147,7 @@ def setup_logging(timestamp: str) -> logging.Logger:
     console_handler.setFormatter(EmojiFormatter())
     logger.addHandler(console_handler)
     
-    file_handler = logging.FileHandler(logs_dir / f"mahajak_{timestamp}.log", encoding="utf-8")
+    file_handler = logging.FileHandler(logs_dir / f"auto_tts_{timestamp}.log", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     logger.addHandler(file_handler)
@@ -356,13 +356,13 @@ class TTSAutomation:
                 await self.close()
                 raise Exception(
                     "Session expired or invalid. Please run setup again:\n"
-                    "  python mahajak_tts.py --setup"
+                    "  python auto_tts.py --setup"
                 )
             
             self.logger.info("✅ Session is valid and authenticated")
         else:
             self.logger.error("❌ No session found. Please run setup first:")
-            self.logger.error("  python mahajak_tts.py --setup")
+            self.logger.error("  python auto_tts.py --setup")
             raise Exception("No session file found")
     
     async def close(self):
@@ -1006,7 +1006,7 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="MAHAJAK TTS Automation")
+    parser = argparse.ArgumentParser(description="AnyLive TTS Automation")
     parser.add_argument("--setup", action="store_true", help="One-time login setup")
     parser.add_argument("--csv", type=str, help="Path to CSV file (auto-detects if not specified)")
     parser.add_argument("--start-version", type=int, default=1, help="Starting version number")
@@ -1028,7 +1028,7 @@ async def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger = setup_logging(timestamp)
     
-    logger.info("🚀 MAHAJAK TTS AUTOMATION")
+    logger.info("🚀 ANYLIVE TTS AUTOMATION")
     logger.info("=" * 70)
     
     if args.setup:
@@ -1037,7 +1037,7 @@ async def main():
     
     if not is_session_valid():
         logger.error("❌ No session found. Please run with --setup first.")
-        logger.info("   python mahajak_tts.py --setup")
+        logger.info("   python auto_tts.py --setup")
         return
     
     config_path = None
@@ -1046,7 +1046,7 @@ async def main():
     elif args.config:
         config_path = args.config
     else:
-        config_path = "configs/mahajak.json"
+        config_path = "configs/default.json"
     
     cli_overrides = {}
     if args.base_url:

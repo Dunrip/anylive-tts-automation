@@ -25,48 +25,48 @@ playwright install chromium
 ### One-time Setup
 ```bash
 # Initial login setup (saves session)
-python mahajak_tts.py --setup
+python auto_tts.py --setup
 ```
 
 ### Normal Execution
 ```bash
-# Default run with mahajak config
-python mahajak_tts.py
+# Default run with default config
+python auto_tts.py
 
 # With specific client config
-python mahajak_tts.py --client mahajak
+python auto_tts.py --client mycompany
 
 # With custom config file
-python mahajak_tts.py --config /path/to/config.json
+python auto_tts.py --config /path/to/config.json
 
 # Specify CSV file explicitly
-python mahajak_tts.py --csv /path/to/file.csv
+python auto_tts.py --csv /path/to/file.csv
 ```
 
 ### Testing & Debugging
 ```bash
 # Dry run (fill forms without generating speech)
-python mahajak_tts.py --dry-run
+python auto_tts.py --dry-run
 
 # No-save mode (generate but don't save)
-python mahajak_tts.py --no-save
+python auto_tts.py --no-save
 
 # Debug mode (keep browser open)
-python mahajak_tts.py --debug
+python auto_tts.py --debug
 
 # Headless mode
-python mahajak_tts.py --headless
+python auto_tts.py --headless
 
 # Process subset of versions
-python mahajak_tts.py --start-version 5 --limit 3
+python auto_tts.py --start-version 5 --limit 3
 ```
 
 ### CLI Overrides
 ```bash
 # Override config values via CLI
-python mahajak_tts.py --voice "Custom Voice" --max-scripts 5
-python mahajak_tts.py --base-url "https://app.anylive.jp/scripts/XXX"
-python mahajak_tts.py --template "Template_Name"
+python auto_tts.py --voice "Custom Voice" --max-scripts 5
+python auto_tts.py --base-url "https://app.anylive.jp/scripts/XXX"
+python auto_tts.py --template "Template_Name"
 ```
 
 ## Architecture
@@ -78,7 +78,7 @@ Single-file Python automation script that uses Playwright to automate TTS script
 
 #### 1. **Configuration System** (`ClientConfig`)
 - External JSON-based multi-client configuration
-- Default config: `configs/mahajak.json`
+- Default config: `configs/default.json`
 - Template: `configs/template.json`
 - CLI override support for all config values
 
@@ -141,7 +141,7 @@ Generate JSON report
 - **AnyLive platform**: Target web application (requires authentication)
 
 ### Key Files
-- `mahajak_tts.py`: Main script (single-file design for future app compilation)
+- `auto_tts.py`: Main script (single-file design for future app compilation)
 - `configs/*.json`: Client configurations
 - `session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
@@ -245,8 +245,8 @@ graph TD
 - `version_template`: Required, must exist in target account
 - `voice_name`: Required for voice selection (if enabled)
 - `max_scripts_per_version`: Default 10, triggers version split
-- `enable_voice_selection`: Default false (voice selection disabled for MAHAJAK)
-- `enable_product_info`: Default false (product name/selling point disabled for MAHAJAK)
+- `enable_voice_selection`: Default false (voice selection disabled by default)
+- `enable_product_info`: Default false (product name/selling point disabled by default)
 
 ### Security Considerations [inferred]
 - Session file contains authentication cookies → gitignored
@@ -264,7 +264,7 @@ graph TD
    - `voice_name`: Voice clone name
    - `max_scripts_per_version`: Script limit per version
    - `csv_columns`: Map CSV column names to expected fields
-3. Run: `python mahajak_tts.py --client new_client`
+3. Run: `python auto_tts.py --client new_client`
 
 ### Adding New Selectors
 If AnyLive UI changes and selectors break:
@@ -286,7 +286,7 @@ Current logic: Product-based grouping
 
 ### Debugging Form Filling Issues
 1. Use `--debug` flag to keep browser open after execution
-2. Check `logs/mahajak_*.log` for detailed DEBUG-level logs
+2. Check `logs/auto_tts_*.log` for detailed DEBUG-level logs
 3. Screenshots saved automatically on errors
 4. Use `--dry-run` to test form filling without generating speech
 5. Use `--no-save` to test without saving (inspect filled forms manually)
