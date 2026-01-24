@@ -49,6 +49,21 @@ Place your CSV file in the project root directory. The script will auto-detect i
   - Next 10 scripts: `01_Product_Name_v2`
   - Next 10 scripts: `01_Product_Name_v3`, etc.
 
+### ⚠️ Breaking Change from Previous Versions
+
+**Version Naming Change**:
+- **Old logic (v1.x)**: Fixed 3 products per version, 3 scripts per product
+  - Example: `MAHAJAK_01` contains Products 1-3 (9 scripts total)
+- **New logic (v2.x)**: 1 product per version, variable scripts (default max: 10)
+  - Example: `01_JBL_Speaker` contains Product 1 only (8 scripts)
+
+**Impact**: Version names will differ from historical data. This change enables:
+- Flexible script counts per product (not fixed to 3)
+- Auto-splitting for products with >10 scripts
+- Clearer product-to-version mapping
+
+**Migration**: No code changes needed. New versions will use new naming. Existing versions in AnyLive remain unchanged.
+
 ## Multi-Client Setup
 
 ### Quick Start (Using Default Config)
@@ -384,6 +399,7 @@ If you have an older version with hardcoded constants, the new version is backwa
    - `VOICE_NAME` → `config.voice_name`
    - `ENABLE_VOICE_SELECTION` → `config.enable_voice_selection`
    - `ENABLE_PRODUCT_INFO` → `config.enable_product_info`
+   - `PRODUCTS_PER_VERSION` / `SCRIPTS_PER_PRODUCT` → Removed; replaced by product-based grouping with `max_scripts_per_version`
 
 ## Future App Compilation
 

@@ -182,12 +182,21 @@ def load_csv(path: str, logger: logging.Logger) -> pd.DataFrame:
 
 
 def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logger) -> List[Version]:
-    df.columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"][:len(df.columns)]
-    
     col_product_no = config.csv_columns.get("product_number", "No")
     col_product_name = config.csv_columns.get("product_name", "Product Name")
     col_script = config.csv_columns.get("script_content", "TH Script")
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
+    
+    default_columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"]
+    
+    if len(df.columns) <= len(default_columns):
+        header_detected = any(
+            str(val).strip().lower() in [col_product_name.lower(), "product name", "th version", "th script"] 
+            for val in df.iloc[0] if pd.notna(val)
+        )
+        
+        if not header_detected:
+            df.columns = default_columns[:len(df.columns)]
     
     df = df[df[col_product_name] != col_product_name]
     df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
@@ -473,19 +482,14 @@ class TTSAutomation:
             title_value = await title_input.input_value()
             content_value = await content_textarea.input_value()
             
-            empty_fields = []
+            title_filled = title_value and title_value.strip()
+            content_filled = content_value and content_value.strip()
             
-            if not title_value or not title_value.strip():
-                empty_fields.append(f"Section Title (expected: '{expected_title}')")
-            
-            if not content_value or not content_value.strip():
-                empty_fields.append(f"Section Content (expected: '{expected_content[:50]}...')")
-            
-            if empty_fields:
-                error_msg = f"Slot {slot_num}: Empty fields - {', '.join(empty_fields)}"
+            if not title_filled and not content_filled:
+                error_msg = f"Slot {slot_num}: Both Section Title and Section Content are empty (at least one required)"
                 return False, error_msg
             
-            self.logger.debug(f"Slot {slot_num} validation passed")
+            self.logger.debug(f"Slot {slot_num} validation passed (title: {'✓' if title_filled else '✗'}, content: {'✓' if content_filled else '✗'})")
             return True, ""
             
         except Exception as e:
@@ -537,6 +541,9 @@ class TTSAutomation:
         
         template_selector = 'input[aria-label="Section Title"]'
         script_selector = 'textarea[aria-label="Section Content"]'
+        
+        template_count = 0
+        script_count = 0
         
         start_time = asyncio.get_event_loop().time()
         
@@ -924,7 +931,12 @@ class TTSAutomation:
             
         except Exception as e:
             self.logger.error(f"Failed: {e}")
-            await self.take_screenshot(version.name)
+            
+            try:
+                await self.take_screenshot(version.name)
+            except Exception as screenshot_error:
+                self.logger.warning(f"Failed to take screenshot: {screenshot_error}")
+            
             version.error = str(e)
             self.logger.error(f"❌ FAILED: {version.name} - {e}")
             return False
