@@ -1212,13 +1212,15 @@ async def run_job(
             if debug:
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info("🐛 DEBUG MODE: Browser is still open for inspection")
+                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
+                logger.info("   (Automation will not auto-close the browser in debug mode)")
                 if debug_callback:
                     debug_callback()
                 else:
-                    logger.info("   Close browser manually to continue...")
+                    logger.info("   Close the browser manually when you're done.")
                 logger.info("=" * 70)
-            await automation.close()
+            else:
+                await automation.close()
         
         # Generate report
         report = generate_report(versions, config, timestamp, logger, logs_dir=logs_dir)
