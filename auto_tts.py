@@ -281,15 +281,18 @@ async def setup_login(logger: logging.Logger):
     logger.info("🔐 Starting login setup...")
     
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        # Always use persistent context for consistent session management
+        logger.info("🌐 Initializing browser with persistent context...")
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir="./browser_data",
+            headless=False
+        )
+        page = await context.new_page()
         
-        # Check if existing session exists and try to reuse it
+        # Check if existing session exists and try to validate it
         if is_session_valid():
             logger.info(f"📦 Found existing session file: {SESSION_FILE}")
             logger.info("🔍 Verifying session validity...")
-            
-            context = await browser.new_context(storage_state=SESSION_FILE)
-            page = await context.new_page()
             
             try:
                 await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
@@ -299,7 +302,7 @@ async def setup_login(logger: logging.Logger):
                 if "login" not in current_url.lower():
                     logger.info("✅ Existing session is still valid!")
                     logger.info("🎉 Setup complete! You can now run without --setup")
-                    await browser.close()
+                    await context.close()
                     return
                 else:
                     logger.warning("⚠️ Session expired. Need to login again.")
@@ -310,18 +313,28 @@ async def setup_login(logger: logging.Logger):
         
         # If we reach here, need manual login
         logger.info("🌐 Opening browser for manual login...")
-        context = await browser.new_context()
-        page = await context.new_page()
         
         await page.goto("https://app.anylive.jp", wait_until="networkidle")
         logger.info("🌐 Navigated to AnyLive. Please log in manually.")
         
         input("Press Enter when you have completed login...")
         
-        await context.storage_state(path=SESSION_FILE)
-        logger.info(f"✅ Session saved to {SESSION_FILE}")
+        # Verify login by checking current URL
+        current_url = page.url
+        logger.info(f"Current URL: {current_url}")
         
-        await browser.close()
+        if "login" in current_url.lower():
+            logger.warning("⚠️ Still on login page. Please make sure you're logged in.")
+        else:
+            logger.info("✅ Login detected!")
+        
+        # Save session marker (persistent context auto-saves to browser_data)
+        with open(SESSION_FILE, 'w') as f:
+            json.dump({'setup_complete': True, 'timestamp': datetime.now().isoformat()}, f)
+        logger.info(f"✅ Session saved to browser_data directory")
+        logger.info(f"✅ Setup marker saved to {SESSION_FILE}")
+        
+        await context.close()
     
     logger.info("🎉 Setup complete! You can now run without --setup")
 
@@ -344,13 +357,18 @@ class TTSAutomation:
     
     async def start_browser(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=self.headless)
+        
+        # Always use persistent context for consistent session management
+        self.logger.info("🌐 Initializing browser with persistent context...")
+        self.context = await self.playwright.chromium.launch_persistent_context(
+            user_data_dir="./browser_data",
+            headless=self.headless
+        )
+        self.page = await self.context.new_page()
+        self.page.set_default_timeout(DEFAULT_TIMEOUT)
         
         if is_session_valid():
-            self.context = await self.browser.new_context(storage_state=SESSION_FILE)
-            self.logger.info(f"📦 Loaded session from {SESSION_FILE}")
-            self.page = await self.context.new_page()
-            self.page.set_default_timeout(DEFAULT_TIMEOUT)
+            self.logger.info(f"📦 Using saved session from browser_data directory")
             
             if not await self.validate_session():
                 await self.close()
