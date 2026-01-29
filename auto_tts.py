@@ -14,6 +14,14 @@ from typing import List, Optional, Callable
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+# In packaged apps Playwright may default to looking for browsers inside the
+# application bundle. Force use of the standard macOS cache directory where
+# `python -m playwright install chromium` downloads browsers.
+os.environ.setdefault(
+    "PLAYWRIGHT_BROWSERS_PATH",
+    os.path.join(str(Path.home()), "Library", "Caches", "ms-playwright"),
+)
+
 DEFAULT_TIMEOUT = 30000
 CLICK_TIMEOUT = 15000
 NAVIGATION_TIMEOUT = 60000
@@ -31,6 +39,21 @@ def get_session_file_path() -> str:
     if _app_support_dir:
         return os.path.join(_app_support_dir, "session_state.json")
     return SESSION_FILE
+
+
+def get_browser_data_dir() -> str:
+    """Return the directory used for Playwright persistent context.
+
+    IMPORTANT: In a packaged macOS .app, the current working directory can be
+    unexpected (often '/'), so using a relative path like './browser_data' can
+    break silently (no profile/session persisted; permission errors).
+
+    When running in menubar GUI mode we set _app_support_dir, so we store browser
+    data under ~/Library/Application Support/AnyLiveTTS/browser_data.
+    """
+    if _app_support_dir:
+        return os.path.join(_app_support_dir, "browser_data")
+    return "./browser_data"
 
 SELECTORS = {
     "add_version_btn": [
@@ -313,15 +336,25 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 async def setup_login(logger: logging.Logger, gui_mode: bool = False):
     logger.info("🔐 Starting login setup...")
     session_file = get_session_file_path()
-    
+
     async with async_playwright() as p:
         # Always use persistent context for consistent session management
         logger.info("🌐 Initializing browser with persistent context...")
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir="./browser_data",
-            headless=False,
-            args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
-        )
+        logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
+        user_data_dir = get_browser_data_dir()
+        logger.info(f"📁 Browser profile dir: {user_data_dir}")
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=False,
+                args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
+            )
+        except Exception as e:
+            logger.exception("❌ Failed to launch Chromium persistent context")
+            raise
+
         page = await context.new_page()
         
         # In GUI mode, always open browser for manual login
@@ -429,13 +462,19 @@ class TTSAutomation:
         self.playwright = None
     
     async def start_browser(self):
+        self.logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
         self.playwright = await async_playwright().start()
         
         # Always use persistent context for consistent session management
         self.logger.info("🌐 Initializing browser with persistent context...")
+        user_data_dir = get_browser_data_dir()
+        os.makedirs(user_data_dir, exist_ok=True)
         self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir="./browser_data",
-            headless=self.headless
+            user_data_dir=user_data_dir,
+            headless=self.headless,
+            # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
+            # These flags are known to improve stability for this app.
+            args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
         )
         self.page = await self.context.new_page()
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
