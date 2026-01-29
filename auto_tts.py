@@ -9,10 +9,18 @@ import sys
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
+
+# In packaged apps Playwright may default to looking for browsers inside the
+# application bundle. Force use of the standard macOS cache directory where
+# `python -m playwright install chromium` downloads browsers.
+os.environ.setdefault(
+    "PLAYWRIGHT_BROWSERS_PATH",
+    os.path.join(str(Path.home()), "Library", "Caches", "ms-playwright"),
+)
 
 DEFAULT_TIMEOUT = 30000
 CLICK_TIMEOUT = 15000
@@ -20,6 +28,32 @@ NAVIGATION_TIMEOUT = 60000
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 SESSION_FILE = "session_state.json"
+
+_app_support_dir = None
+
+def set_app_support_dir(path: Optional[str]):
+    global _app_support_dir
+    _app_support_dir = path
+
+def get_session_file_path() -> str:
+    if _app_support_dir:
+        return os.path.join(_app_support_dir, "session_state.json")
+    return SESSION_FILE
+
+
+def get_browser_data_dir() -> str:
+    """Return the directory used for Playwright persistent context.
+
+    IMPORTANT: In a packaged macOS .app, the current working directory can be
+    unexpected (often '/'), so using a relative path like './browser_data' can
+    break silently (no profile/session persisted; permission errors).
+
+    When running in menubar GUI mode we set _app_support_dir, so we store browser
+    data under ~/Library/Application Support/AnyLiveTTS/browser_data.
+    """
+    if _app_support_dir:
+        return os.path.join(_app_support_dir, "browser_data")
+    return "./browser_data"
 
 SELECTORS = {
     "add_version_btn": [
@@ -134,8 +168,25 @@ class EmojiFormatter(logging.Formatter):
         return f"{self.formatTime(record, '%H:%M:%S')} | {record.levelname} | {record.getMessage()}"
 
 
-def setup_logging(timestamp: str) -> logging.Logger:
-    logs_dir = Path("logs")
+class CallbackLogHandler(logging.Handler):
+    def __init__(self, callback: Callable[[str], None]):
+        super().__init__()
+        self.callback = callback
+        self.setFormatter(EmojiFormatter())
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.callback(msg)
+        except Exception:
+            self.handleError(record)
+
+
+def setup_logging(timestamp: str, logs_dir: Optional[str] = None, log_callback: Optional[Callable[[str], None]] = None) -> logging.Logger:
+    if logs_dir is None:
+        logs_dir = Path("logs")
+    else:
+        logs_dir = Path(logs_dir)
     logs_dir.mkdir(exist_ok=True)
     
     logger = logging.getLogger("auto_tts")
@@ -151,6 +202,11 @@ def setup_logging(timestamp: str) -> logging.Logger:
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     logger.addHandler(file_handler)
+    
+    if log_callback:
+        callback_handler = CallbackLogHandler(log_callback)
+        callback_handler.setLevel(logging.INFO)
+        logger.addHandler(callback_handler)
     
     return logger
 
@@ -277,80 +333,155 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     return versions
 
 
-async def setup_login(logger: logging.Logger):
+async def setup_login(logger: logging.Logger, gui_mode: bool = False):
     logger.info("🔐 Starting login setup...")
-    
+    session_file = get_session_file_path()
+
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        # Always use persistent context for consistent session management
+        logger.info("🌐 Initializing browser with persistent context...")
+        logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
+        user_data_dir = get_browser_data_dir()
+        logger.info(f"📁 Browser profile dir: {user_data_dir}")
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        try:
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=False,
+                args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
+            )
+        except Exception as e:
+            logger.exception("❌ Failed to launch Chromium persistent context")
+            raise
+
+        page = await context.new_page()
         
-        # Check if existing session exists and try to reuse it
-        if is_session_valid():
-            logger.info(f"📦 Found existing session file: {SESSION_FILE}")
-            logger.info("🔍 Verifying session validity...")
-            
-            context = await browser.new_context(storage_state=SESSION_FILE)
-            page = await context.new_page()
-            
-            try:
-                await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
+        # In GUI mode, always open browser for manual login
+        if not gui_mode:
+            # Check if existing session exists and try to validate it
+            if is_session_valid():
+                logger.info(f"📦 Found existing session file: {session_file}")
+                logger.info("🔍 Verifying session validity...")
                 
-                # Check if we're still logged in (not redirected to login page)
-                current_url = page.url
-                if "login" not in current_url.lower():
-                    logger.info("✅ Existing session is still valid!")
-                    logger.info("🎉 Setup complete! You can now run without --setup")
-                    await browser.close()
-                    return
-                else:
-                    logger.warning("⚠️ Session expired. Need to login again.")
-            except Exception as e:
-                logger.warning(f"⚠️ Session validation failed: {e}")
+                try:
+                    await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
+                    
+                    # Check if we're still logged in (not redirected to login page)
+                    current_url = page.url
+                    if "login" not in current_url.lower():
+                        logger.info("✅ Existing session is still valid!")
+                        logger.info("🎉 Setup complete! You can now run without --setup")
+                        await context.close()
+                        return
+                    else:
+                        logger.warning("⚠️ Session expired. Need to login again.")
+                except Exception as e:
+                    logger.warning(f"⚠️ Session validation failed: {e}")
+            else:
+                logger.info("📭 No existing session found.")
         else:
-            logger.info("📭 No existing session found.")
+            logger.info("🌐 GUI mode: Always opening browser for manual login")
         
         # If we reach here, need manual login
         logger.info("🌐 Opening browser for manual login...")
-        context = await browser.new_context()
-        page = await context.new_page()
         
         await page.goto("https://app.anylive.jp", wait_until="networkidle")
         logger.info("🌐 Navigated to AnyLive. Please log in manually.")
         
-        input("Press Enter when you have completed login...")
+        if not gui_mode:
+            input("Press Enter when you have completed login...")
+        else:
+            # In GUI mode, wait for user to complete login with better feedback
+            logger.info("🌐 GUI mode: Please complete login in the browser window...")
+            logger.info("🌐 The browser window should open in a new window...")
+            
+            # Bring browser to front
+            try:
+                await page.bring_to_front()
+            except:
+                pass
+            
+            # Wait and check periodically if login is complete
+            for i in range(60):  # Wait up to 60 seconds
+                await asyncio.sleep(1)
+                try:
+                    current_url = page.url
+                    if "login" not in current_url.lower():
+                        logger.info("✅ Login detected automatically!")
+                        break
+                except:
+                    pass
+                
+                if i % 10 == 0:  # Every 10 seconds
+                    logger.info(f"🌐 Waiting for login... ({60-i}s remaining)")
+            
+            # Final check
+            current_url = page.url
+            if "login" in current_url.lower():
+                logger.warning("⚠️ Login timeout. You may need to try again.")
         
-        await context.storage_state(path=SESSION_FILE)
-        logger.info(f"✅ Session saved to {SESSION_FILE}")
+        # Verify login by checking current URL
+        current_url = page.url
+        logger.info(f"Current URL: {current_url}")
         
-        await browser.close()
+        if "login" in current_url.lower():
+            logger.warning("⚠️ Still on login page. Please make sure you're logged in.")
+        else:
+            logger.info("✅ Login detected!")
+        
+        # Save session marker (persistent context auto-saves to browser_data)
+        if "login" in current_url.lower():
+            logger.warning("⚠️ Not saving session marker because login was not completed")
+        else:
+            with open(session_file, 'w') as f:
+                json.dump({'setup_complete': True, 'timestamp': datetime.now().isoformat()}, f)
+            logger.info("✅ Session saved to browser_data directory")
+            logger.info(f"✅ Setup marker saved to {session_file}")
+
+        await context.close()
     
     logger.info("🎉 Setup complete! You can now run without --setup")
 
 
 def is_session_valid() -> bool:
-    return os.path.exists(SESSION_FILE)
+    session_file = get_session_file_path()
+    return os.path.exists(session_file)
 
 
 class TTSAutomation:
-    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, no_save: bool = False):
+    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, no_save: bool = False, screenshots_dir: Optional[str] = None):
         self.config = config
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
         self.no_save = no_save
-        self.browser = None
+        self.screenshots_dir = screenshots_dir if screenshots_dir else "screenshots"
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.playwright = None
     
     async def start_browser(self):
+        self.logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=self.headless)
         
+        # Always use persistent context for consistent session management
+        self.logger.info("🌐 Initializing browser with persistent context...")
+        user_data_dir = get_browser_data_dir()
+        os.makedirs(user_data_dir, exist_ok=True)
+        self.context = await self.playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=self.headless,
+            # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
+            # These flags are known to improve stability for this app.
+            args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
+        )
+        self.page = await self.context.new_page()
+        self.page.set_default_timeout(DEFAULT_TIMEOUT)
+        
+        session_file = get_session_file_path()
         if is_session_valid():
-            self.context = await self.browser.new_context(storage_state=SESSION_FILE)
-            self.logger.info(f"📦 Loaded session from {SESSION_FILE}")
-            self.page = await self.context.new_page()
-            self.page.set_default_timeout(DEFAULT_TIMEOUT)
+            self.logger.info(f"📦 Using saved session from browser_data directory")
             
             if not await self.validate_session():
                 await self.close()
@@ -366,8 +497,8 @@ class TTSAutomation:
             raise Exception("No session file found")
     
     async def close(self):
-        if self.browser:
-            await self.browser.close()
+        if self.context:
+            await self.context.close()
         if self.playwright:
             await self.playwright.stop()
     
@@ -416,7 +547,7 @@ class TTSAutomation:
         return False
     
     async def take_screenshot(self, version_name: str):
-        screenshots_dir = Path("screenshots")
+        screenshots_dir = Path(self.screenshots_dir)
         screenshots_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = screenshots_dir / f"error_{version_name}_{timestamp}.png"
@@ -951,7 +1082,7 @@ def print_version_info(version: Version, logger: logging.Logger):
     logger.info("=" * 70)
 
 
-def generate_report(versions: List[Version], config: ClientConfig, timestamp: str, logger: logging.Logger) -> Report:
+def generate_report(versions: List[Version], config: ClientConfig, timestamp: str, logger: logging.Logger, logs_dir: Optional[str] = None) -> Report:
     successful = sum(1 for v in versions if v.success)
     failed = len(versions) - successful
     
@@ -994,7 +1125,10 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
             logger.info(f"      Error: {v.error}")
         logger.info("")
     
-    logs_dir = Path("logs")
+    if logs_dir is None:
+        logs_dir = Path("logs")
+    else:
+        logs_dir = Path(logs_dir)
     logs_dir.mkdir(exist_ok=True)
     report_path = logs_dir / f"report_{timestamp}.json"
     
@@ -1003,6 +1137,139 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
     
     logger.info(f"📄 Report saved: {report_path}")
     return report
+
+
+async def run_job(
+    config_path: str,
+    csv_path: str,
+    *,
+    headless: bool = False,
+    dry_run: bool = False,
+    no_save: bool = False,
+    debug: bool = False,
+    start_version: int = 1,
+    limit: Optional[int] = None,
+    app_support_dir: Optional[str] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
+    debug_callback: Optional[Callable[[], None]] = None
+) -> dict:
+    """
+    Main automation job function for GUI and programmatic execution.
+    
+    Args:
+        config_path: Path to client config JSON file
+        csv_path: Path to CSV file with scripts
+        headless: Run browser in headless mode
+        dry_run: Skip Generate Speech button clicks
+        no_save: Skip Save button click
+        debug: Keep browser open after execution
+        start_version: Starting version number (1-indexed)
+        limit: Limit number of versions to process
+        app_support_dir: Directory for logs, screenshots, session (default: current dir)
+        log_callback: Optional callback for streaming logs to GUI
+        debug_callback: Optional callback for debug mode (instead of blocking input)
+    
+    Returns:
+        dict with keys: success (bool), report (Report), error (Optional[str])
+    """
+    # Set up app support directory if provided
+    if app_support_dir:
+        set_app_support_dir(app_support_dir)
+        logs_dir = os.path.join(app_support_dir, "logs")
+        screenshots_dir = os.path.join(app_support_dir, "screenshots")
+    else:
+        logs_dir = None
+        screenshots_dir = None
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger = setup_logging(timestamp, logs_dir=logs_dir, log_callback=log_callback)
+    
+    logger.info("🚀 ANYLIVE TTS AUTOMATION")
+    logger.info("=" * 70)
+    
+    try:
+        # Load configuration
+        if not os.path.exists(config_path):
+            error_msg = f"Config file not found: {config_path}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+        
+        config = load_config(config_path)
+        logger.info(f"📋 Loaded config: {config_path}")
+        
+        # Load and parse CSV
+        if not os.path.exists(csv_path):
+            error_msg = f"CSV file not found: {csv_path}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+        
+        df = load_csv(csv_path, logger)
+        versions = parse_csv_data(df, config, logger)
+        
+        if not versions:
+            error_msg = "No versions to process"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+        
+        # Apply start_version and limit
+        start_idx = start_version - 1
+        if start_idx > 0:
+            versions = versions[start_idx:]
+            logger.info(f"Starting from version {start_version}")
+        
+        if limit:
+            versions = versions[:limit]
+            logger.info(f"Limited to {limit} versions")
+        
+        if dry_run:
+            logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
+        
+        if no_save:
+            logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
+        
+        if debug:
+            logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
+        
+        # Run automation
+        automation = TTSAutomation(
+            config=config,
+            headless=headless,
+            logger=logger,
+            dry_run=dry_run,
+            no_save=no_save,
+            screenshots_dir=screenshots_dir
+        )
+        
+        try:
+            await automation.start_browser()
+            
+            for version in versions:
+                print_version_info(version, logger)
+                await automation.process_version(version)
+            
+        finally:
+            if debug:
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
+                logger.info("   (Automation will not auto-close the browser in debug mode)")
+                if debug_callback:
+                    debug_callback()
+                else:
+                    logger.info("   Close the browser manually when you're done.")
+                logger.info("=" * 70)
+            else:
+                await automation.close()
+        
+        # Generate report
+        report = generate_report(versions, config, timestamp, logger, logs_dir=logs_dir)
+        
+        return {"success": True, "report": report, "error": None}
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Job failed: {error_msg}")
+        return {"success": False, "report": None, "error": error_msg}
 
 
 async def main():
