@@ -764,15 +764,93 @@ def remove_lock_file():
         lock_file.unlink()
 
 
-if __name__ == "__main__":
+def _self_test() -> int:
+    """Run a non-GUI self-test that prints readiness + missing prerequisites.
+
+    Returns process exit code (0 = ready, 1 = not ready).
+    """
     setup_app_support()
-    
+
+    # Load persisted state without constructing the rumps UI.
+    selected_config = None
+    csv_path = None
+    options = {
+        'headless': False,
+        'dry_run': False,
+        'no_save': False,
+        'debug': False,
+        'start_version': None,
+        'limit': None,
+    }
+    try:
+        if STATE_FILE_PATH.exists():
+            with open(STATE_FILE_PATH, 'r') as f:
+                state = json.load(f)
+            selected_config = state.get('selected_config')
+            csv_path = state.get('csv_path')
+            options.update(state.get('options', {}))
+    except Exception as e:
+        print(f"WARN: failed to load state: {e}")
+
+    chromium_installed = check_chromium_installed()
+    session_valid = is_session_valid()
+
+    missing = []
+    if not selected_config:
+        missing.append("Config not selected")
+    if not csv_path:
+        missing.append("CSV not selected")
+    if not chromium_installed:
+        missing.append("Chromium not installed")
+    if not session_valid:
+        missing.append("Session not valid (run Setup Login)")
+
+    details = [
+        f"Chromium installed: {chromium_installed}",
+        f"Session valid: {session_valid}",
+        f"Selected config: {selected_config or 'None'}",
+        f"CSV: {Path(csv_path).name if csv_path else 'None'}",
+        f"Browser visible: {not options.get('headless', False)}",
+        f"Dry run: {options.get('dry_run', False)}",
+        f"No save: {options.get('no_save', False)}",
+        f"Debug: {options.get('debug', False)}",
+        f"AppSupport: {APP_SUPPORT_DIR}",
+        f"ConfigsDir: {CONFIGS_DIR}",
+    ]
+
+    if missing:
+        print("NOT READY\n")
+        print("Missing:")
+        for m in missing:
+            print(f"- {m}")
+        print("\nDetails:")
+        print("\n".join(details))
+        return 1
+
+    print("READY\n")
+    print("Details:")
+    print("\n".join(details))
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="AnyLiveTTS Menu Bar App")
+    parser.add_argument("--self-test", action="store_true", help="Run non-GUI readiness checks and exit")
+    args = parser.parse_args()
+
+    if args.self_test:
+        raise SystemExit(_self_test())
+
+    setup_app_support()
+
     if is_already_running():
         rumps.alert("Already Running", "AnyLive TTS is already running. Check your menu bar.", ok="OK")
         sys.exit(0)
-    
+
     create_lock_file()
-    
+
     try:
         app = AnyLiveTTSApp()
         app.run()
