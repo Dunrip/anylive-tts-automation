@@ -58,18 +58,22 @@ def setup_app_support():
 
 
 def check_chromium_installed() -> bool:
-    """Check if Playwright Chromium is installed via health check."""
+    """Check if Playwright Chromium is installed.
+
+    IMPORTANT: Don't launch Chromium as a health check.
+    In some macOS contexts (screen sharing, background sessions, CI-like shells),
+    Chromium can crash at launch with SIGTRAP/NotificationCenter errors even though
+    it is correctly installed. For the menubar app we only need to know whether the
+    browser artifacts are present.
+    """
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", 
-             "from playwright.sync_api import sync_playwright; "
-             "p = sync_playwright().start(); "
-             "p.chromium.launch(); "
-             "p.stop()"],
-            capture_output=True,
-            timeout=10
-        )
-        return result.returncode == 0
+        cache_dir = Path.home() / "Library" / "Caches" / "ms-playwright"
+        if not cache_dir.exists():
+            return False
+
+        # Any installed chromium build directory counts.
+        candidates = list(cache_dir.glob("chromium-*")) + list(cache_dir.glob("chromium_headless_shell-*"))
+        return any(p.exists() for p in candidates)
     except Exception:
         return False
 
