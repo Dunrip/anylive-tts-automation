@@ -471,7 +471,10 @@ class TTSAutomation:
         os.makedirs(user_data_dir, exist_ok=True)
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            headless=self.headless
+            headless=self.headless,
+            # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
+            # These flags are known to improve stability for this app.
+            args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
         )
         self.page = await self.context.new_page()
         self.page.set_default_timeout(DEFAULT_TIMEOUT)

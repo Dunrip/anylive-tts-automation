@@ -440,6 +440,8 @@ class AnyLiveTTSApp(rumps.App):
             default_path = CONFIGS_DIR / "default.json"
             if default_path.exists():
                 self.selected_config = "default"
+                # Persist so state JSON isn't stuck with null.
+                self.save_state()
     
     def select_config(self, sender):
         """Select a config from the menu."""
@@ -707,6 +709,7 @@ class AnyLiveTTSApp(rumps.App):
     
     def run_automation_action(self, sender):
         """Run the automation."""
+        logging.getLogger("menubar").info("Run Automation button clicked")
         # Always explain why we can't run, instead of silently disabling the menu item.
         if self.running:
             rumps.alert("Already Running", "Automation is already running. Use 'Stop Automation' first.")
@@ -726,7 +729,9 @@ class AnyLiveTTSApp(rumps.App):
                 ))
 
                 # Run job
+                logger = logging.getLogger("menubar")
                 config_path = str(CONFIGS_DIR / f"{self.selected_config}.json")
+                logger.info(f"Starting run_job with config_path={config_path} csv_path={self.csv_path} headless={self.options['headless']}")
                 asyncio.run(run_job(
                     config_path=config_path,
                     csv_path=self.csv_path,
