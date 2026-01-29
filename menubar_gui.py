@@ -399,6 +399,13 @@ class AnyLiveTTSApp(rumps.App):
                 self.options.update(state.get('options', {}))
         except Exception as e:
             print(f"Failed to load state: {e}")
+
+        # Default config: if nothing selected yet, use configs/default.json.
+        # (The app copies bundled configs into App Support on first run.)
+        if not self.selected_config:
+            default_path = CONFIGS_DIR / "default.json"
+            if default_path.exists():
+                self.selected_config = "default"
     
     def select_config(self, sender):
         """Select a config from the menu."""
@@ -795,6 +802,10 @@ def _self_test() -> int:
             options.update(state.get('options', {}))
     except Exception as e:
         print(f"WARN: failed to load state: {e}")
+
+    # Default config if nothing selected.
+    if not selected_config and (CONFIGS_DIR / "default.json").exists():
+        selected_config = "default"
 
     chromium_installed = check_chromium_installed()
     session_valid = is_session_valid()
