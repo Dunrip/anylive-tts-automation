@@ -280,12 +280,14 @@ class AnyLiveTTSApp(rumps.App):
         self.menu_setup_login = rumps.MenuItem("Setup Login", callback=self.setup_login_action)
         self.menu_run_automation = rumps.MenuItem("▶️ Run Automation", callback=self.run_automation_action)
         self.menu_stop_automation = rumps.MenuItem("⏹ Stop Automation", callback=self.stop_automation_action)
-        
+        self.menu_diagnostics = rumps.MenuItem("🩺 Diagnostics", callback=self.diagnostics_action)
+
         self.menu.add(self.menu_install_chromium)
         self.menu.add(self.menu_test)
         self.menu.add(self.menu_setup_login)
         self.menu.add(self.menu_run_automation)
         self.menu.add(self.menu_stop_automation)
+        self.menu.add(self.menu_diagnostics)
         
         self.menu.add(rumps.separator)
         
@@ -352,13 +354,22 @@ class AnyLiveTTSApp(rumps.App):
         self.menu_no_save.state = self.options['no_save']
         self.menu_debug.state = self.options['debug']
         
-        # Update action buttons
-        self.menu_install_chromium.set_callback(None if self.chromium_installed else self.install_chromium_action)
-        
-        can_run = (self.selected_config and self.csv_path and 
-                   self.chromium_installed and self.session_valid and not self.running)
-        self.menu_run_automation.set_callback(self.run_automation_action if can_run else None)
-        self.menu_stop_automation.set_callback(self.stop_automation_action if self.running else None)
+        # Keep callbacks always enabled so clicks never "do nothing".
+        # When prerequisites are missing, handlers will explain what's needed.
+        self.menu_install_chromium.set_callback(self.install_chromium_action)
+        self.menu_run_automation.set_callback(self.run_automation_action)
+        self.menu_stop_automation.set_callback(self.stop_automation_action)
+
+        # Reflect availability via title/state only.
+        self.menu_install_chromium.title = (
+            "Install Chromium" if not self.chromium_installed else "Install Chromium (Already Installed)"
+        )
+        self.menu_run_automation.title = (
+            "▶️ Run Automation" if not self.running else "▶️ Run Automation (Running...)"
+        )
+        self.menu_stop_automation.title = (
+            "⏹ Stop Automation" if self.running else "⏹ Stop Automation"
+        )
     
     def save_state(self):
         """Save current state to JSON file."""
@@ -572,6 +583,10 @@ class AnyLiveTTSApp(rumps.App):
     
     def install_chromium_action(self, sender):
         """Install Chromium browser."""
+        if self.chromium_installed:
+            rumps.alert("Chromium", "Chromium is already installed.")
+            return
+
         def install_thread():
             ui_call(lambda: rumps.notification("Installing Chromium", "", "This may take a few minutes..."))
             success = install_chromium()
@@ -581,7 +596,7 @@ class AnyLiveTTSApp(rumps.App):
                 ui_call(lambda: rumps.notification("Installation Complete", "", "Chromium installed successfully"))
             else:
                 ui_call(lambda: rumps.notification("Installation Failed", "", "Please check your internet connection"))
-        
+
         threading.Thread(target=install_thread, daemon=True).start()
     
     def setup_login_action(self, sender):
@@ -608,15 +623,51 @@ class AnyLiveTTSApp(rumps.App):
         
         threading.Thread(target=setup_thread, daemon=True).start()
     
+    def _prereq_report(self) -> str:
+        missing = []
+        if not self.selected_config:
+            missing.append("Config not selected")
+        if not self.csv_path:
+            missing.append("CSV not selected")
+        if not self.chromium_installed:
+            missing.append("Chromium not installed")
+        if not self.session_valid:
+            missing.append("Session not valid (run Setup Login)")
+        if self.running:
+            missing.append("Automation already running")
+
+        details = [
+            f"Chromium installed: {self.chromium_installed}",
+            f"Session valid: {self.session_valid}",
+            f"Selected config: {self.selected_config or 'None'}",
+            f"CSV: {Path(self.csv_path).name if self.csv_path else 'None'}",
+            f"Browser visible: {not self.options['headless']}",
+            f"Dry run: {self.options['dry_run']}",
+            f"No save: {self.options['no_save']}",
+            f"Debug: {self.options['debug']}",
+        ]
+
+        if missing:
+            return "NOT READY\n\nMissing:\n- " + "\n- ".join(missing) + "\n\n" + "\n".join(details)
+        return "READY\n\n" + "\n".join(details)
+
+    def diagnostics_action(self, sender):
+        """Show a quick status report so users understand why buttons may be blocked."""
+        rumps.alert("Diagnostics", self._prereq_report())
+
     def test_action(self, sender):
         """Test action to verify app is working."""
         rumps.alert("Test", "App is working! Button clicked successfully.")
     
     def run_automation_action(self, sender):
         """Run the automation."""
-        # Keep menu callbacks fast: avoid blocking alerts here.
-        if not self.selected_config or not self.csv_path:
-            rumps.alert("Missing Configuration", "Please select both a config and CSV file.")
+        # Always explain why we can't run, instead of silently disabling the menu item.
+        if self.running:
+            rumps.alert("Already Running", "Automation is already running. Use 'Stop Automation' first.")
+            return
+
+        if not self.selected_config or not self.csv_path or not self.chromium_installed or not self.session_valid:
+            rumps.alert("Not Ready", self._prereq_report())
             return
 
         self.running = True
