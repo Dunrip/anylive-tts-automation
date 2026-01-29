@@ -18,7 +18,16 @@ from typing import Optional, Callable
 
 import rumps
 
-# Import from auto_tts
+# Playwright packaging note:
+# Playwright may default to looking for browsers inside the app bundle.
+# Force use of the system-wide Playwright cache at ~/Library/Caches/ms-playwright
+# (installed via `python -m playwright install chromium`).
+os.environ.setdefault(
+    "PLAYWRIGHT_BROWSERS_PATH",
+    str(Path.home() / "Library" / "Caches" / "ms-playwright"),
+)
+
+# Import from auto_tts (after env setup)
 from auto_tts import run_job, setup_login, set_app_support_dir, is_session_valid
 
 # App Support directory (macOS standard)
@@ -45,7 +54,27 @@ def setup_app_support():
     LOGS_DIR.mkdir(exist_ok=True)
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
     (APP_SUPPORT_DIR / "browser_data").mkdir(exist_ok=True)
-    
+
+    # Configure logging early so button clicks / exceptions are recorded even
+    # when running as a packaged .app (no console output).
+    log_path = LOGS_DIR / "menubar.log"
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == str(log_path) for h in root.handlers):
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+        root.addHandler(fh)
+
+    # Force a line into the log so we can confirm logging works in the packaged app.
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("menubar: logging initialized\n")
+    except Exception:
+        pass
+
+    logging.getLogger("menubar").info(f"Logging initialized: {log_path}")
+
     # Copy bundled configs if they don't exist
     bundled_configs = Path(__file__).parent / "configs"
     for config_file in ["default.json", "template.json"]:
@@ -62,19 +91,23 @@ def check_chromium_installed() -> bool:
     """Check if Playwright Chromium is installed.
 
     IMPORTANT: Don't launch Chromium as a health check.
-    In some macOS contexts (screen sharing, background sessions, CI-like shells),
-    Chromium can crash at launch with SIGTRAP/NotificationCenter errors even though
-    it is correctly installed. For the menubar app we only need to know whether the
-    browser artifacts are present.
     """
     try:
+        # Default Playwright global cache location
         cache_dir = Path.home() / "Library" / "Caches" / "ms-playwright"
-        if not cache_dir.exists():
-            return False
+        if cache_dir.exists():
+            candidates = list(cache_dir.glob("chromium-*")) + list(cache_dir.glob("chromium_headless_shell-*"))
+            if any(p.exists() for p in candidates):
+                return True
 
-        # Any installed chromium build directory counts.
-        candidates = list(cache_dir.glob("chromium-*")) + list(cache_dir.glob("chromium_headless_shell-*"))
-        return any(p.exists() for p in candidates)
+        # When Playwright is bundled inside a PyInstaller .app, it may look for
+        # browsers under the packaged Resources directory.
+        app_local = Path(sys._MEIPASS) / "playwright" / "driver" / "package" / ".local-browsers" if getattr(sys, "frozen", False) else None
+        if app_local and app_local.exists():
+            candidates = list(app_local.glob("chromium-*")) + list(app_local.glob("chromium_headless_shell-*"))
+            return any(p.exists() for p in candidates)
+
+        return False
     except Exception:
         return False
 
@@ -614,15 +647,15 @@ class AnyLiveTTSApp(rumps.App):
     def setup_login_action(self, sender):
         """Setup login session."""
         def setup_thread():
-            logger = logging.getLogger(__name__)
+            logger = logging.getLogger("menubar")
             try:
-                logger.info("🔐 Setup Login button clicked - starting setup process")
+                logger.info("Setup Login button clicked")
 
                 # Let the UI thread show notifications.
                 ui_call(lambda: rumps.notification(
                     "Setup Login",
                     "",
-                    "Browser will open. Please log in in the browser window."
+                    "Opening browser… Please log in in the browser window."
                 ))
 
                 asyncio.run(setup_login(logger, gui_mode=True))
@@ -630,9 +663,10 @@ class AnyLiveTTSApp(rumps.App):
                 ui_call(self.update_menu_status)
                 ui_call(lambda: rumps.notification("Login Complete", "", "Session saved successfully"))
             except Exception as e:
-                logger.exception("❌ Setup Login failed")
-                ui_call(lambda: rumps.notification("Login Failed", "", f"Error: {e}"))
-        
+                logger.exception("Setup Login failed")
+                err = str(e)
+                ui_call(lambda err=err: rumps.notification("Login Failed", "", f"Error: {err}"))
+
         threading.Thread(target=setup_thread, daemon=True).start()
     
     def _prereq_report(self) -> str:
