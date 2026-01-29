@@ -431,13 +431,14 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             logger.info("✅ Login detected!")
         
         # Save session marker (persistent context auto-saves to browser_data)
-        import json
-        from datetime import datetime
-        with open(session_file, 'w') as f:
-            json.dump({'setup_complete': True, 'timestamp': datetime.now().isoformat()}, f)
-        logger.info(f"✅ Session saved to browser_data directory")
-        logger.info(f"✅ Setup marker saved to {session_file}")
-        
+        if "login" in current_url.lower():
+            logger.warning("⚠️ Not saving session marker because login was not completed")
+        else:
+            with open(session_file, 'w') as f:
+                json.dump({'setup_complete': True, 'timestamp': datetime.now().isoformat()}, f)
+            logger.info("✅ Session saved to browser_data directory")
+            logger.info(f"✅ Setup marker saved to {session_file}")
+
         await context.close()
     
     logger.info("🎉 Setup complete! You can now run without --setup")
@@ -456,7 +457,6 @@ class TTSAutomation:
         self.dry_run = dry_run
         self.no_save = no_save
         self.screenshots_dir = screenshots_dir if screenshots_dir else "screenshots"
-        self.browser = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.playwright = None

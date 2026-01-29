@@ -35,7 +35,6 @@ APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "AnyLiveTTS"
 CONFIGS_DIR = APP_SUPPORT_DIR / "configs"
 LOGS_DIR = APP_SUPPORT_DIR / "logs"
 SCREENSHOTS_DIR = APP_SUPPORT_DIR / "screenshots"
-SESSION_FILE_PATH = APP_SUPPORT_DIR / "session_state.json"
 STATE_FILE_PATH = APP_SUPPORT_DIR / "menubar_state.json"
 
 # UI thread helper: background threads should not call rumps UI functions directly.
@@ -558,7 +557,10 @@ class AnyLiveTTSApp(rumps.App):
     
     def toggle_visible(self, sender):
         """Toggle browser visible mode."""
-        self.options['headless'] = not sender.state
+        # Menu item 'Browser Visible' state=True means headless=False.
+        # rumps passes the *current* state to the callback, so flipping visibility
+        # means setting headless to the current visibility state.
+        self.options['headless'] = sender.state
         self.save_state()
         self.update_menu_status()
     
@@ -734,7 +736,7 @@ class AnyLiveTTSApp(rumps.App):
                 logger = logging.getLogger("menubar")
                 config_path = str(CONFIGS_DIR / f"{self.selected_config}.json")
                 logger.info(f"Starting run_job with config_path={config_path} csv_path={self.csv_path} headless={self.options['headless']}")
-                asyncio.run(run_job(
+                result = asyncio.run(run_job(
                     config_path=config_path,
                     csv_path=self.csv_path,
                     headless=self.options['headless'],
@@ -747,13 +749,17 @@ class AnyLiveTTSApp(rumps.App):
                     log_callback=None,
                 ))
 
-                ui_call(lambda: rumps.notification("Automation Complete", "", "Check logs for details"))
+                if isinstance(result, dict) and not result.get('success', True):
+                    err = result.get('error') or 'Unknown error'
+                    ui_call(lambda err=err: rumps.notification("Automation Failed", "", f"Error: {err}"))
+                else:
+                    ui_call(lambda: rumps.notification("Automation Complete", "", "Check logs for details"))
             except Exception as e:
                 err = str(e)
                 ui_call(lambda err=err: rumps.notification("Automation Failed", "", f"Error: {err}"))
             finally:
                 self.running = False
-                self.update_menu_status()
+                ui_call(self.update_menu_status)
         
         self.job_thread = threading.Thread(target=run_thread, daemon=True)
         self.job_thread.start()
@@ -783,7 +789,7 @@ class AnyLiveTTSApp(rumps.App):
         msg = (
             "This will delete local AnyLiveTTS app data on this Mac:\n\n"
             f"- {APP_SUPPORT_DIR / 'browser_data'}\n"
-            f"- {SESSION_FILE_PATH}\n"
+            f"- {APP_SUPPORT_DIR / 'session_state.json'}\n"
             f"- {LOGS_DIR}\n"
             f"- {SCREENSHOTS_DIR}\n\n"
             "Configs will NOT be deleted.\n\nProceed?"
@@ -806,8 +812,9 @@ class AnyLiveTTSApp(rumps.App):
             for p in [APP_SUPPORT_DIR / "browser_data", LOGS_DIR, SCREENSHOTS_DIR]:
                 if p.exists():
                     shutil.rmtree(p, ignore_errors=True)
-            if SESSION_FILE_PATH.exists():
-                SESSION_FILE_PATH.unlink()
+            session_marker = APP_SUPPORT_DIR / "session_state.json"
+            if session_marker.exists():
+                session_marker.unlink()
 
             # Reset in-memory state
             self.session_valid = False
