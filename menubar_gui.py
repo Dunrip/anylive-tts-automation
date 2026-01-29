@@ -334,6 +334,8 @@ class AnyLiveTTSApp(rumps.App):
         self.menu_folders.add(rumps.MenuItem("Open Logs", callback=self.open_logs_folder))
         self.menu_folders.add(rumps.MenuItem("Open Screenshots", callback=self.open_screenshots_folder))
         self.menu_folders.add(rumps.MenuItem("Open Configs", callback=self.open_configs_folder))
+        self.menu_folders.add(rumps.separator)
+        self.menu_folders.add(rumps.MenuItem("Reset App Data…", callback=self.reset_app_data))
         self.menu.add(self.menu_folders)
         
         self.menu.add(rumps.separator)
@@ -771,6 +773,59 @@ class AnyLiveTTSApp(rumps.App):
     def open_configs_folder(self, sender):
         """Open configs folder in Finder."""
         subprocess.call(['open', str(CONFIGS_DIR)])
+
+    def reset_app_data(self, sender):
+        """Delete local app data (session/logs/screenshots/browser profile) without touching configs."""
+        if self.running:
+            rumps.alert("Automation Running", "Stop automation before resetting app data.")
+            return
+
+        msg = (
+            "This will delete local AnyLiveTTS app data on this Mac:\n\n"
+            f"- {APP_SUPPORT_DIR / 'browser_data'}\n"
+            f"- {SESSION_FILE_PATH}\n"
+            f"- {LOGS_DIR}\n"
+            f"- {SCREENSHOTS_DIR}\n\n"
+            "Configs will NOT be deleted.\n\nProceed?"
+        )
+
+        resp = rumps.alert("Reset App Data", msg, ok="Delete", cancel="Cancel")
+        if resp != 1:
+            return
+
+        logger = logging.getLogger("menubar")
+        try:
+            # Close any remaining Playwright profile by killing stray Chromium for this app.
+            # (Best effort; ignore errors.)
+            subprocess.call(["pkill", "-f", str(APP_SUPPORT_DIR / "browser_data")])
+        except Exception:
+            pass
+
+        try:
+            # Delete folders/files
+            for p in [APP_SUPPORT_DIR / "browser_data", LOGS_DIR, SCREENSHOTS_DIR]:
+                if p.exists():
+                    shutil.rmtree(p, ignore_errors=True)
+            if SESSION_FILE_PATH.exists():
+                SESSION_FILE_PATH.unlink()
+
+            # Reset in-memory state
+            self.session_valid = False
+            self.csv_path = None
+            self.options["start_version"] = None
+            self.options["limit"] = None
+            self.save_state()
+
+            # Recreate required folders + logging
+            setup_app_support()
+            self.chromium_installed = check_chromium_installed()
+            self.update_menu_status()
+
+            logger.info("Reset App Data completed")
+            rumps.notification("Reset Complete", "", "App data cleared. Please run Setup Login again.")
+        except Exception as e:
+            logger.exception("Reset App Data failed")
+            rumps.alert("Reset Failed", f"Error: {e}")
     
     def quit_app(self, sender):
         """Quit the application."""
