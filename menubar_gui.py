@@ -726,21 +726,24 @@ class AnyLiveTTSApp(rumps.App):
                 ))
 
                 # Run job
+                config_path = str(CONFIGS_DIR / f"{self.selected_config}.json")
                 asyncio.run(run_job(
-                    client_config=self.selected_config,
-                    csv_file=self.csv_path,
+                    config_path=config_path,
+                    csv_path=self.csv_path,
                     headless=self.options['headless'],
                     dry_run=self.options['dry_run'],
                     no_save=self.options['no_save'],
-                    debug_mode=self.options['debug'],
-                    start_version=self.options['start_version'],
+                    debug=self.options['debug'],
+                    start_version=self.options['start_version'] or 1,
                     limit=self.options['limit'],
-                    log_callback=None
+                    app_support_dir=str(APP_SUPPORT_DIR),
+                    log_callback=None,
                 ))
 
                 ui_call(lambda: rumps.notification("Automation Complete", "", "Check logs for details"))
             except Exception as e:
-                ui_call(lambda: rumps.notification("Automation Failed", "", f"Error: {e}"))
+                err = str(e)
+                ui_call(lambda err=err: rumps.notification("Automation Failed", "", f"Error: {err}"))
             finally:
                 self.running = False
                 self.update_menu_status()
