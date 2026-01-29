@@ -12,6 +12,7 @@ a = Analysis(
     datas=[
         ('configs/default.json', 'configs'),
         ('configs/template.json', 'configs'),
+        ('configs/test_template.csv', 'configs'),
     ],
     hiddenimports=[
         'rumps',
