@@ -1,7 +1,7 @@
 {
   "base_url": "https://app.anylive.jp/scripts/211",
   "version_template": "Version_Template",
-  "voice_name": "Samsung madmee",
+  "voice_name": "",
   "max_scripts_per_version": 10,
   "enable_voice_selection": false,
   "enable_product_info": false,
