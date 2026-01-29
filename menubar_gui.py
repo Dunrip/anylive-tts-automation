@@ -182,7 +182,8 @@ class AnyLiveTTSApp(rumps.App):
         self.selected_config = None
         self.csv_path = None
         self.options = {
-            'headless': True,
+            # macOS app default: show the browser (headless = False)
+            'headless': False,
             'dry_run': False,
             'no_save': False,
             'debug': False,
