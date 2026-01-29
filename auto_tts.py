@@ -32,6 +32,21 @@ def get_session_file_path() -> str:
         return os.path.join(_app_support_dir, "session_state.json")
     return SESSION_FILE
 
+
+def get_browser_data_dir() -> str:
+    """Return the directory used for Playwright persistent context.
+
+    IMPORTANT: In a packaged macOS .app, the current working directory can be
+    unexpected (often '/'), so using a relative path like './browser_data' can
+    break silently (no profile/session persisted; permission errors).
+
+    When running in menubar GUI mode we set _app_support_dir, so we store browser
+    data under ~/Library/Application Support/AnyLiveTTS/browser_data.
+    """
+    if _app_support_dir:
+        return os.path.join(_app_support_dir, "browser_data")
+    return "./browser_data"
+
 SELECTORS = {
     "add_version_btn": [
         'button:has-text("Add New Version")',
@@ -317,8 +332,10 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
     async with async_playwright() as p:
         # Always use persistent context for consistent session management
         logger.info("🌐 Initializing browser with persistent context...")
+        user_data_dir = get_browser_data_dir()
+        os.makedirs(user_data_dir, exist_ok=True)
         context = await p.chromium.launch_persistent_context(
-            user_data_dir="./browser_data",
+            user_data_dir=user_data_dir,
             headless=False,
             args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
         )
@@ -433,8 +450,10 @@ class TTSAutomation:
         
         # Always use persistent context for consistent session management
         self.logger.info("🌐 Initializing browser with persistent context...")
+        user_data_dir = get_browser_data_dir()
+        os.makedirs(user_data_dir, exist_ok=True)
         self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir="./browser_data",
+            user_data_dir=user_data_dir,
             headless=self.headless
         )
         self.page = await self.context.new_page()

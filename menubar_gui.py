@@ -44,6 +44,7 @@ def setup_app_support():
     CONFIGS_DIR.mkdir(exist_ok=True)
     LOGS_DIR.mkdir(exist_ok=True)
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
+    (APP_SUPPORT_DIR / "browser_data").mkdir(exist_ok=True)
     
     # Copy bundled configs if they don't exist
     bundled_configs = Path(__file__).parent / "configs"
