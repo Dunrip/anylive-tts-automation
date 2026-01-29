@@ -78,8 +78,10 @@ app = BUNDLE(
         'CFBundleDisplayName': 'AnyLive TTS Automation',
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
-        'NSHighResolutionCapable': 'True',
-        'LSUIElement': 'True',
+        'NSHighResolutionCapable': True,
+        'LSUIElement': True,
+        # Ensure an AppKit principal class exists for proper Cocoa integration
+        'NSPrincipalClass': 'NSApplication',
         'NSAppleEventsUsageDescription': 'AnyLive TTS needs to automate browser tasks.',
     },
 )
