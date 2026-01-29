@@ -4,5 +4,6 @@ session_state.json
 __pycache__/
 .venv/
 *.csv
+!configs/test_template.csv
 *.pyc
 .DS_Store

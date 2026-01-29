@@ -12,8 +12,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import queue
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 import rumps
 
@@ -27,6 +28,14 @@ LOGS_DIR = APP_SUPPORT_DIR / "logs"
 SCREENSHOTS_DIR = APP_SUPPORT_DIR / "screenshots"
 SESSION_FILE_PATH = APP_SUPPORT_DIR / "session_state.json"
 STATE_FILE_PATH = APP_SUPPORT_DIR / "menubar_state.json"
+
+# UI thread helper: background threads should not call rumps UI functions directly.
+_UI_QUEUE: "queue.Queue[Callable[[], None]]" = queue.Queue()
+
+
+def ui_call(fn: Callable[[], None]) -> None:
+    """Schedule a UI update/notification to run on the main rumps thread."""
+    _UI_QUEUE.put(fn)
 
 
 def setup_app_support():
@@ -198,9 +207,27 @@ class AnyLiveTTSApp(rumps.App):
         # Build menu
         self.build_menu()
         
+        # UI queue pump (runs on main thread)
+        self._ui_timer = rumps.Timer(self._drain_ui_queue, 0.25)
+        self._ui_timer.start()
+
         # Update menu status
         self.update_menu_status()
     
+    def _drain_ui_queue(self, _sender=None):
+        """Run pending UI tasks from background threads."""
+        # Avoid starving the event loop; process a small batch per tick.
+        for _ in range(25):
+            try:
+                fn = _UI_QUEUE.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                fn()
+            except Exception:
+                # Never let UI queue processing crash the app.
+                logging.exception("UI task failed")
+
     def build_menu(self):
         """Build the complete menu structure."""
         # Status section
@@ -545,34 +572,38 @@ class AnyLiveTTSApp(rumps.App):
     def install_chromium_action(self, sender):
         """Install Chromium browser."""
         def install_thread():
-            rumps.notification("Installing Chromium", "", "This may take a few minutes...")
+            ui_call(lambda: rumps.notification("Installing Chromium", "", "This may take a few minutes..."))
             success = install_chromium()
             if success:
                 self.chromium_installed = True
-                self.update_menu_status()
-                rumps.notification("Installation Complete", "", "Chromium installed successfully")
+                ui_call(self.update_menu_status)
+                ui_call(lambda: rumps.notification("Installation Complete", "", "Chromium installed successfully"))
             else:
-                rumps.notification("Installation Failed", "", "Please check your internet connection")
+                ui_call(lambda: rumps.notification("Installation Failed", "", "Please check your internet connection"))
         
         threading.Thread(target=install_thread, daemon=True).start()
     
     def setup_login_action(self, sender):
         """Setup login session."""
         def setup_thread():
+            logger = logging.getLogger(__name__)
             try:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.info("🔐 Setup Login button clicked - starting setup process")
-                
-                # Open browser first, then show non-blocking notification
-                rumps.notification("Setup Login", "Browser will open. Please login in the browser window.")
+
+                # Let the UI thread show notifications.
+                ui_call(lambda: rumps.notification(
+                    "Setup Login",
+                    "",
+                    "Browser will open. Please log in in the browser window."
+                ))
+
                 asyncio.run(setup_login(logger, gui_mode=True))
                 self.session_valid = is_session_valid()
-                self.update_menu_status()
-                rumps.notification("Login Complete", "Session saved successfully")
+                ui_call(self.update_menu_status)
+                ui_call(lambda: rumps.notification("Login Complete", "", "Session saved successfully"))
             except Exception as e:
-                logger.error(f"❌ Setup Login failed: {e}")
-                rumps.notification("Login Failed", f"Error: {e}")
+                logger.exception("❌ Setup Login failed")
+                ui_call(lambda: rumps.notification("Login Failed", "", f"Error: {e}"))
         
         threading.Thread(target=setup_thread, daemon=True).start()
     
@@ -582,34 +613,20 @@ class AnyLiveTTSApp(rumps.App):
     
     def run_automation_action(self, sender):
         """Run the automation."""
-        # Debug alert
-        rumps.alert("Debug", f"Run Automation clicked! Config: {self.selected_config}, CSV: {self.csv_path}")
-        
+        # Keep menu callbacks fast: avoid blocking alerts here.
         if not self.selected_config or not self.csv_path:
-            rumps.alert("Debug", "Missing config or CSV - showing alert")
-            try:
-                rumps.alert("Missing Configuration", "Please select both a config and CSV file.")
-                rumps.alert("Debug", "Alert completed")
-            except Exception as e:
-                rumps.alert("Debug Error", f"Alert failed: {e}")
+            rumps.alert("Missing Configuration", "Please select both a config and CSV file.")
             return
-        
-        rumps.alert("Debug", "Starting automation...")
-        
+
         self.running = True
         self.update_menu_status()
         
         def run_thread():
             try:
-                rumps.notification("Automation Started", "", f"Processing {Path(self.csv_path).name}")
-                
-                # Prepare arguments
-                config_path = str(CONFIGS_DIR / f"{self.selected_config}.json")
-                
-                # Create logger
-                import logging
-                logger = logging.getLogger(__name__)
-                
+                ui_call(lambda: rumps.notification(
+                    "Automation Started", "", f"Processing {Path(self.csv_path).name}"
+                ))
+
                 # Run job
                 asyncio.run(run_job(
                     client_config=self.selected_config,
@@ -622,10 +639,10 @@ class AnyLiveTTSApp(rumps.App):
                     limit=self.options['limit'],
                     log_callback=None
                 ))
-                
-                rumps.notification("Automation Complete", "", "Check logs for details")
+
+                ui_call(lambda: rumps.notification("Automation Complete", "", "Check logs for details"))
             except Exception as e:
-                rumps.notification("Automation Failed", "", f"Error: {e}")
+                ui_call(lambda: rumps.notification("Automation Failed", "", f"Error: {e}"))
             finally:
                 self.running = False
                 self.update_menu_status()
