@@ -1163,18 +1163,19 @@ class TTSAutomation:
         self.logger.info(f"Processing slot {slot_num}: {audio_code}")
 
         try:
-            # Prefer name-based locator (more stable than nth): generatedScript.{i}.title
+            # Card-scoped locators (avoid hidden/duplicate inputs from virtualization)
+            card = self.page.locator('div:has(button:has-text("Generate Speech"))').nth(slot_index)
+
             template = None
             try:
                 name_sel = f'input[name="generatedScript.{slot_index}.title"]'
-                if await self.page.locator(name_sel).count() > 0:
-                    template = self.page.locator(name_sel).first
+                if await card.locator(name_sel).count() > 0:
+                    template = card.locator(name_sel).first
             except Exception:
                 template = None
 
             if template is None:
-                template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
-                template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
+                template = await self.page.wait_for_selector(f'input[aria-label="Section Title"] >> nth={slot_index}', timeout=CLICK_TIMEOUT)
 
             async def _type_commit(el, val: str) -> bool:
                 try:
@@ -1213,18 +1214,16 @@ class TTSAutomation:
                 self.logger.error(f"Failed to fill template for slot {slot_num}")
                 return False
 
-            # Prefer name-based locator (more stable than nth): generatedScript.{i}.content
             textarea = None
             try:
                 name_sel = f'textarea[name="generatedScript.{slot_index}.content"]'
-                if await self.page.locator(name_sel).count() > 0:
-                    textarea = self.page.locator(name_sel).first
+                if await card.locator(name_sel).count() > 0:
+                    textarea = card.locator(name_sel).first
             except Exception:
                 textarea = None
 
             if textarea is None:
-                script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
-                textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
+                textarea = await self.page.wait_for_selector(f'textarea[aria-label="Section Content"] >> nth={slot_index}', timeout=CLICK_TIMEOUT)
 
             async def _type_long_text(el, val: str) -> bool:
                 """Last-resort for long Thai scripts: real typing tends to commit in controlled textareas."""
