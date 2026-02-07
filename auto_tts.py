@@ -588,20 +588,50 @@ class TTSAutomation:
     async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
         """Robust fill helper for reactive UIs.
 
-        Uses force-click + select-all/backspace, and re-tries if the value doesn't stick.
+        AnyLive uses controlled inputs; .fill() may not commit.
+        Strategy per attempt: fill/type -> verify -> JS -> verify -> clipboard paste -> verify.
         """
+
+        async def _clipboard_paste(el, val: str) -> bool:
+            # Write clipboard (best-effort) then paste.
+            try:
+                await self.page.evaluate(
+                    """async (text) => {
+                        try { await navigator.clipboard.writeText(text); return true; }
+                        catch (e) { return false; }
+                    }""",
+                    val,
+                )
+            except Exception:
+                pass
+            try:
+                await el.scroll_into_view_if_needed()
+                await el.click(force=True)
+                await asyncio.sleep(0.03)
+                await el.press("Meta+A")
+                await el.press("Backspace")
+                await self.page.keyboard.press("Meta+V")
+                await asyncio.sleep(0.03)
+                try:
+                    await el.press("Tab")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.03)
+                v = await el.input_value()
+                return v is not None and v.strip() == val.strip()
+            except Exception:
+                return False
+
         for attempt in range(max_retries):
             try:
                 await element.scroll_into_view_if_needed()
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 await element.wait_for_element_state("visible", timeout=5000)
                 await element.wait_for_element_state("enabled", timeout=5000)
 
-                # Focus reliably
                 await element.click(force=True)
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.03)
 
-                # Clear: Cmd+A then Backspace (macOS)
                 try:
                     await element.press("Meta+A")
                     await element.press("Backspace")
@@ -611,53 +641,60 @@ class TTSAutomation:
                     except Exception:
                         pass
 
-                # Prefer fill() (more stable for long text), fallback to type()
+                # Fill fast
                 try:
                     await element.fill(value)
                 except Exception:
                     try:
-                        await element.type(value, delay=2)
+                        await element.type(value, delay=1)
                     except Exception:
                         pass
 
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.03)
 
-                # Verify for inputs/textareas
                 try:
                     actual_value = await element.input_value()
                 except Exception:
                     actual_value = None
 
                 if actual_value is not None and actual_value.strip() == value.strip():
+                    try:
+                        await element.press("Tab")
+                    except Exception:
+                        pass
                     return True
 
-                # Force via JS (works better for some controlled React inputs)
-                await element.evaluate(
-                    '''(el, val) => {
-                        el.focus();
-                        el.value = val;
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-                        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-                    }''',
-                    value,
-                )
-                await asyncio.sleep(0.1)
-
+                # JS fallback
                 try:
+                    await element.evaluate(
+                        '''(el, val) => {
+                            el.focus();
+                            el.value = val;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }''',
+                        value,
+                    )
+                    await asyncio.sleep(0.05)
                     actual_value2 = await element.input_value()
+                    if actual_value2 is not None and actual_value2.strip() == value.strip():
+                        try:
+                            await element.press("Tab")
+                        except Exception:
+                            pass
+                        return True
                 except Exception:
-                    actual_value2 = None
+                    pass
 
-                if actual_value2 is not None and actual_value2.strip() == value.strip():
+                # Clipboard paste fallback (most reliable)
+                if await _clipboard_paste(element, value):
                     return True
 
-                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{actual_value2}'")
+                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{(actual_value or '').strip()}'")
             except Exception as e:
                 self.logger.debug(f"clear_and_fill attempt {attempt + 1}/{max_retries} failed: {e}")
 
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.12)
 
         self.logger.warning(f"clear_and_fill failed after {max_retries} attempts for value: {value}")
         return False
