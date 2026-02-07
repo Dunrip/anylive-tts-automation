@@ -814,12 +814,29 @@ class TTSAutomation:
         base = self.config.base_url.split('?')[0].rstrip('/')
         self.logger.info(f"🌐 Navigating to {base}?page=1")
 
+        target = f"{base}?page=1"
+
         # If already on the list page for this asset, do nothing.
         if current_url.startswith(base) and ("/edit/" not in current_url):
             return
 
-        target = f"{base}?page=1"
-        await self.page.goto(target, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+        await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+
+        # Sometimes AnyLive keeps you on /edit even after a goto due to SPA routing.
+        # Force list page by clicking the sidebar "Live Assets" if still on edit.
+        try:
+            if "/edit/" in self.page.url:
+                await self.page.get_by_role("link", name="Live Assets").click(timeout=8000)
+                await self.page.wait_for_load_state("domcontentloaded")
+                await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+        except Exception:
+            pass
+
+        # Wait for Add Version button to confirm list page is ready.
+        try:
+            await self.page.get_by_role("button", name="Add Version").wait_for(state="visible", timeout=15000)
+        except Exception:
+            pass
     
     async def create_new_version(self, name: str) -> bool:
         self.logger.info(f"📝 Creating version: {name}")
@@ -837,7 +854,8 @@ class TTSAutomation:
         add_btn = self.page.get_by_role("button", name="Add Version")
         for attempt in range(3):
             try:
-                await add_btn.wait_for(state="visible", timeout=8000)
+                # Ensure list page really loaded
+                await self.page.get_by_role("button", name="Add Version").wait_for(state="visible", timeout=15000)
                 await add_btn.scroll_into_view_if_needed()
                 await add_btn.click(timeout=8000, force=True)
                 break
@@ -847,10 +865,14 @@ class TTSAutomation:
                     self.logger.debug(f"Add Version click error: {e}")
                     return False
                 try:
-                    await self.page.reload(wait_until="networkidle")
+                    await self.page.keyboard.press("Escape")
                 except Exception:
                     pass
-                await asyncio.sleep(0.5)
+                try:
+                    await self.page.reload(wait_until="domcontentloaded")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.8)
 
         await asyncio.sleep(0.3)
 
