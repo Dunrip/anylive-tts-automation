@@ -1264,13 +1264,36 @@ class TTSAutomation:
                     self.logger.error(f"Failed to fill script for slot {slot_num}")
                     return False
 
-            # Hard verification: ensure values actually stuck in DOM.
+            # Hard verification: ensure values actually stuck in DOM AND in the visible card.
             try:
                 tv = (await template.input_value()).strip()
                 sv = (await textarea.input_value()).strip()
 
+                async def _card_visible_text(idx: int) -> tuple[str, str]:
+                    """Return (titleText, bodyText) from the rendered card, not the input values."""
+                    # Each paragraph card has a drag handle and a 3-dot menu; title appears as visible text.
+                    card = self.page.locator('div:has(button:has-text("Generate Speech"))').nth(idx)
+                    title_txt = ""
+                    body_txt = ""
+                    try:
+                        # first line in the card (title)
+                        title_txt = (await card.locator('text=/^template_\d+|^SC\d+|^SC\d\d+|^SC\d\d\d+/').first.inner_text()).strip()
+                    except Exception:
+                        try:
+                            # fallback: take first text node-ish
+                            title_txt = (await card.inner_text()).splitlines()[0].strip()
+                        except Exception:
+                            title_txt = ""
+                    try:
+                        # second line in the card (body) often includes script_1 for defaults
+                        lines = (await card.inner_text()).splitlines()
+                        if len(lines) > 1:
+                            body_txt = lines[1].strip()
+                    except Exception:
+                        body_txt = ""
+                    return title_txt, body_txt
+
                 async def _retry_slot1_commit() -> bool:
-                    # Aggressive self-heal for flaky first card.
                     for _ in range(3):
                         try:
                             await self.page.evaluate('window.scrollTo(0, 0)')
@@ -1285,25 +1308,23 @@ class TTSAutomation:
                         t = self.page.locator('input[aria-label="Section Title"]').nth(0)
                         s = self.page.locator('textarea[aria-label="Section Content"]').nth(0)
 
-                        # Title: typing commit
+                        # Title commit
                         try:
                             await t.click(force=True)
                             await t.press("Meta+A")
                             await t.press("Backspace")
                             await self.page.keyboard.type(audio_code, delay=1)
+                            await t.press("Enter")
                             await t.press("Tab")
                         except Exception:
                             pass
 
-                        # Script: prefer typing for long text
+                        # Script commit
                         try:
                             await s.click(force=True)
                             await s.press("Meta+A")
                             await s.press("Backspace")
-                            if len(script.strip()) > 150:
-                                await self.page.keyboard.type(script, delay=1)
-                            else:
-                                await self.page.keyboard.insert_text(script)
+                            await self.page.keyboard.type(script, delay=1)
                             try:
                                 await s.press("Tab")
                             except Exception:
@@ -1311,36 +1332,39 @@ class TTSAutomation:
                         except Exception:
                             pass
 
-                        # Wait for autosave best-effort
+                        # click outside to force React commit
                         try:
-                            await self.page.wait_for_selector('text="Auto Saved"', timeout=3000)
+                            await self.page.locator('body').click(position={"x": 5, "y": 5})
                         except Exception:
                             pass
 
                         try:
-                            tvx = (await t.input_value()).strip()
-                            svx = (await s.input_value()).strip()
-                            if (not audio_code.strip() or tvx == audio_code.strip()) and (not script.strip() or svx == script.strip()):
-                                return True
+                            await self.page.wait_for_selector('text="Auto Saved"', timeout=4000)
                         except Exception:
                             pass
+
+                        # Verify by VISIBLE card label
+                        title_vis, body_vis = await _card_visible_text(0)
+                        if (audio_code.strip() and title_vis == audio_code.strip()) and (script.strip() and body_vis != "script_1"):
+                            return True
                         await asyncio.sleep(0.2)
                     return False
 
-                # Slot 1 special case: detect untouched defaults
-                if slot_index == 0 and ((tv == "template_1") or (sv == "script_1")):
-                    if not await _retry_slot1_commit():
-                        self.logger.warning(f"Slot {slot_num} still default after retries (title='{tv}', script='{sv}')")
-                        return False
+                if slot_index == 0:
+                    title_vis, body_vis = await _card_visible_text(0)
+                    if title_vis == "template_1" or body_vis == "script_1":
+                        if not await _retry_slot1_commit():
+                            self.logger.warning(f"Slot {slot_num} still default in UI after retries (title_vis='{title_vis}', body_vis='{body_vis}')")
+                            return False
 
                 if audio_code.strip() and tv != audio_code.strip():
-                    # Title sometimes doesn't commit; retry with keyboard typing.
                     try:
                         await template.scroll_into_view_if_needed()
                         await template.click(force=True)
                         await template.press("Meta+A")
                         await template.press("Backspace")
                         await self.page.keyboard.type(audio_code, delay=1)
+                        await template.press("Enter")
                         await template.press("Tab")
                         await asyncio.sleep(0.05)
                         tv2 = (await template.input_value()).strip()
@@ -1352,7 +1376,6 @@ class TTSAutomation:
                         return False
 
                 if script.strip() and sv != script.strip():
-                    # Script mismatch: for slot 1, try aggressive retry once.
                     if slot_index == 0:
                         if not await _retry_slot1_commit():
                             self.logger.warning(f"Slot {slot_num} script mismatch after retries")
