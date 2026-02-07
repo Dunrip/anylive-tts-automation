@@ -152,13 +152,13 @@ def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> Clien
             f"Config file not found: {config_path}\n"
             f"Please create a config file or use the template at configs/template.json"
         )
-    
+
     with open(config_path, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
-    
+
     if cli_overrides:
         config_data.update(cli_overrides)
-    
+
     return ClientConfig(**config_data)
 
 
@@ -204,7 +204,7 @@ class CallbackLogHandler(logging.Handler):
         super().__init__()
         self.callback = callback
         self.setFormatter(EmojiFormatter())
-    
+
     def emit(self, record):
         try:
             msg = self.format(record)
@@ -219,26 +219,26 @@ def setup_logging(timestamp: str, logs_dir: Optional[str] = None, log_callback: 
     else:
         logs_dir = Path(logs_dir)
     logs_dir.mkdir(exist_ok=True)
-    
+
     logger = logging.getLogger("auto_tts")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
-    
+
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(EmojiFormatter())
     logger.addHandler(console_handler)
-    
+
     file_handler = logging.FileHandler(logs_dir / f"auto_tts_{timestamp}.log", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     logger.addHandler(file_handler)
-    
+
     if log_callback:
         callback_handler = CallbackLogHandler(log_callback)
         callback_handler.setLevel(logging.INFO)
         logger.addHandler(callback_handler)
-    
+
     return logger
 
 
@@ -247,9 +247,9 @@ def find_csv_file(explicit_path: Optional[str]) -> str:
         if not os.path.exists(explicit_path):
             raise FileNotFoundError(f"CSV file not found: {explicit_path}")
         return explicit_path
-    
+
     csv_files = glob.glob("*.csv")
-    
+
     if len(csv_files) == 0:
         raise FileNotFoundError("No CSV file found in project folder")
     elif len(csv_files) == 1:
@@ -273,40 +273,40 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     col_product_name = config.csv_columns.get("product_name", "Product Name")
     col_script = config.csv_columns.get("script_content", "TH Script")
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
-    
+
     default_columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"]
-    
+
     if len(df.columns) <= len(default_columns):
         header_detected = any(
-            str(val).strip().lower() in [col_product_name.lower(), "product name", "th version", "th script"] 
+            str(val).strip().lower() in [col_product_name.lower(), "product name", "th version", "th script"]
             for val in df.iloc[0] if pd.notna(val)
         )
-        
+
         if not header_detected:
             df.columns = default_columns[:len(df.columns)]
-    
+
     df = df[df[col_product_name] != col_product_name]
     df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
-    
+
     df[col_product_name] = df[col_product_name].replace('', pd.NA)
     df[col_product_name] = df[col_product_name].ffill()
-    
+
     df[col_product_no] = df[col_product_no].replace('', pd.NA)
     df[col_product_no] = df[col_product_no].ffill()
-    
+
     valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
     logger.info(f"Valid rows: {len(valid_rows)}")
-    
+
     script_rows: List[ScriptRow] = []
     for idx, row in valid_rows.iterrows():
         raw_number = str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "XX"
-        
+
         try:
             num_value = float(raw_number)
             product_number = f"{int(num_value):02d}"
         except ValueError:
             product_number = raw_number
-        
+
         product_name = str(row[col_product_name]).strip() if pd.notna(row[col_product_name]) else ""
         script_rows.append(ScriptRow(
             product_number=product_number,
@@ -315,40 +315,40 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
             audio_code=str(row[col_audio]).strip() if pd.notna(row[col_audio]) else "",
             row_number=int(idx) + 2
         ))
-    
+
     logger.info(f"Total script rows: {len(script_rows)}")
-    
+
     from collections import defaultdict
     product_groups = defaultdict(list)
     for row in script_rows:
         key = (row.product_number, row.product_name)
         product_groups[key].append(row)
-    
+
     logger.info(f"Found {len(product_groups)} unique products")
-    
+
     def sanitize_product_name(name: str) -> str:
         import re
         sanitized = re.sub(r'[^\w\s-]', '', name)
         sanitized = re.sub(r'\s+', '_', sanitized)
         return sanitized
-    
+
     versions: List[Version] = []
-    
+
     for (product_number, product_name), rows in product_groups.items():
         sanitized_name = sanitize_product_name(product_name)
-        
+
         for chunk_idx in range(0, len(rows), config.max_scripts_per_version):
             chunk = rows[chunk_idx:chunk_idx + config.max_scripts_per_version]
             chunk_number = chunk_idx // config.max_scripts_per_version
-            
+
             if chunk_number == 0:
                 version_name = f"{product_number}_{sanitized_name}"
             else:
                 version_name = f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
-            
+
             scripts = [row.script_content for row in chunk]
             audio_codes = [row.audio_code for row in chunk]
-            
+
             versions.append(Version(
                 name=version_name,
                 products=[product_name],
@@ -357,9 +357,9 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
                 product_number=product_number,
                 version_suffix=f"_v{chunk_number + 1}" if chunk_number > 0 else None
             ))
-            
+
             logger.debug(f"Created version: {version_name} with {len(scripts)} scripts")
-    
+
     logger.info(f"Created {len(versions)} versions total")
     return versions
 
@@ -387,17 +387,17 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             raise
 
         page = await context.new_page()
-        
+
         # In GUI mode, always open browser for manual login
         if not gui_mode:
             # Check if existing session exists and try to validate it
             if is_session_valid():
                 logger.info(f"📦 Found existing session file: {session_file}")
                 logger.info("🔍 Verifying session validity...")
-                
+
                 try:
                     await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
-                    
+
                     # Check if we're still logged in (not redirected to login page)
                     current_url = page.url
                     if "login" not in current_url.lower():
@@ -413,26 +413,26 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
                 logger.info("📭 No existing session found.")
         else:
             logger.info("🌐 GUI mode: Always opening browser for manual login")
-        
+
         # If we reach here, need manual login
         logger.info("🌐 Opening browser for manual login...")
-        
+
         await page.goto("https://app.anylive.jp", wait_until="networkidle")
         logger.info("🌐 Navigated to AnyLive. Please log in manually.")
-        
+
         if not gui_mode:
             input("Press Enter when you have completed login...")
         else:
             # In GUI mode, wait for user to complete login with better feedback
             logger.info("🌐 GUI mode: Please complete login in the browser window...")
             logger.info("🌐 The browser window should open in a new window...")
-            
+
             # Bring browser to front
             try:
                 await page.bring_to_front()
             except:
                 pass
-            
+
             # Wait and check periodically if login is complete
             for i in range(60):  # Wait up to 60 seconds
                 await asyncio.sleep(1)
@@ -443,24 +443,24 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
                         break
                 except:
                     pass
-                
+
                 if i % 10 == 0:  # Every 10 seconds
                     logger.info(f"🌐 Waiting for login... ({60-i}s remaining)")
-            
+
             # Final check
             current_url = page.url
             if "login" in current_url.lower():
                 logger.warning("⚠️ Login timeout. You may need to try again.")
-        
+
         # Verify login by checking current URL
         current_url = page.url
         logger.info(f"Current URL: {current_url}")
-        
+
         if "login" in current_url.lower():
             logger.warning("⚠️ Still on login page. Please make sure you're logged in.")
         else:
             logger.info("✅ Login detected!")
-        
+
         # Save session marker (persistent context auto-saves to browser_data)
         if "login" in current_url.lower():
             logger.warning("⚠️ Not saving session marker because login was not completed")
@@ -471,7 +471,7 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             logger.info(f"✅ Setup marker saved to {session_file}")
 
         await context.close()
-    
+
     logger.info("🎉 Setup complete! You can now run without --setup")
 
 
@@ -491,11 +491,11 @@ class TTSAutomation:
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.playwright = None
-    
+
     async def start_browser(self):
         self.logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
         self.playwright = await async_playwright().start()
-        
+
         # Always use persistent context for consistent session management
         self.logger.info("🌐 Initializing browser with persistent context...")
         user_data_dir = get_browser_data_dir()
@@ -509,46 +509,46 @@ class TTSAutomation:
         )
         self.page = await self.context.new_page()
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
-        
+
         session_file = get_session_file_path()
         if is_session_valid():
             self.logger.info(f"📦 Using saved session from browser_data directory")
-            
+
             if not await self.validate_session():
                 await self.close()
                 raise Exception(
                     "Session expired or invalid. Please run setup again:\n"
                     "  python auto_tts.py --setup"
                 )
-            
+
             self.logger.info("✅ Session is valid and authenticated")
         else:
             self.logger.error("❌ No session found. Please run setup first:")
             self.logger.error("  python auto_tts.py --setup")
             raise Exception("No session file found")
-    
+
     async def close(self):
         if self.context:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
-    
+
     async def validate_session(self) -> bool:
         try:
             self.logger.debug("Validating session...")
             await self.page.goto(self.config.base_url, wait_until="networkidle", timeout=30000)
-            
+
             current_url = self.page.url
             if "login" in current_url.lower():
                 self.logger.error("❌ Session expired - redirected to login page")
                 return False
-            
+
             self.logger.debug("✓ Session validated successfully")
             return True
         except Exception as e:
             self.logger.error(f"❌ Session validation failed: {e}")
             return False
-    
+
     async def safe_click(self, selector_key: str, description: str) -> bool:
         selectors = SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
@@ -562,7 +562,7 @@ class TTSAutomation:
                 continue
         self.logger.error(f"Failed to click {description}")
         return False
-    
+
     async def safe_fill(self, selector_key: str, value: str, description: str) -> bool:
         selectors = SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
@@ -576,7 +576,7 @@ class TTSAutomation:
                 continue
         self.logger.error(f"Failed to fill {description}")
         return False
-    
+
     async def take_screenshot(self, version_name: str):
         screenshots_dir = Path(self.screenshots_dir)
         screenshots_dir.mkdir(exist_ok=True)
@@ -584,7 +584,7 @@ class TTSAutomation:
         path = screenshots_dir / f"error_{version_name}_{timestamp}.png"
         await self.page.screenshot(path=str(path))
         self.logger.info(f"📸 Screenshot saved: {path}")
-    
+
     async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
         """Robust fill helper for reactive UIs.
 
@@ -698,39 +698,39 @@ class TTSAutomation:
 
         self.logger.warning(f"clear_and_fill failed after {max_retries} attempts for value: {value}")
         return False
-    
+
     async def validate_slot_fields(self, slot_index: int, expected_title: str, expected_content: str) -> tuple[bool, str]:
         slot_num = slot_index + 1
         self.logger.debug(f"Validating slot {slot_num} fields...")
-        
+
         try:
             title_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
             content_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
-            
+
             title_input = await self.page.wait_for_selector(title_selector, timeout=5000)
             content_textarea = await self.page.wait_for_selector(content_selector, timeout=5000)
-            
+
             if not title_input or not content_textarea:
                 error_msg = f"Slot {slot_num}: Could not find form fields"
                 return False, error_msg
-            
+
             title_value = await title_input.input_value()
             content_value = await content_textarea.input_value()
-            
+
             title_filled = title_value and title_value.strip()
             content_filled = content_value and content_value.strip()
-            
+
             if not title_filled and not content_filled:
                 error_msg = f"Slot {slot_num}: Both Section Title and Section Content are empty (at least one required)"
                 return False, error_msg
-            
+
             self.logger.debug(f"Slot {slot_num} validation passed (title: {'✓' if title_filled else '✗'}, content: {'✓' if content_filled else '✗'})")
             return True, ""
-            
+
         except Exception as e:
             error_msg = f"Slot {slot_num}: Validation error - {e}"
             return False, error_msg
-    
+
     async def select_template_from_dropdown(self) -> bool:
         """Select the "Copy From Version" value in the Create New Version dialog.
 
@@ -831,7 +831,7 @@ class TTSAutomation:
         except Exception as e:
             self.logger.error(f"Failed to select template: {e}")
             return False
-    
+
     async def select_voice_from_dropdown(self) -> bool:
         try:
             await self.page.wait_for_selector('[role="option"]', timeout=CLICK_TIMEOUT)
@@ -847,7 +847,7 @@ class TTSAutomation:
         except Exception as e:
             self.logger.error(f"Failed to select voice: {e}")
             return False
-    
+
     async def wait_for_form_ready(self, expected_count: int, timeout: int = 30) -> bool:
         self.logger.info(f"Waiting for {expected_count} form fields to load...")
 
@@ -871,34 +871,34 @@ class TTSAutomation:
         # - textarea[aria-label="Section Content"] (10)
         template_selector = 'input[aria-label="Section Title"]'
         script_selector = 'textarea[aria-label="Section Content"]'
-        
+
         template_count = 0
         script_count = 0
-        
+
         start_time = asyncio.get_event_loop().time()
-        
+
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
                 template_inputs = await self.page.query_selector_all(template_selector)
                 script_textareas = await self.page.query_selector_all(script_selector)
-                
+
                 template_count = len(template_inputs)
                 script_count = len(script_textareas)
-                
+
                 self.logger.debug(f"Found {template_count} template inputs, {script_count} script textareas")
-                
+
                 if template_count >= expected_count and script_count >= expected_count:
                     self.logger.info(f"Form ready: {template_count} template inputs, {script_count} script textareas")
                     return True
-                
+
                 await asyncio.sleep(0.5)
             except Exception as e:
                 self.logger.debug(f"Error checking form fields: {e}")
                 await asyncio.sleep(0.5)
-        
+
         self.logger.warning(f"Timeout waiting for form fields. Found {template_count}/{expected_count} templates, {script_count}/{expected_count} scripts")
         return False
-    
+
     async def navigate_to_scripts(self):
         """Navigate to the Live Asset versions list page.
 
@@ -936,7 +936,7 @@ class TTSAutomation:
             await self.page.get_by_role("button", name="Add Version").wait_for(state="visible", timeout=15000)
         except Exception:
             pass
-    
+
     async def create_new_version(self, name: str) -> bool:
         self.logger.info(f"📝 Creating version: {name}")
 
@@ -1044,7 +1044,7 @@ class TTSAutomation:
 
         self.logger.info(f"Created: {name}")
         return True
-    
+
     async def open_version(self, name: str) -> bool:
         self.logger.info(f"📂 Opening: {name}")
         try:
@@ -1057,38 +1057,38 @@ class TTSAutomation:
         except Exception as e:
             self.logger.error(f"Failed to open version: {e}")
         return False
-    
+
     async def select_voice_clone(self) -> bool:
         self.logger.info(f"🎙️ Selecting voice: {self.config.voice_name}")
-        
+
         if not await self.safe_click("voice_clone_dropdown", "Voice Clone dropdown"):
             return False
-        
+
         await asyncio.sleep(0.3)
-        
+
         if not await self.select_voice_from_dropdown():
             return False
-        
+
         await asyncio.sleep(0.3)
         return True
-    
+
     async def fill_script_slots(self, scripts: List[str]) -> int:
         self.logger.info(f"Filling {len(scripts)} script textareas...")
-        
+
         filled = 0
-        
+
         try:
             await self.page.wait_for_selector('textarea[aria-label="Section Content"]', timeout=CLICK_TIMEOUT)
             textareas = await self.page.query_selector_all('textarea[aria-label="Section Content"]')
             textarea_count = len(textareas)
             self.logger.info(f"Found {textarea_count} script textareas in DOM")
-            
+
             if textarea_count < len(scripts):
                 self.logger.warning(f"Expected {len(scripts)} script textareas, but found only {textarea_count}")
         except Exception as e:
             self.logger.error(f"Failed to find script textareas: {e}")
             return 0
-        
+
         for i, script in enumerate(scripts):
             if i < len(textareas):
                 self.logger.info(f"Filling script slot {i+1}/{len(scripts)}...")
@@ -1098,27 +1098,27 @@ class TTSAutomation:
                 else:
                     self.logger.error(f"Failed to fill script slot {i+1}")
                 await asyncio.sleep(0.1)
-        
+
         self.logger.info(f"Filled {filled}/{len(scripts)} script slots")
         return filled
-    
+
     async def fill_template_fields(self, audio_codes: List[str]) -> int:
         self.logger.info(f"Filling {len(audio_codes)} template fields with audio codes...")
-        
+
         filled = 0
-        
+
         try:
             await self.page.wait_for_selector('input[aria-label="Section Title"]', timeout=CLICK_TIMEOUT)
             template_inputs = await self.page.query_selector_all('input[aria-label="Section Title"]')
             input_count = len(template_inputs)
             self.logger.info(f"Found {input_count} template inputs in DOM")
-            
+
             if input_count < len(audio_codes):
                 self.logger.warning(f"Expected {len(audio_codes)} template inputs, but found only {input_count}")
         except Exception as e:
             self.logger.error(f"Failed to find template inputs: {e}")
             return 0
-        
+
         for i, audio_code in enumerate(audio_codes):
             if i < len(template_inputs) and audio_code:
                 self.logger.info(f"Filling template field {i+1}/{len(audio_codes)} with: {audio_code}")
@@ -1128,10 +1128,10 @@ class TTSAutomation:
                 else:
                     self.logger.error(f"Failed to fill template field {i+1}")
                 await asyncio.sleep(0.1)
-        
+
         self.logger.info(f"Filled {filled}/{len(audio_codes)} template fields")
         return filled
-    
+
     async def fill_product_info(self) -> bool:
         try:
             await self.safe_fill("product_name_input", "-", "Product Name input")
@@ -1140,13 +1140,13 @@ class TTSAutomation:
         except Exception as e:
             self.logger.warning(f"⚠️ Could not fill product info: {e}")
             return True
-    
+
     async def trigger_generate_speech(self, count: int) -> int:
         self.logger.info("🔊 Clicking Generate Speech buttons...")
-        
+
         triggered = 0
         buttons = await self.page.query_selector_all(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
-        
+
         for i, button in enumerate(buttons[:count]):
             try:
                 await button.click()
@@ -1154,14 +1154,14 @@ class TTSAutomation:
                 await asyncio.sleep(0.2)
             except Exception as e:
                 self.logger.debug(f"Failed to click Generate Speech {i+1}: {e}")
-        
+
         self.logger.info(f"Triggered {triggered} generations")
         return triggered
-    
+
     async def fill_and_generate_slot(self, slot_index: int, audio_code: str, script: str, dry_run: bool = False) -> bool:
         slot_num = slot_index + 1
         self.logger.info(f"Processing slot {slot_num}: {audio_code}")
-        
+
         try:
             template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
             template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
@@ -1200,39 +1200,70 @@ class TTSAutomation:
             if not ok_title:
                 self.logger.error(f"Failed to fill template for slot {slot_num}")
                 return False
-            
+
             script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
             textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
-            if not await self.clear_and_fill(textarea, script):
+
+            async def _type_long_text(el, val: str) -> bool:
+                """Last-resort for long Thai scripts: real typing tends to commit in controlled textareas."""
+                try:
+                    await el.scroll_into_view_if_needed()
+                    await el.click(force=True)
+                    await asyncio.sleep(0.03)
+                    await el.press("Meta+A")
+                    await el.press("Backspace")
+                    await self.page.keyboard.type(val, delay=1)
+                    await asyncio.sleep(0.05)
+                    try:
+                        await el.press("Tab")
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.05)
+                    v = await el.input_value()
+                    return v is not None and v.strip() == val.strip()
+                except Exception:
+                    return False
+
+            ok_script = await self.clear_and_fill(textarea, script)
+
+            # Special-case slot 1 long script: if it didn't stick, try typing.
+            if (not ok_script) and slot_index == 0 and len(script.strip()) > 150:
+                ok_script = await _type_long_text(textarea, script)
+
+            if not ok_script:
                 # If the textarea is in a weird controlled state, try a fresh locator once.
                 try:
                     # Re-click Edit Script (sometimes focus/virtualization breaks the first textarea)
                     try:
                         await self.page.get_by_role("tab", name="Edit Script").click(timeout=5000)
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.2)
                     except Exception:
                         pass
 
-                    # Scroll to top for slot 1 (most flaky)
                     if slot_index == 0:
                         try:
                             await self.page.evaluate('window.scrollTo(0, 0)')
-                            await asyncio.sleep(0.2)
+                            await asyncio.sleep(0.1)
                         except Exception:
                             pass
 
                     textarea2 = self.page.locator('textarea[aria-label="Section Content"]').nth(slot_index)
                     await textarea2.scroll_into_view_if_needed()
                     await textarea2.click(force=True)
-                    ok = await self.clear_and_fill(textarea2, script)
-                    if not ok:
+
+                    ok2 = await self.clear_and_fill(textarea2, script)
+                    if (not ok2) and slot_index == 0 and len(script.strip()) > 150:
+                        ok2 = await _type_long_text(textarea2, script)
+
+                    if not ok2:
                         self.logger.error(f"Failed to fill script for slot {slot_num}")
                         return False
+
                     textarea = textarea2
                 except Exception:
                     self.logger.error(f"Failed to fill script for slot {slot_num}")
                     return False
-            
+
             # Hard verification: ensure values actually stuck in DOM.
             try:
                 tv = (await template.input_value()).strip()
@@ -1253,19 +1284,19 @@ class TTSAutomation:
                 self.logger.warning(f"Slot {slot_num} validation failed: {validation_error}")
                 self.logger.warning(f"Skipping Generate Speech for slot {slot_num} due to empty fields")
                 return False
-            
+
             if not dry_run:
                 button_clicked = False
-                
+
                 await asyncio.sleep(0.3)
-                
+
                 template_fresh = await self.page.wait_for_selector(template_selector, timeout=5000)
-                
+
                 try:
                     parent_container = await template_fresh.evaluate_handle(
                         '(el) => { let p = el; for(let i=0; i<6; i++) { if(p.parentElement) p = p.parentElement; } return p; }'
                     )
-                    
+
                     if parent_container:
                         button = await parent_container.query_selector(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
                         if button:
@@ -1277,7 +1308,7 @@ class TTSAutomation:
                             button_clicked = True
                 except Exception as e:
                     self.logger.debug(f"Parent container approach failed for slot {slot_num}: {e}")
-                
+
                 if not button_clicked:
                     try:
                         self.logger.debug(f"Falling back to nth-index approach for slot {slot_num}")
@@ -1285,7 +1316,7 @@ class TTSAutomation:
                         gen_selectors = ','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")']))
                         button_selector = f"({gen_selectors}) >> nth={slot_index}"
                         button = await self.page.wait_for_selector(button_selector, timeout=5000)
-                        
+
                         if button:
                             await button.scroll_into_view_if_needed()
                             await asyncio.sleep(0.2)
@@ -1297,40 +1328,40 @@ class TTSAutomation:
                             self.logger.warning(f"Generate Speech button not found for slot {slot_num}")
                     except Exception as e:
                         self.logger.warning(f"Failed to click Generate Speech for slot {slot_num}: {e}")
-            
+
             self.logger.info(f"Completed slot {slot_num}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error processing slot {slot_num}: {e}")
             return False
-    
+
     async def validate_form_fields(self, expected_count: int) -> tuple[bool, str]:
         self.logger.info("🔍 Validating form fields before save...")
-        
+
         try:
             title_selector = 'input[aria-label="Section Title"]'
             content_selector = 'textarea[aria-label="Section Content"]'
-            
+
             title_inputs = await self.page.query_selector_all(title_selector)
             content_textareas = await self.page.query_selector_all(content_selector)
-            
+
             title_count = len(title_inputs)
             content_count = len(content_textareas)
-            
+
             self.logger.debug(f"Found {title_count} title fields, {content_count} content fields")
-            
+
             if title_count < expected_count or content_count < expected_count:
                 error_msg = f"Template has insufficient fields: expected at least {expected_count}, found {title_count} titles and {content_count} contents"
                 self.logger.error(error_msg)
                 return False, error_msg
-            
+
             if title_count > expected_count or content_count > expected_count:
                 self.logger.debug(f"Template has {title_count} slots, using first {expected_count} for this version")
-            
+
             empty_titles = []
             empty_contents = []
-            
+
             for i in range(min(expected_count, len(title_inputs))):
                 try:
                     value = await title_inputs[i].input_value()
@@ -1340,7 +1371,7 @@ class TTSAutomation:
                 except Exception as e:
                     self.logger.debug(f"Error checking title slot {i + 1}: {e}")
                     empty_titles.append(i + 1)
-            
+
             for i in range(min(expected_count, len(content_textareas))):
                 try:
                     value = await content_textareas[i].input_value()
@@ -1350,7 +1381,7 @@ class TTSAutomation:
                 except Exception as e:
                     self.logger.debug(f"Error checking content slot {i + 1}: {e}")
                     empty_contents.append(i + 1)
-            
+
             if empty_titles or empty_contents:
                 error_parts = []
                 if empty_titles:
@@ -1360,20 +1391,20 @@ class TTSAutomation:
                 error_msg = " and ".join(error_parts)
                 self.logger.error(error_msg)
                 return False, error_msg
-            
+
             self.logger.info(f"✓ All {expected_count} slots validated successfully")
             return True, ""
-            
+
         except Exception as e:
             error_msg = f"Validation error: {e}"
             self.logger.error(error_msg)
             return False, error_msg
-    
+
     async def save_version(self, expected_slots: int) -> bool:
         if self.no_save:
             self.logger.info("⏭️ SKIPPING SAVE (--no-save mode)")
             return True
-        
+
         self.logger.debug("Waiting for form state to stabilize...")
         await asyncio.sleep(0.3)
 
@@ -1386,7 +1417,7 @@ class TTSAutomation:
         if not validation_passed:
             self.logger.error(f"❌ Validation failed: {error_msg}")
             return False
-        
+
         await asyncio.sleep(0.6)
 
         self.logger.info("💾 Saving...")
@@ -1405,24 +1436,24 @@ class TTSAutomation:
 
         self.logger.warning("No Save button found; assuming auto-save UI.")
         return True
-    
+
     async def process_version(self, version: Version) -> bool:
         try:
             await self.navigate_to_scripts()
-            
+
             if not await self.create_new_version(version.name):
                 raise Exception("Failed to create version")
-            
+
             if not await self.wait_for_form_ready(len(version.scripts)):
                 raise Exception("Form fields did not load in time")
-            
+
             if self.config.enable_voice_selection:
                 if not await self.select_voice_clone():
                     raise Exception("Failed to select voice")
-            
+
             if self.config.enable_product_info:
                 await self.fill_product_info()
-            
+
             self.logger.info(f"Processing {len(version.scripts)} slots...")
             successful_slots = 0
             failed_slots: list[int] = []
@@ -1439,10 +1470,10 @@ class TTSAutomation:
             self.logger.info(f"Completed {successful_slots}/{len(version.scripts)} slots")
             if failed_slots:
                 self.logger.warning(f"Failed slots: {failed_slots}")
-            
+
             if successful_slots == 0:
                 raise Exception("Failed to fill any slots")
-            
+
             if not await self.save_version(len(version.scripts)):
                 raise Exception("Failed to save version")
 
@@ -1451,26 +1482,30 @@ class TTSAutomation:
                 await self.page.get_by_role("button", name="Back").click(timeout=3000)
             except Exception:
                 try:
-                    # Fallback: first button in the header row is the back arrow.
                     await self.page.locator('main button').first.click(timeout=3000)
                 except Exception:
                     pass
-            
+
             if self.no_save:
                 self.logger.info(f"COMPLETED (not saved): {version.name}")
             else:
-                self.logger.info(f"SUCCESS: {version.name}")
-            version.success = True
-            return True
-            
+                if failed_slots:
+                    self.logger.warning(f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})")
+                else:
+                    self.logger.info(f"SUCCESS: {version.name}")
+
+            # Mark success only when all slots succeeded
+            version.success = (len(failed_slots) == 0)
+            return version.success
+
         except Exception as e:
             self.logger.error(f"Failed: {e}")
-            
+
             try:
                 await self.take_screenshot(version.name)
             except Exception as screenshot_error:
                 self.logger.warning(f"Failed to take screenshot: {screenshot_error}")
-            
+
             version.error = str(e)
             self.logger.error(f"❌ FAILED: {version.name} - {e}")
             return False
@@ -1487,8 +1522,9 @@ def print_version_info(version: Version, logger: logging.Logger):
 
 def generate_report(versions: List[Version], config: ClientConfig, timestamp: str, logger: logging.Logger, logs_dir: Optional[str] = None) -> Report:
     successful = sum(1 for v in versions if v.success)
+    partial = sum(1 for v in versions if getattr(v, "failed_slots", None))
     failed = len(versions) - successful
-    
+
     report = Report(
         timestamp=datetime.now().isoformat(),
         config={
@@ -1511,34 +1547,34 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
             for v in versions
         ]
     )
-    
+
     logger.info("")
     logger.info("=" * 70)
     logger.info("📋 FINAL REPORT")
     logger.info("=" * 70)
     logger.info("")
-    logger.info(f"Total: {report.total} | Success: {successful} ✅ | Failed: {failed} ❌")
+    logger.info(f"Total: {report.total} | Success: {successful} ✅ | Partial: {partial} ⚠️ | Failed: {failed} ❌")
     logger.info("")
     logger.info("📑 VERSION → PRODUCTS MAPPING:")
     logger.info("-" * 70)
-    
+
     for v in versions:
         status = "OK" if v.success else "FAILED"
         logger.info(f"{status} {v.name}: {len(v.scripts)} scripts")
         if v.error:
             logger.info(f"      Error: {v.error}")
         logger.info("")
-    
+
     if logs_dir is None:
         logs_dir = Path("logs")
     else:
         logs_dir = Path(logs_dir)
     logs_dir.mkdir(exist_ok=True)
     report_path = logs_dir / f"report_{timestamp}.json"
-    
+
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
-    
+
     logger.info(f"📄 Report saved: {report_path}")
     return report
 
@@ -1559,7 +1595,7 @@ async def run_job(
 ) -> dict:
     """
     Main automation job function for GUI and programmatic execution.
-    
+
     Args:
         config_path: Path to client config JSON file
         csv_path: Path to CSV file with scripts
@@ -1572,7 +1608,7 @@ async def run_job(
         app_support_dir: Directory for logs, screenshots, session (default: current dir)
         log_callback: Optional callback for streaming logs to GUI
         debug_callback: Optional callback for debug mode (instead of blocking input)
-    
+
     Returns:
         dict with keys: success (bool), report (Report), error (Optional[str])
     """
@@ -1584,56 +1620,56 @@ async def run_job(
     else:
         logs_dir = None
         screenshots_dir = None
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger = setup_logging(timestamp, logs_dir=logs_dir, log_callback=log_callback)
-    
+
     logger.info("🚀 ANYLIVE TTS AUTOMATION")
     logger.info("=" * 70)
-    
+
     try:
         # Load configuration
         if not os.path.exists(config_path):
             error_msg = f"Config file not found: {config_path}"
             logger.error(f"❌ {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
-        
+
         config = load_config(config_path)
         logger.info(f"📋 Loaded config: {config_path}")
-        
+
         # Load and parse CSV
         if not os.path.exists(csv_path):
             error_msg = f"CSV file not found: {csv_path}"
             logger.error(f"❌ {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
-        
+
         df = load_csv(csv_path, logger)
         versions = parse_csv_data(df, config, logger)
-        
+
         if not versions:
             error_msg = "No versions to process"
             logger.error(f"❌ {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
-        
+
         # Apply start_version and limit
         start_idx = start_version - 1
         if start_idx > 0:
             versions = versions[start_idx:]
             logger.info(f"Starting from version {start_version}")
-        
+
         if limit:
             versions = versions[:limit]
             logger.info(f"Limited to {limit} versions")
-        
+
         if dry_run:
             logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
-        
+
         if no_save:
             logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
-        
+
         if debug:
             logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
-        
+
         # Run automation
         automation = TTSAutomation(
             config=config,
@@ -1643,14 +1679,14 @@ async def run_job(
             no_save=no_save,
             screenshots_dir=screenshots_dir
         )
-        
+
         try:
             await automation.start_browser()
-            
+
             for version in versions:
                 print_version_info(version, logger)
                 await automation.process_version(version)
-            
+
         finally:
             if debug:
                 logger.info("")
@@ -1664,12 +1700,12 @@ async def run_job(
                 logger.info("=" * 70)
             else:
                 await automation.close()
-        
+
         # Generate report
         report = generate_report(versions, config, timestamp, logger, logs_dir=logs_dir)
-        
+
         return {"success": True, "report": report, "error": None}
-        
+
     except Exception as e:
         error_msg = str(e)
         logger.error(f"❌ Job failed: {error_msg}")
@@ -1686,31 +1722,31 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Run without clicking Generate Speech")
     parser.add_argument("--no-save", action="store_true", help="Run without clicking Save button")
     parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
-    
+
     parser.add_argument("--config", type=str, help="Path to client config JSON file")
     parser.add_argument("--client", type=str, help="Client name (loads configs/{NAME}.json)")
     parser.add_argument("--base-url", type=str, help="Override base URL")
     parser.add_argument("--voice", type=str, help="Override voice clone name")
     parser.add_argument("--template", type=str, help="Override version template name")
     parser.add_argument("--max-scripts", type=int, help="Override max scripts per version")
-    
+
     args = parser.parse_args()
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger = setup_logging(timestamp)
-    
+
     logger.info("🚀 ANYLIVE TTS AUTOMATION")
     logger.info("=" * 70)
-    
+
     if args.setup:
         await setup_login(logger)
         return
-    
+
     if not is_session_valid():
         logger.error("❌ No session found. Please run with --setup first.")
         logger.info("   python auto_tts.py --setup")
         return
-    
+
     config_path = None
     if args.client:
         config_path = f"configs/{args.client}.json"
@@ -1718,7 +1754,7 @@ async def main():
         config_path = args.config
     else:
         config_path = "configs/default.json"
-    
+
     cli_overrides = {}
     if args.base_url:
         cli_overrides['base_url'] = args.base_url
@@ -1728,7 +1764,7 @@ async def main():
         cli_overrides['version_template'] = args.template
     if args.max_scripts:
         cli_overrides['max_scripts_per_version'] = args.max_scripts
-    
+
     try:
         config = load_config(config_path, cli_overrides if cli_overrides else None)
         logger.info(f"📋 Loaded config: {config_path}")
@@ -1740,7 +1776,7 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Failed to load config: {e}")
         return
-    
+
     # CSV selection: CLI flag > config.csv > autodetect
     try:
         csv_from_config = None
@@ -1755,41 +1791,41 @@ async def main():
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"❌ {e}")
         return
-    
+
     df = load_csv(csv_path, logger)
     versions = parse_csv_data(df, config, logger)
-    
+
     if not versions:
         logger.error("❌ No versions to process")
         return
-    
+
     start_idx = args.start_version - 1
     if start_idx > 0:
         versions = versions[start_idx:]
         logger.info(f"Starting from version {args.start_version}")
-    
+
     if args.limit:
         versions = versions[:args.limit]
         logger.info(f"Limited to {args.limit} versions")
-    
+
     if args.dry_run:
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
-    
+
     if args.no_save:
         logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
-    
+
     if args.debug:
         logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
-    
+
     automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run, no_save=args.no_save)
-    
+
     try:
         await automation.start_browser()
-        
+
         for version in versions:
             print_version_info(version, logger)
             await automation.process_version(version)
-        
+
     finally:
         if args.debug:
             logger.info("")
@@ -1799,7 +1835,7 @@ async def main():
             logger.info("=" * 70)
             input()
         await automation.close()
-    
+
     generate_report(versions, config, timestamp, logger)
 
 
