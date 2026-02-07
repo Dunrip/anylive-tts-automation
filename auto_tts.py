@@ -61,7 +61,7 @@ SELECTORS = {
         'button:has-text("Add Version")',
         # legacy
         'button:has-text("Add New Version")',
-        'text="+ Add Version"',
+        'text="+ Add New Version"',
         '[class*="add"] button',
     ],
     "version_name_input": [
@@ -69,9 +69,6 @@ SELECTORS = {
         'input[placeholder*="Live Asset Name"]',
         'input[placeholder*="Enter Live Asset Name"]',
         # fallback
-        'input[name="versionName"]',
-        'input[placeholder="Enter Live Asset Name"]',
-        'input[data-slot="input"][placeholder*="Enter Live"]',
         'input[placeholder*="Script Name"]',
         'input[placeholder*="Version Name"]',
         '[role="dialog"] input[type="text"]',
@@ -84,8 +81,6 @@ SELECTORS = {
         'dialog:has-text("Create New Version") [aria-haspopup="listbox"]',
         # fallback
         'button:has-text("Copy From Version")',
-        'button[placeholder="Select a version to copy from"]',
-        'button[data-slot="input"][placeholder*="Select a version"]',
         'text="Select Version"',
         '[role="combobox"]',
         'select',
@@ -110,6 +105,9 @@ SELECTORS = {
         '[class*="selling"] textarea',
         'textarea[placeholder*="Selling"]',
     ],
+    "edit_script_tab": [
+        'button:has-text("Edit Script")',
+    ],
     "generate_speech_btn": [
         # New UI may keep the label, but we also support a few likely variants.
         'button:has-text("Generate Speech")',
@@ -129,11 +127,6 @@ SELECTORS = {
         'input[name*="generatedScript"][name*="title"]',
         'input[aria-label="Section Title"]',
         'input[placeholder*="Introduction"]',
-    ],
-    "edit_script_tab": [
-        'button:has-text("Edit Script")',
-        '[role="tab"]:has-text("Edit Script")',
-        'button[data-headlessui-state*="selected"]:has-text("Edit Script")',
     ],
 }
 
@@ -559,13 +552,14 @@ class TTSAutomation:
             self.logger.error(f"❌ Session validation failed: {e}")
             return False
 
-    async def safe_click(self, selector_key: str, description: str) -> bool:
+    async def safe_click(self, selector_key: str, description: str, timeout: int = CLICK_TIMEOUT, force: bool = False) -> bool:
         selectors = SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
             try:
-                element = await self.page.wait_for_selector(selector, timeout=CLICK_TIMEOUT)
+                # wait for visible state specifically to avoid waiting for attached but hidden elements
+                element = await self.page.wait_for_selector(selector, timeout=timeout, state="visible")
                 if element:
-                    await element.click()
+                    await element.click(force=force)
                     self.logger.debug(f"Clicked {description} with selector: {selector}")
                     return True
             except Exception:
@@ -594,6 +588,33 @@ class TTSAutomation:
         path = screenshots_dir / f"error_{version_name}_{timestamp}.png"
         await self.page.screenshot(path=str(path))
         self.logger.info(f"📸 Screenshot saved: {path}")
+
+    async def js_click(self, text: str) -> bool:
+        """Click an element containing text using pure JavaScript for maximum speed."""
+        try:
+            return await self.page.evaluate(
+                """(text) => {
+                    // Try exact button first
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const target = buttons.find(b => b.innerText.includes(text));
+                    if (target) {
+                        target.click();
+                        return true;
+                    }
+                    // Fallback to role=tab
+                    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+                    const targetTab = tabs.find(t => t.innerText.includes(text));
+                    if (targetTab) {
+                        targetTab.click();
+                        return true;
+                    }
+                    return false;
+                }""",
+                text,
+            )
+        except Exception as e:
+            self.logger.debug(f"JS click failed: {e}")
+            return False
 
     async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
         """Robust fill helper for reactive UIs.
@@ -796,38 +817,6 @@ class TTSAutomation:
                 if await opt.count() > 0:
                     await opt.first.click()
                     self.logger.debug(f"Selected template: {self.config.version_template}")
-            # Try multiple selectors for the search input
-            search_selectors = [
-                'input[placeholder="Search..."][role="combobox"]',
-                'input[role="combobox"]',
-                'input[data-slot="combobox-search"]',
-                'input[data-slot="input"][placeholder*="Search"]',
-                'input[type="text"][placeholder*="Search"]',
-            ]
-            
-            search_input = None
-            for selector in search_selectors:
-                try:
-                    search_input = await self.page.wait_for_selector(selector, timeout=5000)
-                    if search_input:
-                        self.logger.debug(f"Found search input with selector: {selector}")
-                        break
-                except:
-                    continue
-            
-            if search_input:
-                await search_input.fill(self.config.version_template)
-                await asyncio.sleep(0.3)
-            else:
-                self.logger.warning("Could not find search input, trying to select from options directly")
-            
-            await self.page.wait_for_selector('[role="option"]', timeout=CLICK_TIMEOUT)
-            options = await self.page.query_selector_all('[role="option"]')
-            for option in options:
-                text = await option.inner_text()
-                if text.strip() == self.config.version_template:
-                    await option.click()
-                    self.logger.debug(f"Selected exact match: {self.config.version_template}")
                     return True
 
                 # Search fallback
@@ -893,53 +882,86 @@ class TTSAutomation:
     async def wait_for_form_ready(self, expected_count: int, timeout: int = 30) -> bool:
         self.logger.info(f"Waiting for {expected_count} form fields to load...")
 
-        # New UI: script fields are under the "Edit Script" tab.
-        # Optimize: click Edit Script ASAP (don't wait on other tabs like "Provide Live Knowledge").
-        try:
-            tab = self.page.get_by_role("tab", name="Edit Script")
-            await tab.wait_for(state="visible", timeout=8000)
-            await tab.click(timeout=8000)
-        except Exception:
-            # Fallback: try by text in case role mapping changes
-            try:
-                await self.page.locator('text="Edit Script"').first.click(timeout=8000)
-            except Exception:
-                pass
-
-        await asyncio.sleep(0.2)
-
-        # Confirmed on current AnyLive UI (Edit Script tab):
-        # - input[aria-label="Section Title"] (10)
-        # - textarea[aria-label="Section Content"] (10)
+        # Optimize: Check if fields are ALREADY visible (due to ?tab=edit-script)
+        # If so, return immediately without clicking anything.
         template_selector = 'input[aria-label="Section Title"]'
         script_selector = 'textarea[aria-label="Section Content"]'
+
+        # Optimize: Check if 'Edit Script' tab is ALREADY selected.
+        # If not, click it immediately. This ensures we don't wait if landing on 'Provide Live Knowledge'.
+        try:
+            is_selected = await self.page.evaluate("""() => {
+                // Try to find the button
+                const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Edit Script'));
+                if (!btn) return false;
+                
+                // Check if selected
+                return btn.getAttribute('aria-selected') === 'true' || 
+                       btn.getAttribute('data-headlessui-state') === 'selected' ||
+                       btn.getAttribute('data-selected') !== null;
+            }""")
+            
+            if is_selected:
+                self.logger.info("'Edit Script' tab already selected. Proceeding to stability check.")
+            else:
+                self.logger.info("'Edit Script' tab NOT selected. Clicking immediately...")
+                # Try pure JS click first (fastest)
+                if not await self.js_click("Edit Script"):
+                    await self.safe_click("edit_script_tab", "Edit Script tab", timeout=3000, force=True)
+                await asyncio.sleep(0.1)
+        except Exception as e:
+            self.logger.debug(f"Error checking tab state: {e}")
+            pass
+
+        await asyncio.sleep(0.2)
 
         template_count = 0
         script_count = 0
 
-        start_time = asyncio.get_event_loop().time()
+        # Stability check loop: Wait for fields to appear and count to stabilize
+        # This prevents waiting 30s if the template has fewer slots than expected (e.g. 5 vs 10).
+        last_count = 0
+        stable_iterations = 0
+        REQUIRED_STABLE_ITERATIONS = 3  # 0.5s * 3 = 1.5s stability
 
+        start_time = asyncio.get_event_loop().time()
+        
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
                 template_inputs = await self.page.query_selector_all(template_selector)
                 script_textareas = await self.page.query_selector_all(script_selector)
 
-                template_count = len(template_inputs)
+                current_count = len(template_inputs)
                 script_count = len(script_textareas)
 
-                self.logger.debug(f"Found {template_count} template inputs, {script_count} script textareas")
+                self.logger.debug(f"Found {current_count} template inputs, {script_count} script textareas")
 
-                if template_count >= expected_count and script_count >= expected_count:
-                    self.logger.info(f"Form ready: {template_count} template inputs, {script_count} script textareas")
-                    return True
+                if current_count > 0 and current_count == script_count:
+                    if current_count == last_count:
+                        stable_iterations += 1
+                    else:
+                        stable_iterations = 0
+                        last_count = current_count
+                    
+                    # If we hit expected count, we can return immediately
+                    if current_count >= expected_count:
+                        self.logger.info(f"Form ready: Found expected {current_count} slots.")
+                        return True
+                    
+                    # If stable for enough time, proceed even if < expected
+                    if stable_iterations >= REQUIRED_STABLE_ITERATIONS:
+                        self.logger.info(f"Form ready: Count stabilized at {current_count} slots (Expected {expected_count}). Proceeding.")
+                        return True
+                else:
+                    stable_iterations = 0
 
                 await asyncio.sleep(0.5)
             except Exception as e:
                 self.logger.debug(f"Error checking form fields: {e}")
                 await asyncio.sleep(0.5)
 
-        self.logger.warning(f"Timeout waiting for form fields. Found {template_count}/{expected_count} templates, {script_count}/{expected_count} scripts")
-        return False
+        self.logger.warning(f"Timeout. Proceeding with {last_count} slots (Expected {expected_count}).")
+        return last_count > 0
 
     async def navigate_to_scripts(self):
         """Navigate to the Live Asset versions list page.
@@ -1064,7 +1086,8 @@ class TTSAutomation:
         if not await self.safe_click("save_changes_btn", "Save Changes button"):
             return False
 
-        await self.page.wait_for_load_state("networkidle")
+        # optimized: networkidle can hang; rely on explicit element waits instead
+        await asyncio.sleep(0.5)
 
         # Wait for modal overlay to fully disappear (it can intercept clicks).
         try:
@@ -1078,36 +1101,13 @@ class TTSAutomation:
             await link.scroll_into_view_if_needed()
             href = await link.get_attribute('href')
             if href and href.startswith('/'):
-                await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+                await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
             elif href:
-                await self.page.goto(href, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+                await self.page.goto(href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
         except Exception as e:
             self.logger.warning(f"Created version but could not open it automatically: {e}")
 
         self.logger.info(f"Created: {name}")
-        
-        # After creating version, we land on "Provide Live Knowledge" tab
-        # Need to click "Edit Script" tab to access the form fields
-        await asyncio.sleep(2.0)  # Wait for tabs to load
-        
-        self.logger.debug("Clicking Edit Script tab after version creation...")
-        try:
-            edit_script_tab = await self.page.wait_for_selector(
-                'button[role="tab"]:has-text("Edit Script")',
-                state="visible",
-                timeout=10000
-            )
-            if edit_script_tab:
-                await edit_script_tab.click()
-                # Wait for DOM to stabilize - elements re-render 2-3 times in first 800ms
-                await asyncio.sleep(1.5)
-                await self.page.wait_for_load_state("networkidle")
-                self.logger.debug("Successfully clicked Edit Script tab")
-            else:
-                self.logger.warning("Edit Script tab not found after version creation")
-        except Exception as e:
-            self.logger.warning(f"Could not click Edit Script tab: {e}")
-        
         return True
 
     async def open_version(self, name: str) -> bool:
@@ -1118,33 +1118,6 @@ class TTSAutomation:
             if row:
                 await row.click()
                 await self.page.wait_for_load_state("networkidle")
-                
-                # Wait for tabs to be fully loaded
-                await asyncio.sleep(2.0)
-                
-                # After clicking version, need to click "Edit Script" tab
-                self.logger.debug("Clicking Edit Script tab...")
-                
-                # Wait for the tab to be visible and clickable
-                try:
-                    edit_script_tab = await self.page.wait_for_selector(
-                        'button[role="tab"]:has-text("Edit Script")',
-                        state="visible",
-                        timeout=10000
-                    )
-                    if edit_script_tab:
-                        await edit_script_tab.click()
-                        # Wait for DOM to stabilize - elements re-render 2-3 times in first 800ms
-                        await asyncio.sleep(1.5)
-                        await self.page.wait_for_load_state("networkidle")
-                        self.logger.debug("Successfully clicked Edit Script tab")
-                    else:
-                        self.logger.warning("Edit Script tab not found")
-                except Exception as e:
-                    self.logger.warning(f"Could not click Edit Script tab: {e}")
-                    # Still wait for potential auto-navigation to settle
-                    await asyncio.sleep(1.5)
-                
                 return True
         except Exception as e:
             self.logger.error(f"Failed to open version: {e}")
@@ -1307,12 +1280,12 @@ class TTSAutomation:
                 return False
 
             textarea = None
-            try:
-                name_sel = f'textarea[name="generatedScript.{slot_index}.content"]'
-                if await card.locator(name_sel).count() > 0:
-                    textarea = card.locator(name_sel).first
-            except Exception:
-                textarea = None
+            # try:
+            #     name_sel = f'textarea[name="generatedScript.{slot_index}.content"]'
+            #     if await card.locator(name_sel).count() > 0:
+            #         textarea = card.locator(name_sel).first
+            # except Exception:
+            #     textarea = None
 
             if textarea is None:
                 textarea = await self.page.wait_for_selector(f'textarea[aria-label="Section Content"] >> nth={slot_index}', timeout=CLICK_TIMEOUT)
@@ -1348,7 +1321,7 @@ class TTSAutomation:
                 try:
                     # Re-click Edit Script (sometimes focus/virtualization breaks the first textarea)
                     try:
-                        await self.page.get_by_role("tab", name="Edit Script").click(timeout=5000)
+                        await self.safe_click("edit_script_tab", "Edit Script tab", timeout=5000)
                         await asyncio.sleep(0.2)
                     except Exception:
                         pass
@@ -1409,7 +1382,7 @@ class TTSAutomation:
                         except Exception:
                             pass
                         try:
-                            await self.page.get_by_role("tab", name="Edit Script").click(timeout=5000)
+                            await self.safe_click("edit_script_tab", "Edit Script tab", timeout=5000)
                         except Exception:
                             pass
                         await asyncio.sleep(0.15)
@@ -1635,7 +1608,7 @@ class TTSAutomation:
         if not validation_passed:
             self.logger.error(f"❌ Validation failed: {error_msg}")
             return False
-        
+
         # Wait for auto-save to complete
         self.logger.info("💾 Waiting for auto-save...")
         
@@ -1648,22 +1621,6 @@ class TTSAutomation:
             self.logger.warning(f"Could not confirm auto-save status (might have saved too fast or indicator missed): {e}")
             # Continue anyway as the system likely saved
 
-        
-        # Navigate back immediately after auto-save
-        self.logger.debug("Navigating back to version list...")
-        try:
-            back_button = await self.page.wait_for_selector('a[href^="/live-assets/"] button', timeout=5000)
-            if back_button:
-                await back_button.click()
-                await self.page.wait_for_load_state("networkidle", timeout=NAVIGATION_TIMEOUT)
-                self.logger.debug("Navigated back successfully")
-            else:
-                # Fallback: navigate directly to the base URL
-                await self.page.goto(f"{self.config.base_url}?page=1", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
-        except Exception as e:
-            self.logger.warning(f"Back button not found, navigating directly: {e}")
-            await self.page.goto(f"{self.config.base_url}?page=1", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
-        
         return True
 
     async def process_version(self, version: Version) -> bool:
@@ -1706,20 +1663,16 @@ class TTSAutomation:
             if not await self.save_version(len(version.scripts)):
                 raise Exception("Failed to save version")
 
-            # (Handled by save_version navigation now)
-            # # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
-            #             # (Handled by save_version navigation now)
-            #             # # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
-            #             # (Handled by save_version navigation now)
-            #             # try:
-            #             # # await self.page.get_by_role("button", name="Back").click(timeout=3000)
-            #             # except Exception:
-            #             # try:
-            #             # # await self.page.locator('main button').first.click(timeout=3000)
-            #             # except Exception:
-            #             # pass
-            # 
-            #             if self.no_save:
+            # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
+            try:
+                await self.page.get_by_role("button", name="Back").click(timeout=3000)
+            except Exception:
+                try:
+                    await self.page.locator('main button').first.click(timeout=3000)
+                except Exception:
+                    pass
+
+            if self.no_save:
                 self.logger.info(f"COMPLETED (not saved): {version.name}")
             else:
                 if failed_slots:
