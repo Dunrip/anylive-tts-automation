@@ -719,10 +719,26 @@ class TTSAutomation:
                 self.logger.debug(f"Selected template: {self.config.version_template}")
                 return True
 
-            # Fallback: list items without role.
+            # Fallback 1: try to type into the Search box and then pick the matching text.
             try:
-                await self.page.locator('text=' + self.config.version_template).first.click(timeout=2000)
-                self.logger.debug(f"Selected template by text: {self.config.version_template}")
+                search = dialog.get_by_placeholder("Search...")
+                await search.fill("")
+                await search.type(self.config.version_template, delay=10)
+                await asyncio.sleep(0.2)
+                cand = self.page.locator(f'text="{self.config.version_template}"')
+                if await cand.count() > 0:
+                    await cand.first.click(timeout=2000)
+                    self.logger.debug(f"Selected template by search: {self.config.version_template}")
+                    return True
+            except Exception:
+                pass
+
+            # Fallback 2: press ArrowDown+Enter to select first available option (if any).
+            try:
+                await dropdown.click(timeout=2000)
+                await self.page.keyboard.press("ArrowDown")
+                await self.page.keyboard.press("Enter")
+                self.logger.debug("Selected first template option via keyboard fallback")
                 return True
             except Exception:
                 pass
