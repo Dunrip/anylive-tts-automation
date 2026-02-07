@@ -23,8 +23,8 @@ os.environ.setdefault(
 )
 
 DEFAULT_TIMEOUT = 30000
-CLICK_TIMEOUT = 15000
-NAVIGATION_TIMEOUT = 60000
+CLICK_TIMEOUT = 8000
+NAVIGATION_TIMEOUT = 45000
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 SESSION_FILE = "session_state.json"
@@ -1241,21 +1241,20 @@ class TTSAutomation:
             return True
         
         self.logger.debug("Waiting for form state to stabilize...")
-        await asyncio.sleep(1.0)
-        
+        await asyncio.sleep(0.3)
+
         try:
             await self.page.evaluate('document.activeElement?.blur()')
         except Exception:
             pass
-        await asyncio.sleep(0.3)
-        
+
         validation_passed, error_msg = await self.validate_form_fields(expected_slots)
         if not validation_passed:
             self.logger.error(f"❌ Validation failed: {error_msg}")
             return False
         
-        await asyncio.sleep(2.0)
-        
+        await asyncio.sleep(0.6)
+
         self.logger.info("💾 Saving...")
 
         # New AnyLive UI auto-saves (shows "Auto Saved") and may not have a Save button.
