@@ -923,11 +923,37 @@ class TTSAutomation:
         if not await self.safe_fill("version_name_input", name, "Version Name input"):
             return False
 
-        # Copy From Version combobox → select template
-        if not await self.select_template_from_dropdown():
-            return False
+        # Copy From Version combobox → select template (modal/dropdown is flaky; retry the whole modal flow)
+        selected = await self.select_template_from_dropdown()
+        if not selected:
+            # Close modal and retry once
+            try:
+                await self.page.keyboard.press("Escape")
+            except Exception:
+                pass
+            await asyncio.sleep(0.4)
 
-        await asyncio.sleep(0.2)
+            # Re-open Add Version
+            add_btn = self.page.get_by_role("button", name="Add Version")
+            try:
+                await add_btn.click(timeout=8000, force=True)
+            except Exception:
+                return False
+
+            if not await self.safe_fill("version_name_input", name, "Version Name input"):
+                return False
+
+            selected = await self.select_template_from_dropdown()
+            if not selected:
+                return False
+
+        # Confirm we actually selected something (placeholder should disappear)
+        try:
+            await self.page.wait_for_selector('text="Copy From Version is required"', state='hidden', timeout=1500)
+        except Exception:
+            pass
+
+        await asyncio.sleep(0.1)
 
         if not await self.safe_click("save_changes_btn", "Save Changes button"):
             return False
