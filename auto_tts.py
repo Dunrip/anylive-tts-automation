@@ -732,6 +732,18 @@ class TTSAutomation:
                     await asyncio.sleep(0.4)
                     continue
 
+                # If no options at all, it's also a failure (don't proceed).
+                try:
+                    if await self.page.locator('[role="option"]').count() == 0:
+                        raise Exception("No options")
+                except Exception:
+                    try:
+                        await self.page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.4)
+                    continue
+
                 # Prefer role-based option.
                 opt = self.page.get_by_role("option", name=self.config.version_template)
                 if await opt.count() > 0:
