@@ -695,55 +695,83 @@ class TTSAutomation:
             return False, error_msg
     
     async def select_template_from_dropdown(self) -> bool:
-        """Select the "Copy From Version" value in the Create New Version dialog."""
+        """Select the "Copy From Version" value in the Create New Version dialog.
+
+        This dropdown is flaky: sometimes it opens with "No results found" until reopened.
+        We retry open/search/select a few times before failing.
+        """
         try:
-            # Prefer the modal-scoped combobox button.
             dialog = self.page.get_by_role("dialog", name="Create New Version")
-
-            # Click the dropdown/combobox container. In this UI it's not always exposed as role=combobox.
             dropdown = dialog.locator('[aria-haspopup="listbox"], [role="combobox"], button:has-text("Select a version to copy from")').first
-            await dropdown.click(timeout=CLICK_TIMEOUT)
 
-            # Optional search box in the popover.
-            try:
-                search = dialog.get_by_placeholder("Search...")
-                await search.fill(self.config.version_template)
-                await asyncio.sleep(0.2)
-            except Exception:
-                pass
+            async def open_dropdown() -> None:
+                try:
+                    await dropdown.click(timeout=CLICK_TIMEOUT)
+                except Exception:
+                    await dropdown.click(timeout=CLICK_TIMEOUT, force=True)
 
-            # Prefer role-based option.
-            opt = self.page.get_by_role("option", name=self.config.version_template)
-            if await opt.count() > 0:
-                await opt.first.click()
-                self.logger.debug(f"Selected template: {self.config.version_template}")
-                return True
+            for attempt in range(3):
+                await open_dropdown()
 
-            # Fallback 1: try to type into the Search box and then pick the matching text.
-            try:
-                search = dialog.get_by_placeholder("Search...")
-                await search.fill("")
-                await search.type(self.config.version_template, delay=10)
-                await asyncio.sleep(0.2)
-                cand = self.page.locator(f'text="{self.config.version_template}"')
-                if await cand.count() > 0:
-                    await cand.first.click(timeout=2000)
-                    self.logger.debug(f"Selected template by search: {self.config.version_template}")
+                # If popover shows empty state, close and retry.
+                try:
+                    nr = self.page.locator('text="No results found"')
+                    if await nr.count() > 0 and await nr.first.is_visible():
+                        raise Exception("No results found")
+                except Exception:
+                    try:
+                        await self.page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.3)
+                    continue
+
+                # Prefer role-based option.
+                opt = self.page.get_by_role("option", name=self.config.version_template)
+                if await opt.count() > 0:
+                    await opt.first.click()
+                    self.logger.debug(f"Selected template: {self.config.version_template}")
                     return True
-            except Exception:
-                pass
 
-            # Fallback 2: press ArrowDown+Enter to select first available option (if any).
-            try:
-                await dropdown.click(timeout=2000)
-                await self.page.keyboard.press("ArrowDown")
-                await self.page.keyboard.press("Enter")
-                self.logger.debug("Selected first template option via keyboard fallback")
-                return True
-            except Exception:
-                pass
+                # Search fallback
+                try:
+                    search = dialog.get_by_placeholder("Search...")
+                    await search.fill("")
+                    await search.type(self.config.version_template, delay=10)
+                    await asyncio.sleep(0.2)
 
-            self.logger.error(f"Could not find template in dropdown: {self.config.version_template}")
+                    opt2 = self.page.get_by_role("option", name=self.config.version_template)
+                    if await opt2.count() > 0:
+                        await opt2.first.click()
+                        self.logger.debug(f"Selected template (after search): {self.config.version_template}")
+                        return True
+
+                    cand = self.page.locator(f'text="{self.config.version_template}"')
+                    if await cand.count() > 0:
+                        await cand.first.click(timeout=2000)
+                        self.logger.debug(f"Selected template by text: {self.config.version_template}")
+                        return True
+                except Exception:
+                    pass
+
+                # Keyboard fallback: select first available option
+                try:
+                    await open_dropdown()
+                    await self.page.keyboard.press("ArrowDown")
+                    await self.page.keyboard.press("Enter")
+                    self.logger.debug("Selected first template option via keyboard fallback")
+                    return True
+                except Exception:
+                    pass
+
+                # Close popover before retry loop
+                try:
+                    await self.page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.3)
+
+            self.logger.error(f"Could not find template in dropdown after retries: {self.config.version_template}")
             return False
         except Exception as e:
             self.logger.error(f"Failed to select template: {e}")
