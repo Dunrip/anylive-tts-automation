@@ -1163,37 +1163,49 @@ class TTSAutomation:
         self.logger.info(f"Processing slot {slot_num}: {audio_code}")
 
         try:
-            template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
-            template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
+            # Prefer name-based locator (more stable than nth): generatedScript.{i}.title
+            template = None
+            try:
+                name_sel = f'input[name="generatedScript.{slot_index}.title"]'
+                if await self.page.locator(name_sel).count() > 0:
+                    template = self.page.locator(name_sel).first
+            except Exception:
+                template = None
 
-            async def _fill_title_with_keyboard(el) -> bool:
+            if template is None:
+                template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
+                template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
+
+            async def _type_commit(el, val: str) -> bool:
                 try:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.02)
                     await el.press("Meta+A")
                     await el.press("Backspace")
-                    # insertText triggers proper input events in many controlled inputs
-                    await self.page.keyboard.insert_text(audio_code)
-                    await el.press("Tab")
+                    await self.page.keyboard.type(val, delay=1)
+                    # commit
+                    try:
+                        await el.press("Enter")
+                    except Exception:
+                        pass
+                    try:
+                        await el.press("Tab")
+                    except Exception:
+                        pass
                     await asyncio.sleep(0.05)
                     v = (await el.input_value()).strip()
-                    return v == audio_code.strip()
+                    return v == val.strip()
                 except Exception:
                     return False
 
-            ok_title = await self.clear_and_fill(template, audio_code)
+            ok_title = await _type_commit(template, audio_code)
             if not ok_title:
-                # retry with fresh locator + keyboard path (more reliable than fill() for controlled inputs)
+                # retry with clear_and_fill + keyboard commit
                 try:
-                    template2 = self.page.locator('input[aria-label="Section Title"]').nth(slot_index)
-                    if await _fill_title_with_keyboard(template2):
-                        template = template2
-                        ok_title = True
-                    else:
-                        ok_title = await self.clear_and_fill(template2, audio_code)
-                        if ok_title:
-                            template = template2
+                    ok_title = await self.clear_and_fill(template, audio_code)
+                    if not ok_title:
+                        ok_title = await _type_commit(template, audio_code)
                 except Exception:
                     ok_title = False
 
@@ -1201,19 +1213,29 @@ class TTSAutomation:
                 self.logger.error(f"Failed to fill template for slot {slot_num}")
                 return False
 
-            script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
-            textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
+            # Prefer name-based locator (more stable than nth): generatedScript.{i}.content
+            textarea = None
+            try:
+                name_sel = f'textarea[name="generatedScript.{slot_index}.content"]'
+                if await self.page.locator(name_sel).count() > 0:
+                    textarea = self.page.locator(name_sel).first
+            except Exception:
+                textarea = None
+
+            if textarea is None:
+                script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
+                textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
 
             async def _type_long_text(el, val: str) -> bool:
                 """Last-resort for long Thai scripts: real typing tends to commit in controlled textareas."""
                 try:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
-                    await asyncio.sleep(0.03)
+                    await asyncio.sleep(0.02)
                     await el.press("Meta+A")
                     await el.press("Backspace")
                     await self.page.keyboard.type(val, delay=1)
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.03)
                     try:
                         await el.press("Tab")
                     except Exception:
@@ -1270,25 +1292,21 @@ class TTSAutomation:
                 sv = (await textarea.input_value()).strip()
 
                 async def _card_visible_text(idx: int) -> tuple[str, str]:
-                    """Return (titleText, bodyText) from the rendered card, not the input values."""
-                    # Each paragraph card has a drag handle and a 3-dot menu; title appears as visible text.
-                    card = self.page.locator('div:has(button:has-text("Generate Speech"))').nth(idx)
+                    """Return (titleText, bodyText) from the rendered card.
+
+                    Prefer reading from name-based fields (generatedScript.{i}.title/content)
+                    because those reflect the actual controlled form state.
+                    """
                     title_txt = ""
                     body_txt = ""
                     try:
-                        # first line in the card (title)
-                        title_txt = (await card.locator('text=/^template_\d+|^SC\d+|^SC\d\d+|^SC\d\d\d+/').first.inner_text()).strip()
+                        t = self.page.locator(f'input[name="generatedScript.{idx}.title"]').first
+                        title_txt = (await t.input_value()).strip()
                     except Exception:
-                        try:
-                            # fallback: take first text node-ish
-                            title_txt = (await card.inner_text()).splitlines()[0].strip()
-                        except Exception:
-                            title_txt = ""
+                        title_txt = ""
                     try:
-                        # second line in the card (body) often includes script_1 for defaults
-                        lines = (await card.inner_text()).splitlines()
-                        if len(lines) > 1:
-                            body_txt = lines[1].strip()
+                        s = self.page.locator(f'textarea[name="generatedScript.{idx}.content"]').first
+                        body_txt = (await s.input_value()).strip()
                     except Exception:
                         body_txt = ""
                     return title_txt, body_txt
