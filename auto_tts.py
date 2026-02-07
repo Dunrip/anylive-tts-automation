@@ -181,6 +181,7 @@ class Version:
     version_suffix: Optional[str] = None
     success: bool = False
     error: Optional[str] = None
+    failed_slots: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -1211,13 +1212,20 @@ class TTSAutomation:
             
             self.logger.info(f"Processing {len(version.scripts)} slots...")
             successful_slots = 0
+            failed_slots: list[int] = []
             for i in range(len(version.scripts)):
                 audio_code = version.audio_codes[i] if i < len(version.audio_codes) else ""
                 script = version.scripts[i]
-                if await self.fill_and_generate_slot(i, audio_code, script, dry_run=self.dry_run):
+                ok = await self.fill_and_generate_slot(i, audio_code, script, dry_run=self.dry_run)
+                if ok:
                     successful_slots += 1
-            
+                else:
+                    failed_slots.append(i + 1)
+
+            version.failed_slots = failed_slots
             self.logger.info(f"Completed {successful_slots}/{len(version.scripts)} slots")
+            if failed_slots:
+                self.logger.warning(f"Failed slots: {failed_slots}")
             
             if successful_slots == 0:
                 raise Exception("Failed to fill any slots")
@@ -1274,6 +1282,7 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
                 "products": v.products,
                 "scripts": len(v.scripts),
                 "success": v.success,
+                "failed_slots": v.failed_slots,
                 "error": v.error
             }
             for v in versions
