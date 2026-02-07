@@ -1311,6 +1311,16 @@ class TTSAutomation:
             
             if not await self.save_version(len(version.scripts)):
                 raise Exception("Failed to save version")
+
+            # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
+            try:
+                await self.page.get_by_role("button", name="Back").click(timeout=3000)
+            except Exception:
+                try:
+                    # Fallback: first button in the header row is the back arrow.
+                    await self.page.locator('main button').first.click(timeout=3000)
+                except Exception:
+                    pass
             
             if self.no_save:
                 self.logger.info(f"COMPLETED (not saved): {version.name}")
