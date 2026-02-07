@@ -1,5 +1,25 @@
-2026/02/08-04:44:16.695 6494f0 Reusing MANIFEST /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/MANIFEST-000001
-2026/02/08-04:44:16.695 6494f0 Recovering log #111
-2026/02/08-04:44:16.695 6494f0 Reusing old log /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/000111.log 
-2026/02/08-04:44:16.696 6494f0 Delete type=2 #110
-2026/02/08-04:44:16.704 6494f0 Manual compaction at level-0 from '\x009\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00:\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/02/08-06:45:25.884 68f010 Reusing MANIFEST /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/08-06:45:25.884 68f010 Recovering log #157
+2026/02/08-06:45:25.884 68f010 Reusing old log /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/000157.log 
+2026/02/08-06:45:25.891 68f010 Manual compaction at level-0 from '\x00Q\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00R\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/02/08-06:45:35.220 68f010 Level-0 table #162: started
+2026/02/08-06:45:35.221 68f010 Level-0 table #162: 6974 bytes OK
+2026/02/08-06:45:35.223 68f010 Delete type=0 #157
+2026/02/08-06:45:35.223 68f00c Manual compaction at level-0 from '\x00R\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00S\x00\x00\x00' @ 0 : 0; will stop at '\x00R\x00\x00\x05' @ 4021 : 1
+2026/02/08-06:45:35.223 68f00c Compacting 1@0 + 1@1 files
+2026/02/08-06:45:35.224 68f00c Generated table #163@0: 190 keys, 4001 bytes
+2026/02/08-06:45:35.224 68f00c Compacted 1@0 + 1@1 files => 4001 bytes
+2026/02/08-06:45:35.225 68f00c compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/08-06:45:35.225 68f00c Delete type=2 #162
+2026/02/08-06:45:35.226 68f00c Manual compaction at level-0 from '\x00R\x00\x00\x05' @ 4021 : 1 .. '\x00S\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/02/08-06:45:54.615 68f010 Level-0 table #165: started
+2026/02/08-06:45:54.618 68f010 Level-0 table #165: 1166 bytes OK
+2026/02/08-06:45:54.619 68f010 Delete type=0 #161
+2026/02/08-06:45:54.619 68f010 Delete type=2 #159
+2026/02/08-06:45:54.619 68f010 Manual compaction at level-0 from '\x00S\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00T\x00\x00\x00' @ 0 : 0; will stop at '\x00S\x00\x00\x05' @ 4052 : 1
+2026/02/08-06:45:54.619 68f010 Compacting 1@0 + 1@1 files
+2026/02/08-06:45:54.620 68f010 Generated table #166@0: 190 keys, 4004 bytes
+2026/02/08-06:45:54.620 68f010 Compacted 1@0 + 1@1 files => 4004 bytes
+2026/02/08-06:45:54.621 68f010 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/08-06:45:54.621 68f010 Delete type=2 #165
+2026/02/08-06:45:54.621 68f00d Manual compaction at level-0 from '\x00S\x00\x00\x05' @ 4052 : 1 .. '\x00T\x00\x00\x00' @ 0 : 0; will stop at (end)
