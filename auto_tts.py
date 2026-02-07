@@ -1009,20 +1009,41 @@ class TTSAutomation:
         try:
             template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
             template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
-            if not await self.clear_and_fill(template, audio_code):
-                # retry with fresh locator (controlled input sometimes ignores first fill)
+
+            async def _fill_title_with_keyboard(el) -> bool:
+                try:
+                    await el.scroll_into_view_if_needed()
+                    await el.click(force=True)
+                    await asyncio.sleep(0.05)
+                    await el.press("Meta+A")
+                    await el.press("Backspace")
+                    # insertText triggers proper input events in many controlled inputs
+                    await self.page.keyboard.insert_text(audio_code)
+                    await el.press("Tab")
+                    await asyncio.sleep(0.05)
+                    v = (await el.input_value()).strip()
+                    return v == audio_code.strip()
+                except Exception:
+                    return False
+
+            ok_title = await self.clear_and_fill(template, audio_code)
+            if not ok_title:
+                # retry with fresh locator + keyboard path (more reliable than fill() for controlled inputs)
                 try:
                     template2 = self.page.locator('input[aria-label="Section Title"]').nth(slot_index)
-                    await template2.scroll_into_view_if_needed()
-                    await template2.click(force=True)
-                    ok = await self.clear_and_fill(template2, audio_code)
-                    if not ok:
-                        self.logger.error(f"Failed to fill template for slot {slot_num}")
-                        return False
-                    template = template2
+                    if await _fill_title_with_keyboard(template2):
+                        template = template2
+                        ok_title = True
+                    else:
+                        ok_title = await self.clear_and_fill(template2, audio_code)
+                        if ok_title:
+                            template = template2
                 except Exception:
-                    self.logger.error(f"Failed to fill template for slot {slot_num}")
-                    return False
+                    ok_title = False
+
+            if not ok_title:
+                self.logger.error(f"Failed to fill template for slot {slot_num}")
+                return False
             
             script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
             textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
