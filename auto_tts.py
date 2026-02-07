@@ -713,6 +713,12 @@ class TTSAutomation:
             for attempt in range(3):
                 await open_dropdown()
 
+                # Wait for either options OR the "No results" empty state.
+                try:
+                    await self.page.wait_for_selector('[role="option"], text="No results found"', timeout=3000)
+                except Exception:
+                    pass
+
                 # If popover shows empty state, close and retry.
                 try:
                     nr = self.page.locator('text="No results found"')
@@ -723,7 +729,7 @@ class TTSAutomation:
                         await self.page.keyboard.press("Escape")
                     except Exception:
                         pass
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.4)
                     continue
 
                 # Prefer role-based option.
@@ -926,12 +932,21 @@ class TTSAutomation:
         # Copy From Version combobox → select template (modal/dropdown is flaky; retry the whole modal flow)
         selected = await self.select_template_from_dropdown()
         if not selected:
-            # Close modal and retry once
+            # Close modal and retry once (full restart of modal state)
             try:
                 await self.page.keyboard.press("Escape")
             except Exception:
                 pass
             await asyncio.sleep(0.4)
+
+            # If modal still visible, click Cancel.
+            try:
+                cancel_btn = self.page.get_by_role("button", name="Cancel")
+                if await cancel_btn.count() > 0:
+                    await cancel_btn.first.click(timeout=2000)
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
 
             # Re-open Add Version
             add_btn = self.page.get_by_role("button", name="Add Version")
