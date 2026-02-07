@@ -1268,6 +1268,71 @@ class TTSAutomation:
             try:
                 tv = (await template.input_value()).strip()
                 sv = (await textarea.input_value()).strip()
+
+                async def _retry_slot1_commit() -> bool:
+                    # Aggressive self-heal for flaky first card.
+                    for _ in range(3):
+                        try:
+                            await self.page.evaluate('window.scrollTo(0, 0)')
+                        except Exception:
+                            pass
+                        try:
+                            await self.page.get_by_role("tab", name="Edit Script").click(timeout=5000)
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.15)
+
+                        t = self.page.locator('input[aria-label="Section Title"]').nth(0)
+                        s = self.page.locator('textarea[aria-label="Section Content"]').nth(0)
+
+                        # Title: typing commit
+                        try:
+                            await t.click(force=True)
+                            await t.press("Meta+A")
+                            await t.press("Backspace")
+                            await self.page.keyboard.type(audio_code, delay=1)
+                            await t.press("Tab")
+                        except Exception:
+                            pass
+
+                        # Script: prefer typing for long text
+                        try:
+                            await s.click(force=True)
+                            await s.press("Meta+A")
+                            await s.press("Backspace")
+                            if len(script.strip()) > 150:
+                                await self.page.keyboard.type(script, delay=1)
+                            else:
+                                await self.page.keyboard.insert_text(script)
+                            try:
+                                await s.press("Tab")
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+
+                        # Wait for autosave best-effort
+                        try:
+                            await self.page.wait_for_selector('text="Auto Saved"', timeout=3000)
+                        except Exception:
+                            pass
+
+                        try:
+                            tvx = (await t.input_value()).strip()
+                            svx = (await s.input_value()).strip()
+                            if (not audio_code.strip() or tvx == audio_code.strip()) and (not script.strip() or svx == script.strip()):
+                                return True
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.2)
+                    return False
+
+                # Slot 1 special case: detect untouched defaults
+                if slot_index == 0 and ((tv == "template_1") or (sv == "script_1")):
+                    if not await _retry_slot1_commit():
+                        self.logger.warning(f"Slot {slot_num} still default after retries (title='{tv}', script='{sv}')")
+                        return False
+
                 if audio_code.strip() and tv != audio_code.strip():
                     # Title sometimes doesn't commit; retry with keyboard typing.
                     try:
@@ -1285,9 +1350,16 @@ class TTSAutomation:
                     except Exception:
                         self.logger.warning(f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')")
                         return False
+
                 if script.strip() and sv != script.strip():
-                    self.logger.warning(f"Slot {slot_num} script mismatch after fill")
-                    return False
+                    # Script mismatch: for slot 1, try aggressive retry once.
+                    if slot_index == 0:
+                        if not await _retry_slot1_commit():
+                            self.logger.warning(f"Slot {slot_num} script mismatch after retries")
+                            return False
+                    else:
+                        self.logger.warning(f"Slot {slot_num} script mismatch after fill")
+                        return False
             except Exception:
                 pass
 
@@ -1682,7 +1754,7 @@ async def run_job(
             logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
 
         if debug:
-            logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
+            logger.info("🐛 DEBUG MODE: Browser will stay open after execution (non-blocking)")
 
         # Run automation
         automation = TTSAutomation(
@@ -1844,10 +1916,10 @@ async def main():
         if args.debug:
             logger.info("")
             logger.info("=" * 70)
-            logger.info("🐛 DEBUG MODE: Browser is still open for inspection")
-            logger.info("   Press Enter to close browser and exit...")
+            logger.info("🐛 DEBUG MODE: Leaving browser open for inspection (non-blocking)")
+            logger.info("   Close the browser manually when you're done.")
             logger.info("=" * 70)
-            input()
+            return
         await automation.close()
 
     generate_report(versions, config, timestamp, logger)
