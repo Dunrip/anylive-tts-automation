@@ -1269,8 +1269,22 @@ class TTSAutomation:
                 tv = (await template.input_value()).strip()
                 sv = (await textarea.input_value()).strip()
                 if audio_code.strip() and tv != audio_code.strip():
-                    self.logger.warning(f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')")
-                    return False
+                    # Title sometimes doesn't commit; retry with keyboard typing.
+                    try:
+                        await template.scroll_into_view_if_needed()
+                        await template.click(force=True)
+                        await template.press("Meta+A")
+                        await template.press("Backspace")
+                        await self.page.keyboard.type(audio_code, delay=1)
+                        await template.press("Tab")
+                        await asyncio.sleep(0.05)
+                        tv2 = (await template.input_value()).strip()
+                        if tv2 != audio_code.strip():
+                            self.logger.warning(f"Slot {slot_num} title mismatch after retry (expected '{audio_code.strip()}', got '{tv2}')")
+                            return False
+                    except Exception:
+                        self.logger.warning(f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')")
+                        return False
                 if script.strip() and sv != script.strip():
                     self.logger.warning(f"Slot {slot_num} script mismatch after fill")
                     return False
