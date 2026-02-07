@@ -57,22 +57,38 @@ def get_browser_data_dir() -> str:
 
 SELECTORS = {
     "add_version_btn": [
+        # New UI uses "Add Version" on Live Assets page
+        'button:has-text("Add Version")',
+        # legacy
         'button:has-text("Add New Version")',
         'text="+ Add New Version"',
         '[class*="add"] button',
     ],
     "version_name_input": [
+        # Modal field: placeholder is "Enter Live Asset Name"
+        'input[placeholder*="Live Asset Name"]',
+        'input[placeholder*="Enter Live Asset Name"]',
+        # fallback
         'input[placeholder*="Script Name"]',
         'input[placeholder*="Version Name"]',
+        '[role="dialog"] input[type="text"]',
         '[class*="modal"] input[type="text"]',
     ],
     "version_dropdown": [
+        # New UI: this is a combobox (role=combobox) under "Copy From Version".
+        # Use dialog-scoped selectors so we don't click other comboboxes on the page.
+        'dialog:has-text("Create New Version") [role="combobox"]',
+        'dialog:has-text("Create New Version") [aria-haspopup="listbox"]',
+        # fallback
+        'button:has-text("Copy From Version")',
         'text="Select Version"',
         '[role="combobox"]',
         'select',
     ],
     "save_changes_btn": [
         'button:has-text("Save Changes")',
+        # safer modal-scoped fallback
+        '[role="dialog"] button:has-text("Save")',
         '[class*="modal"] button:has-text("Save")',
         'button[type="submit"]',
     ],
@@ -90,10 +106,17 @@ SELECTORS = {
         'textarea[placeholder*="Selling"]',
     ],
     "generate_speech_btn": [
+        # New UI may keep the label, but we also support a few likely variants.
         'button:has-text("Generate Speech")',
+        'button:has-text("Generate")',
+        'button:has-text("Generate Audio")',
+        'button:has-text("Generate TTS")',
         '[class*="generate"] button',
+        # fallback to common aria-label
+        'button[aria-label*="Generate"]',
     ],
     "save_btn": [
+        # Edit page appears to auto-save; no explicit Save button. Keep selectors for legacy UI.
         'button[type="button"]:has-text("Save")',
         'button:has-text("Save")',
     ],
@@ -114,9 +137,16 @@ class ClientConfig:
     enable_voice_selection: bool
     enable_product_info: bool
     csv_columns: dict
+    # Optional default CSV file (can be overridden by --csv)
+    csv: str = ""
 
 
 def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> ClientConfig:
+    """Load client config JSON.
+
+    Note: We allow an optional top-level `csv` field (path to CSV) so users can
+    pin the default input file in configs/default.json.
+    """
     if not os.path.exists(config_path):
         raise FileNotFoundError(
             f"Config file not found: {config_path}\n"
@@ -554,44 +584,80 @@ class TTSAutomation:
         await self.page.screenshot(path=str(path))
         self.logger.info(f"📸 Screenshot saved: {path}")
     
-    async def clear_and_fill(self, element, value: str, max_retries: int = 3) -> bool:
+    async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
+        """Robust fill helper for reactive UIs.
+
+        Uses force-click + select-all/backspace, and re-tries if the value doesn't stick.
+        """
         for attempt in range(max_retries):
             try:
-                await element.evaluate('el => el.scrollIntoView({ behavior: "instant", block: "center" })')
-                await asyncio.sleep(0.3)
+                await element.scroll_into_view_if_needed()
+                await asyncio.sleep(0.1)
                 await element.wait_for_element_state("visible", timeout=5000)
                 await element.wait_for_element_state("enabled", timeout=5000)
-                await element.click()
-                await element.fill('')
-                await element.fill(value)
-                await asyncio.sleep(0.1)
-                
-                actual_value = await element.input_value()
-                if actual_value == value:
+
+                # Focus reliably
+                await element.click(force=True)
+                await asyncio.sleep(0.05)
+
+                # Clear: Cmd+A then Backspace (macOS)
+                try:
+                    await element.press("Meta+A")
+                    await element.press("Backspace")
+                except Exception:
+                    try:
+                        await element.fill("")
+                    except Exception:
+                        pass
+
+                # Prefer fill() (more stable for long text), fallback to type()
+                try:
+                    await element.fill(value)
+                except Exception:
+                    try:
+                        await element.type(value, delay=2)
+                    except Exception:
+                        pass
+
+                await asyncio.sleep(0.05)
+
+                # Verify for inputs/textareas
+                try:
+                    actual_value = await element.input_value()
+                except Exception:
+                    actual_value = None
+
+                if actual_value is not None and actual_value.strip() == value.strip():
                     return True
-                
-                self.logger.debug(f"fill() didn't persist, trying JavaScript approach")
-                await element.evaluate('''(el, val) => {
-                    el.focus();
-                    el.value = val;
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    el.blur();
-                }''', value)
+
+                # Force via JS (works better for some controlled React inputs)
+                await element.evaluate(
+                    '''(el, val) => {
+                        el.focus();
+                        el.value = val;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+                        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+                    }''',
+                    value,
+                )
                 await asyncio.sleep(0.1)
-                
-                actual_value = await element.input_value()
-                if actual_value == value:
+
+                try:
+                    actual_value2 = await element.input_value()
+                except Exception:
+                    actual_value2 = None
+
+                if actual_value2 is not None and actual_value2.strip() == value.strip():
                     return True
-                    
-                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{actual_value}'")
-                
+
+                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{actual_value2}'")
             except Exception as e:
                 self.logger.debug(f"clear_and_fill attempt {attempt + 1}/{max_retries} failed: {e}")
-            
-            if attempt < max_retries - 1:
-                await asyncio.sleep(0.5)
-        
+
+            await asyncio.sleep(0.2)
+
         self.logger.warning(f"clear_and_fill failed after {max_retries} attempts for value: {value}")
         return False
     
@@ -628,24 +694,39 @@ class TTSAutomation:
             return False, error_msg
     
     async def select_template_from_dropdown(self) -> bool:
+        """Select the "Copy From Version" value in the Create New Version dialog."""
         try:
-            search_input = await self.page.wait_for_selector(
-                'input[data-slot="combobox-search"]', 
-                timeout=CLICK_TIMEOUT
-            )
-            if search_input:
-                await search_input.fill(self.config.version_template)
-                await asyncio.sleep(0.3)
-            
-            await self.page.wait_for_selector('[role="option"]', timeout=CLICK_TIMEOUT)
-            options = await self.page.query_selector_all('[role="option"]')
-            for option in options:
-                text = await option.inner_text()
-                if text.strip() == self.config.version_template:
-                    await option.click()
-                    self.logger.debug(f"Selected exact match: {self.config.version_template}")
-                    return True
-            self.logger.error(f"Could not find exact match for {self.config.version_template}")
+            # Prefer the modal-scoped combobox button.
+            dialog = self.page.get_by_role("dialog", name="Create New Version")
+
+            # Click the dropdown/combobox container. In this UI it's not always exposed as role=combobox.
+            dropdown = dialog.locator('[aria-haspopup="listbox"], [role="combobox"], button:has-text("Select a version to copy from")').first
+            await dropdown.click(timeout=CLICK_TIMEOUT)
+
+            # Optional search box in the popover.
+            try:
+                search = dialog.get_by_placeholder("Search...")
+                await search.fill(self.config.version_template)
+                await asyncio.sleep(0.2)
+            except Exception:
+                pass
+
+            # Prefer role-based option.
+            opt = self.page.get_by_role("option", name=self.config.version_template)
+            if await opt.count() > 0:
+                await opt.first.click()
+                self.logger.debug(f"Selected template: {self.config.version_template}")
+                return True
+
+            # Fallback: list items without role.
+            try:
+                await self.page.locator('text=' + self.config.version_template).first.click(timeout=2000)
+                self.logger.debug(f"Selected template by text: {self.config.version_template}")
+                return True
+            except Exception:
+                pass
+
+            self.logger.error(f"Could not find template in dropdown: {self.config.version_template}")
             return False
         except Exception as e:
             self.logger.error(f"Failed to select template: {e}")
@@ -669,7 +750,17 @@ class TTSAutomation:
     
     async def wait_for_form_ready(self, expected_count: int, timeout: int = 30) -> bool:
         self.logger.info(f"Waiting for {expected_count} form fields to load...")
-        
+
+        # New UI: script fields are under the "Edit Script" tab.
+        try:
+            await self.page.get_by_role("tab", name="Edit Script").click(timeout=CLICK_TIMEOUT)
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+        # Confirmed on current AnyLive UI (Edit Script tab):
+        # - input[aria-label="Section Title"] (10)
+        # - textarea[aria-label="Section Content"] (10)
         template_selector = 'input[aria-label="Section Title"]'
         script_selector = 'textarea[aria-label="Section Content"]'
         
@@ -701,41 +792,89 @@ class TTSAutomation:
         return False
     
     async def navigate_to_scripts(self):
+        """Navigate to the Live Asset versions list page.
+
+        New AnyLive UI:
+        - versions list: /live-assets/<assetId>?page=1
+        - edit page:     /live-assets/<assetId>/edit/<versionId>?tab=edit-script
+
+        We always want the list page before creating a new version.
+        """
         current_url = self.page.url
-        
-        base_without_params = self.config.base_url.split('?')[0]
-        if base_without_params in current_url:
-            self.logger.debug("Already on scripts page, skipping navigation")
+
+        base = self.config.base_url.split('?')[0].rstrip('/')
+        self.logger.info(f"🌐 Navigating to {base}?page=1")
+
+        # If already on the list page for this asset, do nothing.
+        if current_url.startswith(base) and ("/edit/" not in current_url):
             return
-        
-        self.logger.info(f"🌐 Navigating to {self.config.base_url}")
-        await self.page.goto(f"{self.config.base_url}?page=1", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+
+        target = f"{base}?page=1"
+        await self.page.goto(target, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
     
     async def create_new_version(self, name: str) -> bool:
         self.logger.info(f"📝 Creating version: {name}")
-        
-        if not await self.safe_click("add_version_btn", "Add New Version button"):
+
+        # Always ensure we're on the versions list page before trying to create.
+        await self.navigate_to_scripts()
+
+        # Close any stray dialogs that might be left open.
+        try:
+            await self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+        # Click Add Version (force-click to bypass occasional overlays)
+        selectors = SELECTORS.get("add_version_btn", [])
+        clicked = False
+        for sel in selectors:
+            try:
+                el = await self.page.wait_for_selector(sel, timeout=CLICK_TIMEOUT)
+                if el:
+                    await el.scroll_into_view_if_needed()
+                    await el.click(force=True)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if not clicked:
+            self.logger.error("Failed to click Add Version")
             return False
-        
-        await asyncio.sleep(0.5)
-        
+
+        await asyncio.sleep(0.3)
+
         if not await self.safe_fill("version_name_input", name, "Version Name input"):
             return False
-        
-        if not await self.safe_click("version_dropdown", "Version dropdown"):
-            return False
-        
-        await asyncio.sleep(0.3)
-        
+
+        # Copy From Version combobox → select template
         if not await self.select_template_from_dropdown():
             return False
-        
-        await asyncio.sleep(0.3)
-        
+
+        await asyncio.sleep(0.2)
+
         if not await self.safe_click("save_changes_btn", "Save Changes button"):
             return False
-        
+
         await self.page.wait_for_load_state("networkidle")
+
+        # Wait for modal overlay to fully disappear (it can intercept clicks).
+        try:
+            await self.page.wait_for_selector('dialog:has-text("Create New Version")', state='hidden', timeout=CLICK_TIMEOUT)
+        except Exception:
+            pass
+
+        # After creation, open the newly created version edit page.
+        try:
+            link = await self.page.wait_for_selector(f'a:has-text("{name}")', timeout=30000)
+            await link.scroll_into_view_if_needed()
+            href = await link.get_attribute('href')
+            if href and href.startswith('/'):
+                await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+            elif href:
+                await self.page.goto(href, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT)
+        except Exception as e:
+            self.logger.warning(f"Created version but could not open it automatically: {e}")
+
         self.logger.info(f"Created: {name}")
         return True
     
@@ -839,7 +978,7 @@ class TTSAutomation:
         self.logger.info("🔊 Clicking Generate Speech buttons...")
         
         triggered = 0
-        buttons = await self.page.query_selector_all('button:has-text("Generate Speech")')
+        buttons = await self.page.query_selector_all(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
         
         for i, button in enumerate(buttons[:count]):
             try:
@@ -866,11 +1005,34 @@ class TTSAutomation:
             script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
             textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
             if not await self.clear_and_fill(textarea, script):
-                self.logger.error(f"Failed to fill script for slot {slot_num}")
-                return False
+                # If the textarea is in a weird controlled state, try a fresh locator once.
+                try:
+                    textarea2 = self.page.locator('textarea[aria-label="Section Content"]').nth(slot_index)
+                    await textarea2.click(force=True)
+                    ok = await self.clear_and_fill(textarea2, script)
+                    if not ok:
+                        self.logger.error(f"Failed to fill script for slot {slot_num}")
+                        return False
+                    textarea = textarea2
+                except Exception:
+                    self.logger.error(f"Failed to fill script for slot {slot_num}")
+                    return False
             
+            # Hard verification: ensure values actually stuck in DOM.
+            try:
+                tv = (await template.input_value()).strip()
+                sv = (await textarea.input_value()).strip()
+                if audio_code.strip() and tv != audio_code.strip():
+                    self.logger.warning(f"Slot {slot_num} title mismatch after fill")
+                    return False
+                if script.strip() and sv != script.strip():
+                    self.logger.warning(f"Slot {slot_num} script mismatch after fill")
+                    return False
+            except Exception:
+                pass
+
             await asyncio.sleep(0.2)
-            
+
             validation_passed, validation_error = await self.validate_slot_fields(slot_index, audio_code, script)
             if not validation_passed:
                 self.logger.warning(f"Slot {slot_num} validation failed: {validation_error}")
@@ -890,7 +1052,7 @@ class TTSAutomation:
                     )
                     
                     if parent_container:
-                        button = await parent_container.query_selector('button:has-text("Generate Speech")')
+                        button = await parent_container.query_selector(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
                         if button:
                             await button.scroll_into_view_if_needed()
                             await asyncio.sleep(0.2)
@@ -904,7 +1066,9 @@ class TTSAutomation:
                 if not button_clicked:
                     try:
                         self.logger.debug(f"Falling back to nth-index approach for slot {slot_num}")
-                        button_selector = f'button:has-text("Generate Speech") >> nth={slot_index}'
+                        # Match any "Generate" variant, then pick nth.
+                        gen_selectors = ','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")']))
+                        button_selector = f"({gen_selectors}) >> nth={slot_index}"
                         button = await self.page.wait_for_selector(button_selector, timeout=5000)
                         
                         if button:
@@ -1012,12 +1176,20 @@ class TTSAutomation:
         await asyncio.sleep(2.0)
         
         self.logger.info("💾 Saving...")
-        
-        if not await self.safe_click("save_btn", "Save button"):
-            return False
-        
-        await asyncio.sleep(2)
-        await self.page.wait_for_url(f"{self.config.base_url}*", timeout=NAVIGATION_TIMEOUT)
+
+        # New AnyLive UI auto-saves (shows "Auto Saved") and may not have a Save button.
+        # If we can find a Save button, click it; otherwise treat as success.
+        if await self.safe_click("save_btn", "Save button"):
+            await asyncio.sleep(2)
+            return True
+
+        # Wait for "Auto Saved" indicator (best-effort).
+        try:
+            await self.page.wait_for_selector('text="Auto Saved"', timeout=15000)
+        except Exception:
+            pass
+
+        self.logger.warning("No Save button found; assuming auto-save UI.")
         return True
     
     async def process_version(self, version: Version) -> bool:
@@ -1337,8 +1509,17 @@ async def main():
         logger.error(f"❌ Failed to load config: {e}")
         return
     
+    # CSV selection: CLI flag > config.csv > autodetect
     try:
-        csv_path = find_csv_file(args.csv)
+        csv_from_config = None
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                _cfg_raw = json.load(f)
+                csv_from_config = _cfg_raw.get('csv')
+        except Exception:
+            csv_from_config = None
+
+        csv_path = find_csv_file(args.csv or csv_from_config)
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"❌ {e}")
         return

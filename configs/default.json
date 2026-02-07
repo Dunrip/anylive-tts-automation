@@ -1,10 +1,11 @@
 {
-  "base_url": "https://app.anylive.jp/scripts/211",
+  "base_url": "https://app.anylive.jp/live-assets/217", 
   "version_template": "Version_Template",
   "voice_name": "",
   "max_scripts_per_version": 10,
   "enable_voice_selection": false,
   "enable_product_info": false,
+  "csv": "sample.csv",
   "csv_columns": {
     "product_number": "No",
     "product_name": "Product Name",
