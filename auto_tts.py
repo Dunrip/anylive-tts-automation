@@ -27,6 +27,8 @@ CLICK_TIMEOUT = 8000
 NAVIGATION_TIMEOUT = 45000
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
+POST_AUTOSAVE_DELAY_SECONDS = 3.0
+PRE_FILL_START_DELAY_SECONDS = 0.5
 SESSION_FILE = "session_state.json"
 
 _app_support_dir = None
@@ -107,6 +109,10 @@ SELECTORS = {
     ],
     "edit_script_tab": [
         'button:has-text("Edit Script")',
+        '[role="tab"]:has-text("Edit Script")',
+        'a:has-text("Edit Script")',
+        '[aria-controls*="edit-script"]',
+        '[data-state*="edit-script"]',
     ],
     "generate_speech_btn": [
         # New UI may keep the label, but we also support a few likely variants.
@@ -616,6 +622,87 @@ class TTSAutomation:
             self.logger.debug(f"JS click failed: {e}")
             return False
 
+    async def is_edit_script_tab_selected(self) -> bool:
+        """Return True when the Edit Script tab is currently selected."""
+        try:
+            return await self.page.evaluate("""() => {
+                const candidates = Array.from(document.querySelectorAll('button,[role="tab"],a'));
+                const edit = candidates.find(el => ((el.innerText || '').toLowerCase()).includes('edit script'));
+                if (!edit) return false;
+                return edit.getAttribute('aria-selected') === 'true' ||
+                       edit.getAttribute('data-headlessui-state') === 'selected' ||
+                       edit.getAttribute('data-selected') !== null ||
+                       edit.getAttribute('aria-current') === 'page';
+            }""")
+        except Exception:
+            return False
+
+    async def ensure_edit_script_tab_active(self, timeout_seconds: float = 6.0, log_info: bool = False) -> bool:
+        """Aggressively switch to Edit Script tab as soon as it becomes available."""
+        start = asyncio.get_event_loop().time()
+
+        async def _click_edit_script_once() -> bool:
+            # Fast JS path: case-insensitive text match across buttons/tabs/links.
+            try:
+                clicked = await self.page.evaluate("""() => {
+                    const candidates = Array.from(document.querySelectorAll('button,[role="tab"],a'));
+                    const edit = candidates.find(el => ((el.innerText || '').toLowerCase()).includes('edit script'));
+                    if (edit) { edit.click(); return true; }
+
+                    // Fallback: if "Provide Live ..." tab is selected, click the next tab.
+                    const tabs = Array.from(document.querySelectorAll('[role="tab"],button'));
+                    const provideIdx = tabs.findIndex(el => {
+                        const txt = (el.innerText || '').toLowerCase();
+                        const selected =
+                            el.getAttribute('aria-selected') === 'true' ||
+                            el.getAttribute('data-headlessui-state') === 'selected' ||
+                            el.getAttribute('data-selected') !== null;
+                        return selected && txt.includes('provide live');
+                    });
+                    if (provideIdx >= 0 && tabs[provideIdx + 1]) {
+                        tabs[provideIdx + 1].click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if clicked:
+                    return True
+            except Exception:
+                pass
+
+            # Selector path without blocking waits.
+            for selector in SELECTORS.get("edit_script_tab", []):
+                try:
+                    el = await self.page.query_selector(selector)
+                    if not el:
+                        continue
+                    try:
+                        if not await el.is_visible():
+                            continue
+                    except Exception:
+                        pass
+                    await el.click(force=True)
+                    return True
+                except Exception:
+                    continue
+            return False
+
+        while (asyncio.get_event_loop().time() - start) < timeout_seconds:
+            if await self.is_edit_script_tab_selected():
+                return True
+
+            clicked = await _click_edit_script_once()
+            if clicked:
+                await asyncio.sleep(0.08)
+                if await self.is_edit_script_tab_selected():
+                    return True
+
+            await asyncio.sleep(0.08)
+
+        if log_info:
+            self.logger.warning("Could not confirm 'Edit Script' tab is active within timeout.")
+        return await self.is_edit_script_tab_selected()
+
     async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
         """Robust fill helper for reactive UIs.
 
@@ -778,8 +865,23 @@ class TTSAutomation:
                 except Exception:
                     await dropdown.click(timeout=CLICK_TIMEOUT, force=True)
 
-            for attempt in range(3):
+            for attempt in range(4):
                 await open_dropdown()
+                await asyncio.sleep(0.12)
+
+                # Always search template name (long lists require filtering).
+                searched = False
+                try:
+                    # Dropdown popover may render outside the dialog (portal), so use page scope.
+                    search = self.page.locator('input[placeholder*="Search"]:visible').last
+                    if await search.count() > 0:
+                        await search.click(timeout=1200)
+                        await search.fill("")
+                        await search.type(self.config.version_template, delay=10)
+                        searched = True
+                        await asyncio.sleep(0.2)
+                except Exception:
+                    searched = False
 
                 # Wait for either options OR the "No results" empty state.
                 try:
@@ -813,26 +915,21 @@ class TTSAutomation:
                     continue
 
                 # Prefer role-based option.
-                opt = self.page.get_by_role("option", name=self.config.version_template)
+                opt = self.page.get_by_role("option", name=self.config.version_template, exact=True)
                 if await opt.count() > 0:
                     await opt.first.click()
                     self.logger.debug(f"Selected template: {self.config.version_template}")
                     return True
 
-                # Search fallback
+                # Non-exact option text fallback
                 try:
-                    search = dialog.get_by_placeholder("Search...")
-                    await search.fill("")
-                    await search.type(self.config.version_template, delay=10)
-                    await asyncio.sleep(0.2)
-
                     opt2 = self.page.get_by_role("option", name=self.config.version_template)
                     if await opt2.count() > 0:
                         await opt2.first.click()
                         self.logger.debug(f"Selected template (after search): {self.config.version_template}")
                         return True
 
-                    cand = self.page.locator(f'text="{self.config.version_template}"')
+                    cand = self.page.locator(f'[role="option"]:has-text("{self.config.version_template}")')
                     if await cand.count() > 0:
                         await cand.first.click(timeout=2000)
                         self.logger.debug(f"Selected template by text: {self.config.version_template}")
@@ -840,15 +937,9 @@ class TTSAutomation:
                 except Exception:
                     pass
 
-                # Keyboard fallback: select first available option
-                try:
-                    await open_dropdown()
-                    await self.page.keyboard.press("ArrowDown")
-                    await self.page.keyboard.press("Enter")
-                    self.logger.debug("Selected first template option via keyboard fallback")
-                    return True
-                except Exception:
-                    pass
+                # If search box was unavailable on this attempt, try reopening once next loop.
+                if not searched:
+                    self.logger.debug("Template search input not available; retrying dropdown open.")
 
                 # Close popover before retry loop
                 try:
@@ -887,31 +978,12 @@ class TTSAutomation:
         template_selector = 'input[aria-label="Section Title"]'
         script_selector = 'textarea[aria-label="Section Content"]'
 
-        # Optimize: Check if 'Edit Script' tab is ALREADY selected.
-        # If not, click it immediately. This ensures we don't wait if landing on 'Provide Live Knowledge'.
-        try:
-            is_selected = await self.page.evaluate("""() => {
-                // Try to find the button
-                const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Edit Script'));
-                if (!btn) return false;
-                
-                // Check if selected
-                return btn.getAttribute('aria-selected') === 'true' || 
-                       btn.getAttribute('data-headlessui-state') === 'selected' ||
-                       btn.getAttribute('data-selected') !== null;
-            }""")
-            
-            if is_selected:
-                self.logger.info("'Edit Script' tab already selected. Proceeding to stability check.")
-            else:
-                self.logger.info("'Edit Script' tab NOT selected. Clicking immediately...")
-                # Try pure JS click first (fastest)
-                if not await self.js_click("Edit Script"):
-                    await self.safe_click("edit_script_tab", "Edit Script tab", timeout=3000, force=True)
-                await asyncio.sleep(0.1)
-        except Exception as e:
-            self.logger.debug(f"Error checking tab state: {e}")
-            pass
+        # First attempt right away. If tab appears later, we keep retrying in the loop below.
+        if await self.is_edit_script_tab_selected():
+            self.logger.info("'Edit Script' tab already selected. Proceeding to stability check.")
+        else:
+            self.logger.info("'Edit Script' tab NOT selected. Clicking immediately...")
+            await self.ensure_edit_script_tab_active(timeout_seconds=1.8)
 
         await asyncio.sleep(0.2)
 
@@ -922,7 +994,10 @@ class TTSAutomation:
         # This prevents waiting 30s if the template has fewer slots than expected (e.g. 5 vs 10).
         last_count = 0
         stable_iterations = 0
-        REQUIRED_STABLE_ITERATIONS = 3  # 0.5s * 3 = 1.5s stability
+        REQUIRED_STABLE_ITERATIONS = 3
+        POLL_INTERVAL_SECONDS = 0.25
+        TAB_RETRY_INTERVAL_SECONDS = 0.8
+        last_tab_switch_time = 0.0
 
         start_time = asyncio.get_event_loop().time()
         
@@ -954,11 +1029,17 @@ class TTSAutomation:
                         return True
                 else:
                     stable_iterations = 0
+                    now = asyncio.get_event_loop().time()
+                    if (now - last_tab_switch_time) >= TAB_RETRY_INTERVAL_SECONDS:
+                        switched = await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                        if switched:
+                            self.logger.debug("Switched to 'Edit Script' tab while waiting for fields.")
+                        last_tab_switch_time = now
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
             except Exception as e:
                 self.logger.debug(f"Error checking form fields: {e}")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         self.logger.warning(f"Timeout. Proceeding with {last_count} slots (Expected {expected_count}).")
         return last_count > 0
@@ -1087,25 +1168,61 @@ class TTSAutomation:
             return False
 
         # optimized: networkidle can hang; rely on explicit element waits instead
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.1)
 
         # Wait for modal overlay to fully disappear (it can intercept clicks).
         try:
-            await self.page.wait_for_selector('dialog:has-text("Create New Version")', state='hidden', timeout=CLICK_TIMEOUT)
+            await self.page.wait_for_selector('dialog:has-text("Create New Version")', state='hidden', timeout=1500)
         except Exception:
             pass
 
-        # After creation, open the newly created version edit page.
-        try:
-            link = await self.page.wait_for_selector(f'a:has-text("{name}")', timeout=30000)
-            await link.scroll_into_view_if_needed()
-            href = await link.get_attribute('href')
-            if href and href.startswith('/'):
-                await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-            elif href:
-                await self.page.goto(href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-        except Exception as e:
-            self.logger.warning(f"Created version but could not open it automatically: {e}")
+        # Try to activate Edit Script immediately in case we already landed on edit page.
+        if "/edit/" in self.page.url:
+            await self.ensure_edit_script_tab_active(timeout_seconds=1.2)
+
+        on_edit_page = "/edit/" in self.page.url
+        if not on_edit_page:
+            # Some accounts auto-redirect to edit page; others stay on list page with a new row.
+            # Poll both conditions and proceed on whichever appears first.
+            switched_to_edit = False
+            wait_start = asyncio.get_event_loop().time()
+            while (asyncio.get_event_loop().time() - wait_start) < 3.0:
+                if "/edit/" in self.page.url:
+                    await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                    switched_to_edit = True
+                    break
+
+                try:
+                    # If form fields are already present, we are effectively on edit surface.
+                    title_fields = await self.page.query_selector_all('input[aria-label="Section Title"]')
+                    if len(title_fields) > 0:
+                        await self.ensure_edit_script_tab_active(timeout_seconds=0.8)
+                        switched_to_edit = True
+                        break
+
+                    link = await self.page.query_selector(f'a:has-text("{name}")')
+                    if link:
+                        href = await link.get_attribute('href')
+                        if href and href.startswith('/'):
+                            await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                            await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                            switched_to_edit = True
+                            break
+                        elif href:
+                            await self.page.goto(href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                            await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                            switched_to_edit = True
+                            break
+                except Exception:
+                    pass
+
+                await asyncio.sleep(0.08)
+
+            if not switched_to_edit:
+                self.logger.warning("Created version but could not auto-open edit page quickly.")
+
+        # New UI often lands on "Provide Live Knowledge" first. Switch to Edit Script immediately.
+        await self.ensure_edit_script_tab_active(timeout_seconds=1.2)
 
         self.logger.info(f"Created: {name}")
         return True
@@ -1375,70 +1492,6 @@ class TTSAutomation:
                         body_txt = ""
                     return title_txt, body_txt
 
-                async def _retry_slot1_commit() -> bool:
-                    for _ in range(3):
-                        try:
-                            await self.page.evaluate('window.scrollTo(0, 0)')
-                        except Exception:
-                            pass
-                        try:
-                            await self.safe_click("edit_script_tab", "Edit Script tab", timeout=5000)
-                        except Exception:
-                            pass
-                        await asyncio.sleep(0.15)
-
-                        t = self.page.locator('input[aria-label="Section Title"]').nth(0)
-                        s = self.page.locator('textarea[aria-label="Section Content"]').nth(0)
-
-                        # Title commit
-                        try:
-                            await t.click(force=True)
-                            await t.press("Meta+A")
-                            await t.press("Backspace")
-                            await self.page.keyboard.type(audio_code, delay=1)
-                            await t.press("Enter")
-                            await t.press("Tab")
-                        except Exception:
-                            pass
-
-                        # Script commit
-                        try:
-                            await s.click(force=True)
-                            await s.press("Meta+A")
-                            await s.press("Backspace")
-                            await self.page.keyboard.type(script, delay=1)
-                            try:
-                                await s.press("Tab")
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-
-                        # click outside to force React commit
-                        try:
-                            await self.page.locator('body').click(position={"x": 5, "y": 5})
-                        except Exception:
-                            pass
-
-                        try:
-                            await self.page.wait_for_selector('text="Auto Saved"', timeout=4000)
-                        except Exception:
-                            pass
-
-                        # Verify by VISIBLE card label
-                        title_vis, body_vis = await _card_visible_text(0)
-                        if (audio_code.strip() and title_vis == audio_code.strip()) and (script.strip() and body_vis != "script_1"):
-                            return True
-                        await asyncio.sleep(0.2)
-                    return False
-
-                if slot_index == 0:
-                    title_vis, body_vis = await _card_visible_text(0)
-                    if title_vis == "template_1" or body_vis == "script_1":
-                        if not await _retry_slot1_commit():
-                            self.logger.warning(f"Slot {slot_num} still default in UI after retries (title_vis='{title_vis}', body_vis='{body_vis}')")
-                            return False
-
                 if audio_code.strip() and tv != audio_code.strip():
                     try:
                         await template.scroll_into_view_if_needed()
@@ -1459,8 +1512,18 @@ class TTSAutomation:
 
                 if script.strip() and sv != script.strip():
                     if slot_index == 0:
-                        if not await _retry_slot1_commit():
-                            self.logger.warning(f"Slot {slot_num} script mismatch after retries")
+                        # Keep slot 1 reliable, but avoid multi-pass full re-typing that can duplicate content.
+                        ok_slot1_retry = await self.clear_and_fill(textarea, script)
+                        if (not ok_slot1_retry) and len(script.strip()) > 150:
+                            ok_slot1_retry = await _type_long_text(textarea, script)
+
+                        if not ok_slot1_retry:
+                            self.logger.warning(f"Slot {slot_num} script mismatch after retry")
+                            return False
+
+                        sv2 = (await textarea.input_value() or "").strip()
+                        if sv2 != script.strip():
+                            self.logger.warning(f"Slot {slot_num} script mismatch after retry")
                             return False
                     else:
                         self.logger.warning(f"Slot {slot_num} script mismatch after fill")
@@ -1481,6 +1544,7 @@ class TTSAutomation:
 
                 await asyncio.sleep(0.3)
 
+                template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
                 template_fresh = await self.page.wait_for_selector(template_selector, timeout=5000)
 
                 try:
@@ -1597,7 +1661,7 @@ class TTSAutomation:
             return True
 
         self.logger.debug("Waiting for form state to stabilize...")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.1)
 
         try:
             await self.page.evaluate('document.activeElement?.blur()')
@@ -1611,15 +1675,32 @@ class TTSAutomation:
 
         # Wait for auto-save to complete
         self.logger.info("💾 Waiting for auto-save...")
-        
         try:
-            # Wait for "Auto Saved" indicator (it's a span/div, not a button)
-            # Use a short timeout because if it's there it should appear quickly
-            await self.page.wait_for_selector('text="Auto Saved"', timeout=5000)
+            # Fast path: if already auto-saved, return immediately.
+            await self.page.wait_for_selector('text="Auto Saved"', timeout=250)
             self.logger.info("✅ Auto-saved successfully")
-        except Exception as e:
-            self.logger.warning(f"Could not confirm auto-save status (might have saved too fast or indicator missed): {e}")
-            # Continue anyway as the system likely saved
+        except Exception:
+            try:
+                # If still saving, allow a bit more time for the status to flip.
+                saving_visible = False
+                for saving_selector in ('text="Saving..."', 'text="Saving"', 'text="Auto Saving"'):
+                    try:
+                        loc = self.page.locator(saving_selector)
+                        if await loc.count() > 0 and await loc.first.is_visible():
+                            saving_visible = True
+                            break
+                    except Exception:
+                        continue
+
+                wait_timeout = 3500 if saving_visible else 1200
+                await self.page.wait_for_selector('text="Auto Saved"', timeout=wait_timeout)
+                self.logger.info("✅ Auto-saved successfully")
+            except Exception as e:
+                self.logger.warning(f"Could not confirm auto-save status quickly (continuing): {e}")
+                # Continue anyway as the system likely saved
+
+        # Always add a small buffer to avoid racing UI state before clicking Back.
+        await asyncio.sleep(POST_AUTOSAVE_DELAY_SECONDS)
 
         return True
 
@@ -1641,6 +1722,8 @@ class TTSAutomation:
                 await self.fill_product_info()
 
             self.logger.info(f"Processing {len(version.scripts)} slots...")
+            # Give the form a brief moment to settle before typing slot 1.
+            await asyncio.sleep(PRE_FILL_START_DELAY_SECONDS)
             successful_slots = 0
             failed_slots: list[int] = []
             for i in range(len(version.scripts)):
@@ -1665,10 +1748,10 @@ class TTSAutomation:
 
             # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
             try:
-                await self.page.get_by_role("button", name="Back").click(timeout=3000)
+                await self.page.get_by_role("button", name="Back").click(timeout=1200)
             except Exception:
                 try:
-                    await self.page.locator('main button').first.click(timeout=3000)
+                    await self.page.locator('main button').first.click(timeout=800)
                 except Exception:
                     pass
 
