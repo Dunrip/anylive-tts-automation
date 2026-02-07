@@ -1010,8 +1010,19 @@ class TTSAutomation:
             template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
             template = await self.page.wait_for_selector(template_selector, timeout=CLICK_TIMEOUT)
             if not await self.clear_and_fill(template, audio_code):
-                self.logger.error(f"Failed to fill template for slot {slot_num}")
-                return False
+                # retry with fresh locator (controlled input sometimes ignores first fill)
+                try:
+                    template2 = self.page.locator('input[aria-label="Section Title"]').nth(slot_index)
+                    await template2.scroll_into_view_if_needed()
+                    await template2.click(force=True)
+                    ok = await self.clear_and_fill(template2, audio_code)
+                    if not ok:
+                        self.logger.error(f"Failed to fill template for slot {slot_num}")
+                        return False
+                    template = template2
+                except Exception:
+                    self.logger.error(f"Failed to fill template for slot {slot_num}")
+                    return False
             
             script_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
             textarea = await self.page.wait_for_selector(script_selector, timeout=CLICK_TIMEOUT)
@@ -1050,7 +1061,7 @@ class TTSAutomation:
                 tv = (await template.input_value()).strip()
                 sv = (await textarea.input_value()).strip()
                 if audio_code.strip() and tv != audio_code.strip():
-                    self.logger.warning(f"Slot {slot_num} title mismatch after fill")
+                    self.logger.warning(f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')")
                     return False
                 if script.strip() and sv != script.strip():
                     self.logger.warning(f"Slot {slot_num} script mismatch after fill")
