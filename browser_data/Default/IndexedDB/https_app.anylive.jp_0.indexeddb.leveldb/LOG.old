@@ -1,0 +1,24 @@
+2026/02/08-04:40:56.798 647c3a Reusing MANIFEST /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/08-04:40:56.798 647c3a Recovering log #104
+2026/02/08-04:40:56.798 647c3a Reusing old log /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/000104.log 
+2026/02/08-04:40:56.808 647c3e Level-0 table #109: started
+2026/02/08-04:40:56.808 647c3e Level-0 table #109: 9174 bytes OK
+2026/02/08-04:40:56.810 647c3e Delete type=0 #104
+2026/02/08-04:40:56.811 647c3a Manual compaction at level-0 from '\x007\x00\x00\x00' @ 72057594037927935 : 1 .. '\x008\x00\x00\x00' @ 0 : 0; will stop at '\x007\x00\x00\x05' @ 2824 : 1
+2026/02/08-04:40:56.811 647c3a Compacting 1@0 + 1@1 files
+2026/02/08-04:40:56.812 647c3a Generated table #110@0: 182 keys, 3922 bytes
+2026/02/08-04:40:56.812 647c3a Compacted 1@0 + 1@1 files => 3922 bytes
+2026/02/08-04:40:56.813 647c3a compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/08-04:40:56.813 647c3a Delete type=2 #109
+2026/02/08-04:40:56.814 647c3a Manual compaction at level-0 from '\x007\x00\x00\x05' @ 2824 : 1 .. '\x008\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/02/08-04:43:44.605 647c3b Level-0 table #112: started
+2026/02/08-04:43:44.606 647c3b Level-0 table #112: 4261 bytes OK
+2026/02/08-04:43:44.607 647c3b Delete type=2 #106
+2026/02/08-04:43:44.607 647c3b Delete type=0 #108
+2026/02/08-04:43:44.608 647c3a Manual compaction at level-0 from '\x008\x00\x00\x00' @ 72057594037927935 : 1 .. '\x009\x00\x00\x00' @ 0 : 0; will stop at '\x008\x00\x00\x05' @ 2927 : 1
+2026/02/08-04:43:44.608 647c3a Compacting 1@0 + 1@1 files
+2026/02/08-04:43:44.609 647c3a Generated table #113@0: 182 keys, 3910 bytes
+2026/02/08-04:43:44.609 647c3a Compacted 1@0 + 1@1 files => 3910 bytes
+2026/02/08-04:43:44.610 647c3a compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/08-04:43:44.610 647c3a Delete type=2 #112
+2026/02/08-04:43:44.610 647c3a Manual compaction at level-0 from '\x008\x00\x00\x05' @ 2927 : 1 .. '\x009\x00\x00\x00' @ 0 : 0; will stop at (end)

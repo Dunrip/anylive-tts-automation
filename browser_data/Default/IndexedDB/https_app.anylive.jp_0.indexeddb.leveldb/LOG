@@ -1,0 +1,5 @@
+2026/02/08-04:44:16.695 6494f0 Reusing MANIFEST /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/08-04:44:16.695 6494f0 Recovering log #111
+2026/02/08-04:44:16.695 6494f0 Reusing old log /Users/pattanunchutisavang/Documents/workspace/anylive-tts-automation/browser_data/Default/IndexedDB/https_app.anylive.jp_0.indexeddb.leveldb/000111.log 
+2026/02/08-04:44:16.696 6494f0 Delete type=2 #110
+2026/02/08-04:44:16.704 6494f0 Manual compaction at level-0 from '\x009\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00:\x00\x00\x00' @ 0 : 0; will stop at (end)
