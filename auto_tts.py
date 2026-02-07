@@ -753,11 +753,19 @@ class TTSAutomation:
         self.logger.info(f"Waiting for {expected_count} form fields to load...")
 
         # New UI: script fields are under the "Edit Script" tab.
+        # Optimize: click Edit Script ASAP (don't wait on other tabs like "Provide Live Knowledge").
         try:
-            await self.page.get_by_role("tab", name="Edit Script").click(timeout=CLICK_TIMEOUT)
-            await asyncio.sleep(0.5)
+            tab = self.page.get_by_role("tab", name="Edit Script")
+            await tab.wait_for(state="visible", timeout=8000)
+            await tab.click(timeout=8000)
         except Exception:
-            pass
+            # Fallback: try by text in case role mapping changes
+            try:
+                await self.page.locator('text="Edit Script"').first.click(timeout=8000)
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.2)
 
         # Confirmed on current AnyLive UI (Edit Script tab):
         # - input[aria-label="Section Title"] (10)
@@ -819,28 +827,30 @@ class TTSAutomation:
         # Always ensure we're on the versions list page before trying to create.
         await self.navigate_to_scripts()
 
-        # Close any stray dialogs that might be left open.
+        # Close any stray dialogs/overlays that might be left open.
         try:
             await self.page.keyboard.press("Escape")
         except Exception:
             pass
 
-        # Click Add Version (force-click to bypass occasional overlays)
-        selectors = SELECTORS.get("add_version_btn", [])
-        clicked = False
-        for sel in selectors:
+        # Ensure list page is interactive, then click Add Version with role-based locator.
+        add_btn = self.page.get_by_role("button", name="Add Version")
+        for attempt in range(3):
             try:
-                el = await self.page.wait_for_selector(sel, timeout=CLICK_TIMEOUT)
-                if el:
-                    await el.scroll_into_view_if_needed()
-                    await el.click(force=True)
-                    clicked = True
-                    break
-            except Exception:
-                continue
-        if not clicked:
-            self.logger.error("Failed to click Add Version")
-            return False
+                await add_btn.wait_for(state="visible", timeout=8000)
+                await add_btn.scroll_into_view_if_needed()
+                await add_btn.click(timeout=8000, force=True)
+                break
+            except Exception as e:
+                if attempt == 2:
+                    self.logger.error("Failed to click Add Version")
+                    self.logger.debug(f"Add Version click error: {e}")
+                    return False
+                try:
+                    await self.page.reload(wait_until="networkidle")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
 
         await asyncio.sleep(0.3)
 
@@ -1008,7 +1018,23 @@ class TTSAutomation:
             if not await self.clear_and_fill(textarea, script):
                 # If the textarea is in a weird controlled state, try a fresh locator once.
                 try:
+                    # Re-click Edit Script (sometimes focus/virtualization breaks the first textarea)
+                    try:
+                        await self.page.get_by_role("tab", name="Edit Script").click(timeout=5000)
+                        await asyncio.sleep(0.3)
+                    except Exception:
+                        pass
+
+                    # Scroll to top for slot 1 (most flaky)
+                    if slot_index == 0:
+                        try:
+                            await self.page.evaluate('window.scrollTo(0, 0)')
+                            await asyncio.sleep(0.2)
+                        except Exception:
+                            pass
+
                     textarea2 = self.page.locator('textarea[aria-label="Section Content"]').nth(slot_index)
+                    await textarea2.scroll_into_view_if_needed()
                     await textarea2.click(force=True)
                     ok = await self.clear_and_fill(textarea2, script)
                     if not ok:
