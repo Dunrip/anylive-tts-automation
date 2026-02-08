@@ -1,5 +1,6 @@
 # AGENTS.md
-This file provides guidance to Verdent when working with code in this repository.
+
+> **Note:** CLAUDE.md is now the authoritative source for Claude Code. This file is maintained for compatibility with other AI coding assistants.
 
 ## Table of Contents
 1. Commonly Used Commands
@@ -72,7 +73,7 @@ python auto_tts.py --template "Template_Name"
 ## Architecture
 
 ### High-Level Overview
-Single-file Python automation script that uses Playwright to automate TTS script creation on the AnyLive web platform.
+Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces.
 
 ### Core Components
 
@@ -118,6 +119,13 @@ Single-file Python automation script that uses Playwright to automate TTS script
 - JSON execution reports with version-level success/failure tracking
 - Error screenshots saved to `screenshots/`
 
+#### 7. **Menu Bar Application** (`menubar_gui.py`)
+- Native macOS menu bar integration via `rumps`
+- Wraps auto_tts.py functionality in GUI
+- Stores data in `~/Library/Application Support/AnyLiveTTS/`
+- PyInstaller-ready for .app bundle compilation
+- Background threading for async operations
+
 ### Data Flow
 
 ```
@@ -141,11 +149,14 @@ Generate JSON report
 - **AnyLive platform**: Target web application (requires authentication)
 
 ### Key Files
-- `auto_tts.py`: Main script (single-file design for future app compilation)
+- `auto_tts.py`: Main automation script (single-file design for app compilation)
+- `menubar_gui.py`: macOS menu bar application
+- `menubar_app.spec`: PyInstaller specification file
 - `configs/*.json`: Client configurations
 - `session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
 - `screenshots/`: Error screenshots (gitignored)
+- `browser_data/`: Playwright persistent context (gitignored)
 
 ### System Diagram
 
@@ -230,8 +241,8 @@ graph TD
 
 ### Timeout Configuration
 - `DEFAULT_TIMEOUT`: 30s (general waits)
-- `CLICK_TIMEOUT`: 15s (element interactions)
-- `NAVIGATION_TIMEOUT`: 60s (page navigations)
+- `CLICK_TIMEOUT`: 8s (element interactions)
+- `NAVIGATION_TIMEOUT`: 45s (page navigations)
 - `MAX_RETRIES`: 3 (retry attempts)
 - `RETRY_DELAY_SECONDS`: 2s (between retries)
 
@@ -268,10 +279,12 @@ graph TD
 
 ### Adding New Selectors
 If AnyLive UI changes and selectors break:
-1. Locate the `SELECTORS` dict (lines 24-71)
+1. Locate the `SELECTORS` dict in auto_tts.py (lines 60-137)
 2. Add new selector variations to the appropriate key
 3. Selectors are tried in order (most specific first)
-4. Use browser DevTools to inspect target elements
+4. **Always scope selectors to nearest stable parent** (dialog, modal, card) to avoid ambiguity
+5. Use browser DevTools to inspect target elements
+6. Test with `--debug` and `--dry-run` flags
 
 ### Modifying Version Grouping Logic
 Current logic: Product-based grouping
@@ -309,3 +322,23 @@ Single-file design intentional for PyInstaller packaging:
 - External configs in `configs/` directory can be bundled as data files
 - Session and logs remain external for user data persistence
 - Use `--onefile` flag with PyInstaller for standalone executable
+- `menubar_app.spec` contains PyInstaller configuration for menu bar app
+
+### Recent UI Changes
+
+Recent commits updated selectors for new AnyLive UI version:
+- "Add Version" button selector changes
+- "Edit Script" tab click improvements (speed optimization)
+- Paragraph card-scoped name locators to avoid hidden fields
+- Dialog-scoped selectors to prevent clicking wrong elements
+
+**Key lesson**: When modifying selectors, always scope to nearest stable parent (modal, dialog, card) to avoid ambiguity and prevent clicking hidden/wrong elements.
+
+### Menu Bar App Development
+
+When working on `menubar_gui.py`:
+- Use `ui_call()` to schedule UI updates from background threads
+- Never call `rumps` UI functions directly from background threads
+- Logging goes to `~/Library/Application Support/AnyLiveTTS/logs/menubar.log`
+- Check Chromium installation with `check_chromium_installed()` (doesn't launch browser)
+- App Support directory structure mirrors repository for consistency
