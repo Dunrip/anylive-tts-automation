@@ -3,6 +3,7 @@ screenshots/
 session_state.json
 __pycache__/
 .venv/
+browser_data/
 *.csv
 !configs/test_template.csv
 *.pyc
