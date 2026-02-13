@@ -337,7 +337,9 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 
     def sanitize_product_name(name: str) -> str:
         import re
-        sanitized = re.sub(r'[^\w\s-]', '', name)
+        # Include Thai Unicode range (U+0E00-U+0E7F) to preserve combining
+        # characters such as tone marks (่ ้ ๊ ๋) and vowel marks (ิ ี ึ ื ุ ู ั)
+        sanitized = re.sub(r'[^\w\s\u0E00-\u0E7F-]', '', name)
         sanitized = re.sub(r'\s+', '_', sanitized)
         return sanitized
 
