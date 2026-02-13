@@ -2102,8 +2102,8 @@ async def main():
             logger.info("🐛 DEBUG MODE: Leaving browser open for inspection (non-blocking)")
             logger.info("   Close the browser manually when you're done.")
             logger.info("=" * 70)
-            return
-        await automation.close()
+        else:
+            await automation.close()
 
     generate_report(versions, config, timestamp, logger)
 
