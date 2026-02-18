@@ -4,7 +4,12 @@ session_state.json
 __pycache__/
 .venv/
 browser_data/
+output/
 *.csv
 !configs/test_template.csv
 *.pyc
 .DS_Store
+tmp/
+configs/CLAUDE.md
+downloads/
+.pycache_local

@@ -337,7 +337,9 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 
     def sanitize_product_name(name: str) -> str:
         import re
-        sanitized = re.sub(r'[^\w\s-]', '', name)
+        # Include Thai Unicode range (U+0E00-U+0E7F) to preserve combining
+        # characters such as tone marks (่ ้ ๊ ๋) and vowel marks (ิ ี ึ ื ุ ู ั)
+        sanitized = re.sub(r'[^\w\s\u0E00-\u0E7F-]', '', name)
         sanitized = re.sub(r'\s+', '_', sanitized)
         return sanitized
 
@@ -512,6 +514,7 @@ class TTSAutomation:
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=self.headless,
+            accept_downloads=True,
             # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
             # These flags are known to improve stability for this app.
             args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
@@ -1779,6 +1782,189 @@ class TTSAutomation:
             self.logger.error(f"❌ FAILED: {version.name} - {e}")
             return False
 
+    async def download_all_versions(self, limit: int = None, replace: bool = False):
+        """Download audio files for every version, except the template.
+
+        Workflow:
+        1. Collect all version links across all pagination pages.
+        2. For each version (except the template):
+           a. Navigate into the version's edit page.
+           b. Switch to the "Edit Script" tab.
+           c. Find all download buttons inside script boxes and click them.
+           d. Navigate back to the versions list.
+        """
+        template_name = self.config.version_template
+        self.logger.info(f"⬇️  DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')")
+
+        # Set up downloads directory.
+        downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
+        os.makedirs(downloads_dir, exist_ok=True)
+        self.logger.info(f"📁 Downloads will be saved to: {downloads_dir}")
+
+        base = self.config.base_url.split('?')[0].rstrip('/')
+
+        # --- Phase 1: Collect all version links across all pages ---
+        all_versions = []  # list of (name, href) tuples
+        page_num = 1
+
+        while True:
+            target = f"{base}?page={page_num}"
+            self.logger.info(f"📄 Scanning page {page_num} for versions...")
+            await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+
+            # Wait for the page content to render.
+            try:
+                await self.page.wait_for_selector('a[href*="/live-assets/"]', timeout=10000)
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+            # Extract version links via JavaScript.
+            versions_on_page = await self.page.evaluate(f"""() => {{
+                const links = Array.from(document.querySelectorAll('a'));
+                return links
+                    .filter(a => a.href && a.href.includes('/live-assets/') && a.href.includes('/edit/'))
+                    .map(a => ({{ name: a.innerText.trim(), href: a.href }}));
+            }}""")
+
+            if not versions_on_page:
+                if page_num == 1:
+                    self.logger.warning("No version links found on page 1.")
+                else:
+                    self.logger.info(f"No versions on page {page_num}, done scanning.")
+                break
+
+            for v in versions_on_page:
+                all_versions.append((v['name'], v['href']))
+
+            self.logger.info(f"  Found {len(versions_on_page)} versions on page {page_num}")
+
+            # Check for next page button.
+            has_next = await self.page.evaluate("""() => {
+                const btn = document.querySelector('button[aria-label="Next page"]');
+                if (!btn) return false;
+                return !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
+            }""")
+
+            if has_next:
+                page_num += 1
+            else:
+                self.logger.info(f"Last page reached (page {page_num}).")
+                break
+
+        all_versions.reverse()
+        self.logger.info(f"Total versions found: {len(all_versions)}")
+
+        # --- Phase 2: Visit each version and download ---
+        total_downloaded = 0
+        total_skipped = 0
+        versions_processed = 0
+
+        for version_name, version_href in all_versions:
+            # Skip template version
+            if template_name and template_name in version_name:
+                self.logger.debug(f"Skipping template: {version_name}")
+                total_skipped += 1
+                continue
+
+            # Apply limit if set
+            if limit and versions_processed >= limit:
+                self.logger.info(f"Reached download limit of {limit}, stopping.")
+                break
+
+            versions_processed += 1
+            self.logger.info(f"")
+            self.logger.info(f"[{versions_processed}] Opening: {version_name}")
+
+            try:
+                # Navigate to the version edit page.
+                await self.page.goto(version_href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                await asyncio.sleep(1.0)
+
+                # Click the Edit Script tab explicitly (URL param not reliable in SPA).
+                try:
+                    await self.page.click('text=Edit Script', timeout=5000)
+                except Exception:
+                    # Fallback: try JS click
+                    await self.page.evaluate("""() => {
+                        const tabs = Array.from(document.querySelectorAll('button, a'));
+                        const tab = tabs.find(t => t.textContent.trim() === 'Edit Script');
+                        if (tab) tab.click();
+                    }""")
+
+                # Wait for script boxes to appear (div.group elements).
+                try:
+                    await self.page.wait_for_selector('div.group', timeout=8000)
+                except Exception:
+                    self.logger.warning(f"  Script boxes did not load for: {version_name}")
+                    continue
+
+                await asyncio.sleep(0.5)
+
+                # Create downloads directory for this version.
+                safe_name = version_name.replace('/', '_').replace('\\', '_')[:100]
+                version_dl_dir = os.path.join(downloads_dir, safe_name)
+                os.makedirs(version_dl_dir, exist_ok=True)
+
+                # Count download buttons via JS.
+                btn_count = await self.page.evaluate("""() => {
+                    let count = 0;
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    for (const btn of buttons) {
+                        const paths = Array.from(btn.querySelectorAll('svg path'));
+                        for (const p of paths) {
+                            const d = p.getAttribute('d') || '';
+                            if (d.startsWith('M4 15.204')) {
+                                btn.setAttribute('data-dl-idx', count);
+                                count++;
+                                break;
+                            }
+                        }
+                    }
+                    return count;
+                }""")
+
+                if btn_count == 0:
+                    self.logger.warning(f"  No download buttons found in: {version_name}")
+                    continue
+
+                # Click each download button individually with expect_download.
+                version_dl_count = 0
+                for idx in range(btn_count):
+                    try:
+                        async with self.page.expect_download(timeout=15000) as dl_info:
+                            await self.page.evaluate(f"""() => {{
+                                const btn = document.querySelector('button[data-dl-idx="{idx}"]');
+                                if (btn) btn.click();
+                            }}""")
+                        download = await dl_info.value
+                        filename = download.suggested_filename or f"audio_{idx+1}.mp3"
+                        save_path = os.path.join(version_dl_dir, filename)
+                        if os.path.exists(save_path) and not replace:
+                            self.logger.info(f"  ⏭️  Already exists, skipping: {filename}")
+                            await download.cancel()
+                            continue
+                        await download.save_as(save_path)
+                        self.logger.info(f"  ⬇️  Saved: {filename}")
+                        version_dl_count += 1
+                    except Exception as e:
+                        self.logger.warning(f"  Failed to download button {idx+1}: {e}")
+
+                total_downloaded += version_dl_count
+
+            except Exception as e:
+                self.logger.warning(f"  Error processing {version_name}: {e}")
+
+            # Brief pause between versions.
+            await asyncio.sleep(0.3)
+
+        self.logger.info(f"")
+        self.logger.info("=" * 70)
+        self.logger.info(f"⬇️  DOWNLOAD COMPLETE: {total_downloaded} files from {versions_processed} versions")
+        self.logger.info(f"   Skipped: {total_skipped} (template)")
+        self.logger.info("=" * 70)
+        return total_downloaded
+
 
 def print_version_info(version: Version, logger: logging.Logger):
     logger.info("")
@@ -1856,6 +2042,8 @@ async def run_job(
     dry_run: bool = False,
     no_save: bool = False,
     debug: bool = False,
+    download: bool = False,
+    replace: bool = False,
     start_version: int = 1,
     limit: Optional[int] = None,
     app_support_dir: Optional[str] = None,
@@ -1905,6 +2093,26 @@ async def run_job(
 
         config = load_config(config_path)
         logger.info(f"📋 Loaded config: {config_path}")
+
+        # --- Download-only workflow (separate from fill/create) ---
+        if download:
+            automation = TTSAutomation(
+                config=config,
+                headless=headless,
+                logger=logger,
+                screenshots_dir=screenshots_dir
+            )
+            try:
+                await automation.start_browser()
+                count = await automation.download_all_versions(limit=limit, replace=replace)
+            finally:
+                if debug:
+                    logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
+                    if debug_callback:
+                        debug_callback()
+                else:
+                    await automation.close()
+            return {"success": True, "report": None, "error": None, "downloaded": count}
 
         # Load and parse CSV
         if not os.path.exists(csv_path):
@@ -1991,6 +2199,8 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Run without clicking Generate Speech")
     parser.add_argument("--no-save", action="store_true", help="Run without clicking Save button")
     parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
+    parser.add_argument("--download", action="store_true", help="Download files for all versions (except template)")
+    parser.add_argument("--replace", action="store_true", help="Re-download and replace existing files (use with --download)")
 
     parser.add_argument("--config", type=str, help="Path to client config JSON file")
     parser.add_argument("--client", type=str, help="Client name (loads configs/{NAME}.json)")
@@ -2014,6 +2224,41 @@ async def main():
     if not is_session_valid():
         logger.error("❌ No session found. Please run with --setup first.")
         logger.info("   python auto_tts.py --setup")
+        return
+
+    # --- Download-only workflow (separate from fill/create) ---
+    if args.download:
+        config_path = None
+        if args.client:
+            config_path = f"configs/{args.client}.json"
+        elif args.config:
+            config_path = args.config
+        else:
+            config_path = "configs/default.json"
+
+        cli_overrides = {}
+        if args.base_url:
+            cli_overrides['base_url'] = args.base_url
+        if args.template:
+            cli_overrides['version_template'] = args.template
+
+        try:
+            config = load_config(config_path, cli_overrides if cli_overrides else None)
+        except Exception as e:
+            logger.error(f"❌ {e}")
+            return
+
+        logger.info(f"📋 Loaded config: {config_path}")
+        automation = TTSAutomation(config=config, headless=args.headless, logger=logger)
+
+        try:
+            await automation.start_browser()
+            await automation.download_all_versions(limit=args.limit, replace=args.replace)
+        finally:
+            if args.debug:
+                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
+            else:
+                await automation.close()
         return
 
     config_path = None
