@@ -1793,8 +1793,13 @@ class TTSAutomation:
            c. Find all download buttons inside script boxes and click them.
            d. Navigate back to the versions list.
         """
-        template_name = self.config.version_template
+        template_name = (self.config.version_template or "").strip()
         self.logger.info(f"⬇️  DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')")
+        if template_name and len(template_name) < 4:
+            self.logger.warning(
+                "⚠️ version_template is very short ('%s'); use a distinctive template name to avoid accidental skips.",
+                template_name,
+            )
 
         # Set up downloads directory.
         downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
@@ -1861,7 +1866,8 @@ class TTSAutomation:
         versions_processed = 0
 
         for version_name, version_href in all_versions:
-            # Skip template version
+            # Intentionally skip the template baseline (blank/unfilled script).
+            # This relies on `version_template` being a distinctive identifier.
             if template_name and template_name in version_name:
                 self.logger.debug(f"Skipping template: {version_name}")
                 total_skipped += 1
