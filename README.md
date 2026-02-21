@@ -30,6 +30,15 @@ pip install -r requirements.txt
 
 # Install Playwright browsers
 playwright install chromium
+
+# Copy example config (first time only)
+cp configs/default.example.json configs/default.json
+# Then edit configs/default.json with your actual values
+```
+
+For development (linting, tests):
+```bash
+pip install -r requirements-dev.txt
 ```
 
 ### 2. Prepare CSV File
@@ -484,6 +493,27 @@ Recent commits updated selectors for new AnyLive UI version:
 
 ### Menu Bar Application
 Added native macOS menu bar application for improved team usability and easier distribution.
+
+## Development
+
+### Running Tests
+
+```bash
+pytest tests/ -v
+```
+
+### Linting
+
+```bash
+ruff check .
+ruff format --check .
+```
+
+### Pinned Dependencies
+
+- `requirements.txt` — loose version ranges for compatibility
+- `requirements-lock.txt` — exact pins from `pip freeze` for reproducibility
+- `requirements-dev.txt` — dev tools (pytest, ruff, coverage)
 
 ## Support
 

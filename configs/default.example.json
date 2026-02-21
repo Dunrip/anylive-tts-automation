@@ -1,0 +1,14 @@
+{
+  "base_url": "https://app.anylive.jp/scripts/YOUR_SCRIPT_ID",
+  "version_template": "Your_Version_Template",
+  "voice_name": "Your Voice Clone Name",
+  "max_scripts_per_version": 10,
+  "enable_voice_selection": false,
+  "enable_product_info": false,
+  "csv_columns": {
+    "product_number": "No",
+    "product_name": "Product Name",
+    "script_content": "TH Script",
+    "audio_code": "Audio Code"
+  }
+}
