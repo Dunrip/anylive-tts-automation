@@ -1,0 +1,13 @@
+# Frozen dependencies - generated from pip freeze
+# Use: pip install -r requirements-lock.txt
+greenlet==3.3.1
+numpy==2.4.2
+pandas==3.0.0
+playwright==1.58.0
+pyee==13.0.0
+pyobjc-core==12.1
+pyobjc-framework-Cocoa==12.1
+python-dateutil==2.9.0.post0
+rumps==0.4.0
+six==1.17.0
+typing_extensions==4.15.0

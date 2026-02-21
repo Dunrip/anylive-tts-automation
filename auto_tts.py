@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-import asyncio
 import argparse
+import asyncio
 import glob
 import json
 import logging
 import os
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import Callable, List, Optional
 
 import pandas as pd
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import BrowserContext, Page, async_playwright
 
 # In packaged apps Playwright may default to looking for browsers inside the
 # application bundle. Force use of the standard macOS cache directory where
@@ -222,7 +222,11 @@ class CallbackLogHandler(logging.Handler):
             self.handleError(record)
 
 
-def setup_logging(timestamp: str, logs_dir: Optional[str] = None, log_callback: Optional[Callable[[str], None]] = None) -> logging.Logger:
+def setup_logging(
+    timestamp: str,
+    logs_dir: Optional[str] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> logging.Logger:
     if logs_dir is None:
         logs_dir = Path("logs")
     else:
@@ -284,6 +288,10 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
 
     default_columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"]
+
+    if len(df) == 0:
+        logger.info("Empty CSV — no rows to process")
+        return []
 
     if len(df.columns) <= len(default_columns):
         header_detected = any(
@@ -391,9 +399,12 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
                 headless=False,
+                # --disable-web-security: Required for macOS Chromium stability (SIGTRAP/NotificationCenter
+                # crashes). Acceptable security trade-off because this tool only automates a single trusted
+                # domain (app.anylive.jp) and never visits untrusted content.
                 args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
             )
-        except Exception as e:
+        except Exception:
             logger.exception("❌ Failed to launch Chromium persistent context")
             raise
 
@@ -441,7 +452,7 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             # Bring browser to front
             try:
                 await page.bring_to_front()
-            except:
+            except Exception:
                 pass
 
             # Wait and check periodically if login is complete
@@ -452,7 +463,7 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
                     if "login" not in current_url.lower():
                         logger.info("✅ Login detected automatically!")
                         break
-                except:
+                except Exception:
                     pass
 
                 if i % 10 == 0:  # Every 10 seconds
@@ -488,11 +499,36 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
 
 def is_session_valid() -> bool:
     session_file = get_session_file_path()
-    return os.path.exists(session_file)
+    if not os.path.exists(session_file):
+        return False
+    try:
+        with open(session_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data.get("setup_complete"):
+            return False
+        ts = data.get("timestamp")
+        if ts:
+            session_time = datetime.fromisoformat(ts)
+            age_days = (datetime.now() - session_time).days
+            if age_days > 30:
+                logging.getLogger("auto_tts").warning(
+                    f"⚠️ Session is {age_days} days old. Consider re-running --setup."
+                )
+        return True
+    except Exception:
+        return False
 
 
 class TTSAutomation:
-    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, no_save: bool = False, screenshots_dir: Optional[str] = None):
+    def __init__(
+        self,
+        config: ClientConfig,
+        headless: bool,
+        logger: logging.Logger,
+        dry_run: bool = False,
+        no_save: bool = False,
+        screenshots_dir: Optional[str] = None,
+    ):
         self.config = config
         self.headless = headless
         self.logger = logger
@@ -516,15 +552,15 @@ class TTSAutomation:
             headless=self.headless,
             accept_downloads=True,
             # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
-            # These flags are known to improve stability for this app.
+            # --disable-web-security: Acceptable trade-off — this tool only automates a single
+            # trusted domain (app.anylive.jp) and never navigates to untrusted content.
             args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
         )
         self.page = await self.context.new_page()
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
 
-        session_file = get_session_file_path()
         if is_session_valid():
-            self.logger.info(f"📦 Using saved session from browser_data directory")
+            self.logger.info("📦 Using saved session from browser_data directory")
 
             if not await self.validate_session():
                 await self.close()
@@ -990,7 +1026,6 @@ class TTSAutomation:
 
         await asyncio.sleep(0.2)
 
-        template_count = 0
         script_count = 0
 
         # Stability check loop: Wait for fields to appear and count to stabilize
@@ -1003,7 +1038,7 @@ class TTSAutomation:
         last_tab_switch_time = 0.0
 
         start_time = asyncio.get_event_loop().time()
-        
+
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
                 template_inputs = await self.page.query_selector_all(template_selector)
@@ -1020,12 +1055,12 @@ class TTSAutomation:
                     else:
                         stable_iterations = 0
                         last_count = current_count
-                    
+
                     # If we hit expected count, we can return immediately
                     if current_count >= expected_count:
                         self.logger.info(f"Form ready: Found expected {current_count} slots.")
                         return True
-                    
+
                     # If stable for enough time, proceed even if < expected
                     if stable_iterations >= REQUIRED_STABLE_ITERATIONS:
                         self.logger.info(f"Form ready: Count stabilized at {current_count} slots (Expected {expected_count}). Proceeding.")
@@ -1825,12 +1860,12 @@ class TTSAutomation:
             await asyncio.sleep(0.5)
 
             # Extract version links via JavaScript.
-            versions_on_page = await self.page.evaluate(f"""() => {{
+            versions_on_page = await self.page.evaluate("""() => {
                 const links = Array.from(document.querySelectorAll('a'));
                 return links
                     .filter(a => a.href && a.href.includes('/live-assets/') && a.href.includes('/edit/'))
-                    .map(a => ({{ name: a.innerText.trim(), href: a.href }}));
-            }}""")
+                    .map(a => ({ name: a.innerText.trim(), href: a.href }));
+            }""")
 
             if not versions_on_page:
                 if page_num == 1:
@@ -1879,7 +1914,7 @@ class TTSAutomation:
                 break
 
             versions_processed += 1
-            self.logger.info(f"")
+            self.logger.info("")
             self.logger.info(f"[{versions_processed}] Opening: {version_name}")
 
             try:
@@ -1912,11 +1947,20 @@ class TTSAutomation:
                 version_dl_dir = os.path.join(downloads_dir, safe_name)
                 os.makedirs(version_dl_dir, exist_ok=True)
 
-                # Count download buttons via JS.
+                # Tag download buttons with data-dl-idx for sequential clicking.
+                # Strategy: prefer aria-label/title attributes, fall back to SVG path matching.
                 btn_count = await self.page.evaluate("""() => {
                     let count = 0;
                     const buttons = Array.from(document.querySelectorAll('button'));
                     for (const btn of buttons) {
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        const title = (btn.getAttribute('title') || '').toLowerCase();
+                        if (label.includes('download') || title.includes('download')) {
+                            btn.setAttribute('data-dl-idx', count);
+                            count++;
+                            continue;
+                        }
+                        // Fallback: match SVG path data for download icon
                         const paths = Array.from(btn.querySelectorAll('svg path'));
                         for (const p of paths) {
                             const d = p.getAttribute('d') || '';
@@ -1964,7 +2008,7 @@ class TTSAutomation:
             # Brief pause between versions.
             await asyncio.sleep(0.3)
 
-        self.logger.info(f"")
+        self.logger.info("")
         self.logger.info("=" * 70)
         self.logger.info(f"⬇️  DOWNLOAD COMPLETE: {total_downloaded} files from {versions_processed} versions")
         self.logger.info(f"   Skipped: {total_skipped} (template)")
@@ -2217,57 +2261,23 @@ async def main():
 
     args = parser.parse_args()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger = setup_logging(timestamp)
-
-    logger.info("🚀 ANYLIVE TTS AUTOMATION")
-    logger.info("=" * 70)
-
+    # Handle --setup separately (no config/CSV needed)
     if args.setup:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger = setup_logging(timestamp)
+        logger.info("🚀 ANYLIVE TTS AUTOMATION")
+        logger.info("=" * 70)
         await setup_login(logger)
         return
 
     if not is_session_valid():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger = setup_logging(timestamp)
         logger.error("❌ No session found. Please run with --setup first.")
         logger.info("   python auto_tts.py --setup")
         return
 
-    # --- Download-only workflow (separate from fill/create) ---
-    if args.download:
-        config_path = None
-        if args.client:
-            config_path = f"configs/{args.client}.json"
-        elif args.config:
-            config_path = args.config
-        else:
-            config_path = "configs/default.json"
-
-        cli_overrides = {}
-        if args.base_url:
-            cli_overrides['base_url'] = args.base_url
-        if args.template:
-            cli_overrides['version_template'] = args.template
-
-        try:
-            config = load_config(config_path, cli_overrides if cli_overrides else None)
-        except Exception as e:
-            logger.error(f"❌ {e}")
-            return
-
-        logger.info(f"📋 Loaded config: {config_path}")
-        automation = TTSAutomation(config=config, headless=args.headless, logger=logger)
-
-        try:
-            await automation.start_browser()
-            await automation.download_all_versions(limit=args.limit, replace=args.replace)
-        finally:
-            if args.debug:
-                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
-            else:
-                await automation.close()
-        return
-
-    config_path = None
+    # Resolve config path
     if args.client:
         config_path = f"configs/{args.client}.json"
     elif args.config:
@@ -2275,88 +2285,40 @@ async def main():
     else:
         config_path = "configs/default.json"
 
-    cli_overrides = {}
-    if args.base_url:
-        cli_overrides['base_url'] = args.base_url
-    if args.voice:
-        cli_overrides['voice_name'] = args.voice
-    if args.template:
-        cli_overrides['version_template'] = args.template
-    if args.max_scripts:
-        cli_overrides['max_scripts_per_version'] = args.max_scripts
-
-    try:
-        config = load_config(config_path, cli_overrides if cli_overrides else None)
-        logger.info(f"📋 Loaded config: {config_path}")
-        if cli_overrides:
-            logger.debug(f"Applied CLI overrides: {cli_overrides}")
-    except FileNotFoundError as e:
-        logger.error(f"❌ {e}")
-        return
-    except Exception as e:
-        logger.error(f"❌ Failed to load config: {e}")
-        return
-
-    # CSV selection: CLI flag > config.csv > autodetect
-    try:
-        csv_from_config = None
+    # Resolve CSV path (not needed for download mode, but run_job handles that)
+    csv_path = args.csv
+    if not csv_path and not args.download:
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                _cfg_raw = json.load(f)
-                csv_from_config = _cfg_raw.get('csv')
-        except Exception:
             csv_from_config = None
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    _cfg_raw = json.load(f)
+                    csv_from_config = _cfg_raw.get('csv')
+            except Exception:
+                csv_from_config = None
+            csv_path = find_csv_file(csv_from_config)
+        except (FileNotFoundError, ValueError) as e:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            logger = setup_logging(timestamp)
+            logger.error(f"❌ {e}")
+            return
 
-        csv_path = find_csv_file(args.csv or csv_from_config)
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(f"❌ {e}")
-        return
+    # Delegate to run_job
+    result = await run_job(
+        config_path=config_path,
+        csv_path=csv_path or "",
+        headless=args.headless,
+        dry_run=args.dry_run,
+        no_save=args.no_save,
+        debug=args.debug,
+        download=args.download,
+        replace=args.replace,
+        start_version=args.start_version,
+        limit=args.limit,
+    )
 
-    df = load_csv(csv_path, logger)
-    versions = parse_csv_data(df, config, logger)
-
-    if not versions:
-        logger.error("❌ No versions to process")
-        return
-
-    start_idx = args.start_version - 1
-    if start_idx > 0:
-        versions = versions[start_idx:]
-        logger.info(f"Starting from version {args.start_version}")
-
-    if args.limit:
-        versions = versions[:args.limit]
-        logger.info(f"Limited to {args.limit} versions")
-
-    if args.dry_run:
-        logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
-
-    if args.no_save:
-        logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
-
-    if args.debug:
-        logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
-
-    automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run, no_save=args.no_save)
-
-    try:
-        await automation.start_browser()
-
-        for version in versions:
-            print_version_info(version, logger)
-            await automation.process_version(version)
-
-    finally:
-        if args.debug:
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info("🐛 DEBUG MODE: Leaving browser open for inspection (non-blocking)")
-            logger.info("   Close the browser manually when you're done.")
-            logger.info("=" * 70)
-        else:
-            await automation.close()
-
-    generate_report(versions, config, timestamp, logger)
+    if not result["success"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
