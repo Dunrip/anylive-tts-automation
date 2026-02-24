@@ -6,6 +6,7 @@ Automate the creation of TTS (Text-to-Speech) script versions on the AnyLive pla
 
 - ✅ **Multi-Client Support**: External JSON configuration for different brands/clients
 - ✅ **Product-Based Grouping**: 1 product = 1 version (auto-splits if >10 scripts)
+- ✅ **Flat Mode**: Override product grouping with `--flat` to pack scripts sequentially (N per version)
 - ✅ **Session Management**: One-time login with `--setup`, session persists for future runs
 - ✅ **Auto CSV Detection**: Automatically detects CSV files in project folder
 - ✅ **Smart Version Naming**: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2` for overflow
@@ -156,6 +157,12 @@ python auto_tts.py --no-save
 
 # Debug mode (keep browser open after execution)
 python auto_tts.py --debug
+
+# Flat mode: ignore product grouping, pack N scripts per version sequentially
+python auto_tts.py --flat --max-scripts 10
+
+# Flat mode + dry run (preview versions without browser interaction)
+python auto_tts.py --flat --max-scripts 10 --dry-run --no-save
 ```
 
 ## CLI Options
@@ -172,6 +179,7 @@ python auto_tts.py --debug
 | `--dry-run` | flag | Fill forms but skip Generate Speech buttons |
 | `--no-save` | flag | Fill and generate but skip Save button |
 | `--debug` | flag | Keep browser open after execution for debugging |
+| `--flat` | flag | Ignore product grouping; pack all scripts sequentially into fixed-size batches (use with `--max-scripts`) |
 
 ### Configuration Options
 
@@ -326,6 +334,29 @@ No  | Product Name    | Scripts Count
   - `02_Samsung_TV_v2` (5 scripts)
   - `03_LG_Monitor` (3 scripts)
 
+### Example 4: Flat Mode (Ignore Product Boundaries)
+
+Used when you want a fixed number of scripts per version regardless of which product they belong to.
+
+**Command:**
+```bash
+python auto_tts.py --flat --max-scripts 10
+```
+
+**CSV Input** (34 rows across many products):
+```
+No  | Product Name  | TH Script | Audio Code
+0.1 | ค่าขนส่ง       | Script 1  | GG1
+0.2 | AI หรือคน     | Script 2  | GG2
+... (34 rows total across 34 products)
+```
+
+**Result** (4 versions, ignoring product boundaries):
+- `batch_01` — scripts 1–10 (mixed products)
+- `batch_02` — scripts 11–20 (mixed products)
+- `batch_03` — scripts 21–30 (mixed products)
+- `batch_04` — scripts 31–34 (mixed products)
+
 ## Configuration Reference
 
 ### Client Config Fields
@@ -474,6 +505,12 @@ User data remains in `~/Library/Application Support/AnyLiveTTS/` for persistence
 - Use `--debug` to inspect the browser state after execution
 
 ## Recent Updates
+
+### Flat Mode (`--flat`)
+Added `--flat` CLI flag to override the default product-based grouping. In flat mode, all
+scripts are packed sequentially into fixed-size batches (set with `--max-scripts`). Versions
+are named `batch_01`, `batch_02`, etc. instead of by product name. Useful when you want
+a fixed number of slots per version regardless of product boundaries.
 
 ### UI Selector Improvements
 Recent commits updated selectors for new AnyLive UI version:
