@@ -277,7 +277,7 @@ def load_csv(path: str, logger: logging.Logger) -> pd.DataFrame:
     return df
 
 
-def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logger) -> List[Version]:
+def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logger, flat_mode: bool = False) -> List[Version]:
     col_product_no = config.csv_columns.get("product_number", "No")
     col_product_name = config.csv_columns.get("product_name", "Product Name")
     col_script = config.csv_columns.get("script_content", "TH Script")
@@ -345,31 +345,55 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 
     versions: List[Version] = []
 
-    for (product_number, product_name), rows in product_groups.items():
-        sanitized_name = sanitize_product_name(product_name)
-
-        for chunk_idx in range(0, len(rows), config.max_scripts_per_version):
-            chunk = rows[chunk_idx:chunk_idx + config.max_scripts_per_version]
-            chunk_number = chunk_idx // config.max_scripts_per_version
-
-            if chunk_number == 0:
-                version_name = f"{product_number}_{sanitized_name}"
-            else:
-                version_name = f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
+    if flat_mode:
+        # Flat mode: ignore product boundaries, pack all rows sequentially
+        # into fixed-size batches of max_scripts_per_version.
+        batch_size = config.max_scripts_per_version
+        logger.info(f"📦 FLAT MODE: grouping all {len(script_rows)} scripts into batches of {batch_size}")
+        for chunk_idx in range(0, len(script_rows), batch_size):
+            chunk = script_rows[chunk_idx:chunk_idx + batch_size]
+            batch_number = chunk_idx // batch_size + 1
+            version_name = f"batch_{batch_number:02d}"
 
             scripts = [row.script_content for row in chunk]
             audio_codes = [row.audio_code for row in chunk]
+            product_names = list(dict.fromkeys(row.product_name for row in chunk))  # ordered-unique
 
             versions.append(Version(
                 name=version_name,
-                products=[product_name],
+                products=product_names,
                 scripts=scripts,
                 audio_codes=audio_codes,
-                product_number=product_number,
-                version_suffix=f"_v{chunk_number + 1}" if chunk_number > 0 else None
+                product_number="",
             ))
 
-            logger.debug(f"Created version: {version_name} with {len(scripts)} scripts")
+            logger.debug(f"Created flat version: {version_name} with {len(scripts)} scripts")
+    else:
+        for (product_number, product_name), rows in product_groups.items():
+            sanitized_name = sanitize_product_name(product_name)
+
+            for chunk_idx in range(0, len(rows), config.max_scripts_per_version):
+                chunk = rows[chunk_idx:chunk_idx + config.max_scripts_per_version]
+                chunk_number = chunk_idx // config.max_scripts_per_version
+
+                if chunk_number == 0:
+                    version_name = f"{product_number}_{sanitized_name}"
+                else:
+                    version_name = f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
+
+                scripts = [row.script_content for row in chunk]
+                audio_codes = [row.audio_code for row in chunk]
+
+                versions.append(Version(
+                    name=version_name,
+                    products=[product_name],
+                    scripts=scripts,
+                    audio_codes=audio_codes,
+                    product_number=product_number,
+                    version_suffix=f"_v{chunk_number + 1}" if chunk_number > 0 else None
+                ))
+
+                logger.debug(f"Created version: {version_name} with {len(scripts)} scripts")
 
     logger.info(f"Created {len(versions)} versions total")
     return versions
@@ -2207,6 +2231,7 @@ async def main():
     parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
     parser.add_argument("--download", action="store_true", help="Download files for all versions (except template)")
     parser.add_argument("--replace", action="store_true", help="Re-download and replace existing files (use with --download)")
+    parser.add_argument("--flat", action="store_true", help="Flat mode: ignore product boundaries and pack scripts sequentially (N per version, set N with --max-scripts)")
 
     parser.add_argument("--config", type=str, help="Path to client config JSON file")
     parser.add_argument("--client", type=str, help="Client name (loads configs/{NAME}.json)")
@@ -2313,7 +2338,7 @@ async def main():
         return
 
     df = load_csv(csv_path, logger)
-    versions = parse_csv_data(df, config, logger)
+    versions = parse_csv_data(df, config, logger, flat_mode=args.flat)
 
     if not versions:
         logger.error("❌ No versions to process")
@@ -2327,6 +2352,9 @@ async def main():
     if args.limit:
         versions = versions[:args.limit]
         logger.info(f"Limited to {args.limit} versions")
+
+    if args.flat:
+        logger.info(f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version")
 
     if args.dry_run:
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
