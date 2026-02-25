@@ -1937,10 +1937,16 @@ class TTSAutomation:
                 os.makedirs(version_dl_dir, exist_ok=True)
 
                 # Count download buttons via JS.
+                # The new "Export" button shares the same SVG icon (M4 15.204) as
+                # the per-row download buttons, but has visible innerText "Export".
+                # Real download buttons are icon-only (empty innerText), so we skip
+                # any button whose trimmed innerText is non-empty to exclude Export.
                 btn_count = await self.page.evaluate("""() => {
                     let count = 0;
                     const buttons = Array.from(document.querySelectorAll('button'));
                     for (const btn of buttons) {
+                        // Skip buttons with visible text (e.g. the new "Export" button)
+                        if (btn.innerText.trim() !== '') continue;
                         const paths = Array.from(btn.querySelectorAll('svg path'));
                         for (const p of paths) {
                             const d = p.getAttribute('d') || '';
