@@ -222,7 +222,6 @@ class AnyLiveTTSApp(rumps.App):
             # macOS app default: show the browser (headless = False)
             'headless': False,
             'dry_run': False,
-            'no_save': False,
             'debug': False,
             'start_version': None,
             'limit': None
@@ -296,13 +295,12 @@ class AnyLiveTTSApp(rumps.App):
         self.menu_options = rumps.MenuItem("⚙️ Options")
         self.menu_visible = rumps.MenuItem("Browser Visible", callback=self.toggle_visible)
         self.menu_dry_run = rumps.MenuItem("Dry Run", callback=self.toggle_dry_run)
-        self.menu_no_save = rumps.MenuItem("No Save", callback=self.toggle_no_save)
+
         self.menu_debug = rumps.MenuItem("Debug Mode", callback=self.toggle_debug)
         
         self.menu_visible.state = not self.options['headless']
         self.menu_options.add(self.menu_visible)
         self.menu_options.add(self.menu_dry_run)
-        self.menu_options.add(self.menu_no_save)
         self.menu_options.add(self.menu_debug)
         self.menu_options.add(rumps.separator)
         self.menu_options.add(rumps.MenuItem("Set Start Version...", callback=self.set_start_version))
@@ -390,7 +388,7 @@ class AnyLiveTTSApp(rumps.App):
         # Update option checkboxes
         self.menu_visible.state = not self.options['headless']
         self.menu_dry_run.state = self.options['dry_run']
-        self.menu_no_save.state = self.options['no_save']
+
         self.menu_debug.state = self.options['debug']
         
         # Keep callbacks always enabled so clicks never "do nothing".
@@ -569,13 +567,6 @@ class AnyLiveTTSApp(rumps.App):
         self.options['dry_run'] = not sender.state
         self.save_state()
         self.update_menu_status()
-    
-    def toggle_no_save(self, sender):
-        """Toggle no save mode."""
-        self.options['no_save'] = not sender.state
-        self.save_state()
-        self.update_menu_status()
-    
     def toggle_debug(self, sender):
         """Toggle debug mode."""
         self.options['debug'] = not sender.state
@@ -695,7 +686,7 @@ class AnyLiveTTSApp(rumps.App):
             f"CSV: {Path(self.csv_path).name if self.csv_path else 'None'}",
             f"Browser visible: {not self.options['headless']}",
             f"Dry run: {self.options['dry_run']}",
-            f"No save: {self.options['no_save']}",
+
             f"Debug: {self.options['debug']}",
         ]
 
@@ -741,7 +732,7 @@ class AnyLiveTTSApp(rumps.App):
                     csv_path=self.csv_path,
                     headless=self.options['headless'],
                     dry_run=self.options['dry_run'],
-                    no_save=self.options['no_save'],
+
                     debug=self.options['debug'],
                     start_version=self.options['start_version'] or 1,
                     limit=self.options['limit'],
@@ -893,7 +884,7 @@ def _self_test() -> int:
     options = {
         'headless': False,
         'dry_run': False,
-        'no_save': False,
+
         'debug': False,
         'start_version': None,
         'limit': None,
@@ -932,7 +923,6 @@ def _self_test() -> int:
         f"CSV: {Path(csv_path).name if csv_path else 'None'}",
         f"Browser visible: {not options.get('headless', False)}",
         f"Dry run: {options.get('dry_run', False)}",
-        f"No save: {options.get('no_save', False)}",
         f"Debug: {options.get('debug', False)}",
         f"AppSupport: {APP_SUPPORT_DIR}",
         f"ConfigsDir: {CONFIGS_DIR}",

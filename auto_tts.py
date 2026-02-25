@@ -516,12 +516,11 @@ def is_session_valid() -> bool:
 
 
 class TTSAutomation:
-    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, no_save: bool = False, screenshots_dir: Optional[str] = None):
+    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, screenshots_dir: Optional[str] = None):
         self.config = config
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
-        self.no_save = no_save
         self.screenshots_dir = screenshots_dir if screenshots_dir else "screenshots"
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -1683,9 +1682,6 @@ class TTSAutomation:
             return False, error_msg
 
     async def save_version(self, expected_slots: int) -> bool:
-        if self.no_save:
-            self.logger.info("⏭️ SKIPPING SAVE (--no-save mode)")
-            return True
 
         self.logger.debug("Waiting for form state to stabilize...")
         await asyncio.sleep(0.1)
@@ -1782,13 +1778,10 @@ class TTSAutomation:
                 except Exception:
                     pass
 
-            if self.no_save:
-                self.logger.info(f"COMPLETED (not saved): {version.name}")
+            if failed_slots:
+                self.logger.warning(f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})")
             else:
-                if failed_slots:
-                    self.logger.warning(f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})")
-                else:
-                    self.logger.info(f"SUCCESS: {version.name}")
+                self.logger.info(f"SUCCESS: {version.name}")
 
             # Mark success only when all slots succeeded
             version.success = (len(failed_slots) == 0)
@@ -2083,7 +2076,7 @@ async def run_job(
     *,
     headless: bool = False,
     dry_run: bool = False,
-    no_save: bool = False,
+
     debug: bool = False,
     download: bool = False,
     replace: bool = False,
@@ -2101,7 +2094,7 @@ async def run_job(
         csv_path: Path to CSV file with scripts
         headless: Run browser in headless mode
         dry_run: Skip Generate Speech button clicks
-        no_save: Skip Save button click
+
         debug: Keep browser open after execution
         start_version: Starting version number (1-indexed)
         limit: Limit number of versions to process
@@ -2184,8 +2177,6 @@ async def run_job(
         if dry_run:
             logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
-        if no_save:
-            logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
 
         if debug:
             logger.info("🐛 DEBUG MODE: Browser will stay open after execution (non-blocking)")
@@ -2196,7 +2187,6 @@ async def run_job(
             headless=headless,
             logger=logger,
             dry_run=dry_run,
-            no_save=no_save,
             screenshots_dir=screenshots_dir
         )
 
@@ -2240,7 +2230,7 @@ async def main():
     parser.add_argument("--limit", type=int, help="Limit number of versions to process")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
     parser.add_argument("--dry-run", action="store_true", help="Run without clicking Generate Speech")
-    parser.add_argument("--no-save", action="store_true", help="Run without clicking Save button")
+
     parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
     parser.add_argument("--download", action="store_true", help="Download files for all versions (except template)")
     parser.add_argument("--replace", action="store_true", help="Re-download and replace existing files (use with --download)")
@@ -2372,13 +2362,11 @@ async def main():
     if args.dry_run:
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
-    if args.no_save:
-        logger.info("⏭️ NO-SAVE MODE: Save button will be skipped")
 
     if args.debug:
         logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
 
-    automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run, no_save=args.no_save)
+    automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run)
 
     try:
         await automation.start_browser()
