@@ -1881,7 +1881,14 @@ class TTSAutomation:
                 self.logger.info(f"Last page reached (page {page_num}).")
                 break
 
-        all_versions.reverse()
+        # Sort versions numerically by the leading number in the version name
+        # (e.g. "01_...", "06_...", "13_...") so downloads proceed in order.
+        import re as _re
+        def _version_sort_key(item):
+            name = item[0]
+            m = _re.match(r'^(\d+)', name)
+            return (int(m.group(1)) if m else float('inf'), name)
+        all_versions.sort(key=_version_sort_key)
         self.logger.info(f"Total versions found: {len(all_versions)}")
 
         # --- Phase 2: Visit each version and download ---
