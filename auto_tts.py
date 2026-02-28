@@ -283,16 +283,25 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     col_script = config.csv_columns.get("script_content", "TH Script")
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
 
-    default_columns = ["No", "Product Name", "Scene", "part", "TH Script", "col_f", "Audio Code", "col_h", "PIC"]
+    # Scan the first row to detect if it is a header row by looking for the
+    # configured column names anywhere in that row (position-independent).
+    required_cols = {col_product_no, col_product_name, col_script, col_audio}
+    first_row_values = [str(v).strip() for v in df.iloc[0] if pd.notna(v)]
+    first_row_set = set(first_row_values)
 
-    if len(df.columns) <= len(default_columns):
-        header_detected = any(
-            str(val).strip().lower() in [col_product_name.lower(), "product name", "th version", "th script"]
-            for val in df.iloc[0] if pd.notna(val)
-        )
+    header_detected = required_cols.issubset(first_row_set) or any(
+        v.lower() in {col_product_name.lower(), "product name", "th version", "th script"}
+        for v in first_row_values
+    )
 
-        if not header_detected:
-            df.columns = default_columns[:len(df.columns)]
+    if not header_detected:
+        # Promote the first row to header: build a name→position map and
+        # rename columns so that the known column names land on the right
+        # positional columns regardless of total column count.
+        new_header = list(df.iloc[0])
+        df = df[1:].reset_index(drop=True)
+        df.columns = [str(v).strip() if pd.notna(v) else f"col_{i}" for i, v in enumerate(new_header)]
+        logger.debug(f"Header auto-detected from first data row: {list(df.columns)}")
 
     df = df[df[col_product_name] != col_product_name]
     df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
