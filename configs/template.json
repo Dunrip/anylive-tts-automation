@@ -6,7 +6,7 @@
   "enable_voice_selection": false,
   "enable_product_info": false,
   "csv_columns": {
-    "product_number": "No",
+    "product_number": "No.",
     "product_name": "Product Name",
     "script_content": "TH Script",
     "audio_code": "Audio Code"
