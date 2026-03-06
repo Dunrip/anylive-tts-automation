@@ -283,25 +283,36 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     col_script = config.csv_columns.get("script_content", "TH Script")
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
 
-    # Scan the first row to detect if it is a header row by looking for the
-    # configured column names anywhere in that row (position-independent).
+    # Check if pandas already parsed the correct headers (the normal case when
+    # the CSV has a proper header row at row 0).
     required_cols = {col_product_no, col_product_name, col_script, col_audio}
-    first_row_values = [str(v).strip() for v in df.iloc[0] if pd.notna(v)]
-    first_row_set = set(first_row_values)
+    actual_cols = set(str(c).strip() for c in df.columns)
 
-    header_detected = required_cols.issubset(first_row_set) or any(
-        v.lower() in {col_product_name.lower(), "product name", "th version", "th script"}
-        for v in first_row_values
-    )
+    if required_cols.issubset(actual_cols):
+        # Headers are already correct — nothing to do.
+        logger.debug(f"CSV headers already parsed correctly: {list(df.columns)}")
+    else:
+        # Pandas may have mis-parsed an extra metadata row as the header.
+        # Check if the first data row actually contains the expected column names
+        # and, if so, promote it to be the real header.
+        first_row_values = [str(v).strip() for v in df.iloc[0] if pd.notna(v)]
+        first_row_set = set(first_row_values)
 
-    if not header_detected:
-        # Promote the first row to header: build a name→position map and
-        # rename columns so that the known column names land on the right
-        # positional columns regardless of total column count.
-        new_header = list(df.iloc[0])
-        df = df[1:].reset_index(drop=True)
-        df.columns = [str(v).strip() if pd.notna(v) else f"col_{i}" for i, v in enumerate(new_header)]
-        logger.debug(f"Header auto-detected from first data row: {list(df.columns)}")
+        header_in_first_row = required_cols.issubset(first_row_set) or any(
+            v.lower() in {col_product_name.lower(), "product name", "th version", "th script"}
+            for v in first_row_values
+        )
+
+        if header_in_first_row:
+            new_header = list(df.iloc[0])
+            df = df[1:].reset_index(drop=True)
+            df.columns = [str(v).strip() if pd.notna(v) else f"col_{i}" for i, v in enumerate(new_header)]
+            logger.debug(f"Header auto-detected from first data row: {list(df.columns)}")
+        else:
+            logger.warning(
+                f"Could not find expected columns {required_cols} in CSV. "
+                f"Actual columns: {list(df.columns)}. Proceeding anyway."
+            )
 
     df = df[df[col_product_name] != col_product_name]
     df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
