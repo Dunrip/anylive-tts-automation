@@ -24,6 +24,7 @@ from shared import (
     find_csv_file,
     load_csv,
     is_session_valid,
+    CLICK_TIMEOUT,
     NAVIGATION_TIMEOUT,
 )
 
@@ -255,18 +256,15 @@ def resolve_audio_file(
 FAQ_SELECTORS: dict[str, list[str]] = {
     "live_interaction_tab": [
         'text="Live Interaction Settings"',
-        'button:has-text("Live Interaction")',
-        '[role="tab"]:has-text("Live Interaction")',
+        ':text("Live Interaction Settings")',
     ],
     "product_qa_tab": [
         'text="Product Q&A"',
-        'button:has-text("Product Q&A")',
-        '[role="tab"]:has-text("Product Q&A")',
+        ':text("Product Q&A")',
     ],
     "question_input": [
-        'input[placeholder*="enter the question"]',
-        'input[placeholder*="Enter the question"]',
-        'input[placeholder*="question"]',
+        '[placeholder*="enter the question"]',
+        '[placeholder*="question"]',
     ],
 }
 
@@ -308,22 +306,29 @@ class FAQAutomation(BrowserAutomation):
             wait_until="domcontentloaded",
             timeout=NAVIGATION_TIMEOUT,
         )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
 
-        # Click "Live Interaction Settings" tab
-        if not await self.safe_click(
-            "live_interaction_tab", "Live Interaction Settings tab"
-        ):
+        # Click "Live Interaction Settings" top-level tab (generic element, not button/tab)
+        try:
+            tab = self.page.get_by_text("Live Interaction Settings", exact=True)
+            await tab.click(timeout=CLICK_TIMEOUT)
+            self.logger.debug("Clicked 'Live Interaction Settings' tab")
+        except Exception as e:
             self.logger.warning(
-                "Could not find Live Interaction tab, may already be on the page"
+                f"Could not click Live Interaction tab ({e}), may already be active"
             )
 
-        await asyncio.sleep(0.5)
+        # Wait for sub-tabs to render
+        await asyncio.sleep(1.0)
 
-        # Click "Product Q&A" sub-tab
-        if not await self.safe_click("product_qa_tab", "Product Q&A tab"):
+        # Click "Product Q&A" sub-tab (under Q&A Configuration which is default active)
+        try:
+            sub_tab = self.page.get_by_text("Product Q&A", exact=True)
+            await sub_tab.click(timeout=CLICK_TIMEOUT)
+            self.logger.debug("Clicked 'Product Q&A' sub-tab")
+        except Exception as e:
             self.logger.warning(
-                "Could not find Product Q&A tab, may already be on the page"
+                f"Could not click Product Q&A tab ({e}), may already be active"
             )
 
         await asyncio.sleep(1.0)
@@ -333,135 +338,142 @@ class FAQAutomation(BrowserAutomation):
     async def find_product_section(self, product_number: int):
         """Find and scroll to a product section by its number label.
 
-        Returns the product container locator or None.
+        The Product Q&A page lists products as direct children of a scrollable
+        container. Each product child has a header (cover image, number label,
+        product name) and optionally a rows section with Q&A entries.
+
+        First locates the product list container (the element with many children
+        containing cover images), then matches the specific product by finding
+        the number text node that is a sibling of the cover image. Tags the
+        matched product element with ``data-faq-product`` for Playwright.
+
+        Returns the product container Locator or None.
         """
+        num_str = str(product_number)
         self.logger.debug(f"Looking for product #{product_number}")
 
-        # Products are listed with their number as a label.
-        # Try multiple strategies to find the correct product section.
+        # Clean up any stale markers from previous calls
+        await self.page.evaluate(
+            """() => {
+                document.querySelectorAll('[data-faq-product]').forEach(
+                    el => el.removeAttribute('data-faq-product')
+                );
+            }"""
+        )
 
-        # Strategy 1: Find by exact text matching the product number
-        # Products often appear as numbered sections (1, 2, 3...)
-        product_locator = None
+        found = await self.page.evaluate(
+            """(targetNum) => {
+                // Step 1: Find the product list container — the element
+                // with the MOST direct children that contain cover images.
+                // Parent wrappers may also have cover-image descendants but
+                // they will have far fewer direct children with them.
+                const allDivs = document.querySelectorAll('div');
+                let productList = null;
+                let maxCover = 0;
+                for (const div of allDivs) {
+                    if (div.children.length < 1) continue;
+                    const withCover = Array.from(div.children).filter(
+                        c => c.querySelector('img[alt*="Cover Image"]')
+                    );
+                    if (withCover.length > maxCover) {
+                        productList = div;
+                        maxCover = withCover.length;
+                    }
+                }
+                if (!productList) return false;
 
-        # Look for a container that has the product number as text
-        # The product sections typically have a number label followed by product name
-        try:
-            # Try to find all product sections and match by number
-            sections = await self.page.evaluate(
-                """(targetNum) => {
-                    // Look for elements containing just the number
-                    const allElements = document.querySelectorAll('*');
-                    for (const el of allElements) {
-                        const text = el.textContent.trim();
-                        // Match elements that start with the product number
-                        if (el.children.length > 0 && el.querySelector('button')) {
-                            // This might be a product container with an Add button
-                            const numEl = el.querySelector('span, div, p, h3, h4');
-                            if (numEl) {
-                                const numText = numEl.textContent.trim();
-                                // Check if the number matches (as integer)
-                                if (parseInt(numText) === targetNum) {
-                                    // Mark it for Playwright to find
-                                    el.setAttribute('data-faq-product', targetNum.toString());
-                                    return true;
-                                }
-                            }
+                // Step 2: Iterate direct children of the product list and
+                // match the one whose header contains the target number
+                // as a sibling of the cover image.
+                for (const child of productList.children) {
+                    const walker = document.createTreeWalker(
+                        child, NodeFilter.SHOW_TEXT
+                    );
+                    while (walker.nextNode()) {
+                        if (walker.currentNode.textContent.trim() !== targetNum)
+                            continue;
+                        const parent = walker.currentNode.parentElement;
+                        const siblings = parent.parentElement
+                            ? Array.from(parent.parentElement.children) : [];
+                        const hasCoverSibling = siblings.some(
+                            s => s.tagName === 'IMG'
+                                && (s.alt || '').includes('Cover Image')
+                        );
+                        if (hasCoverSibling) {
+                            child.setAttribute('data-faq-product', targetNum);
+                            return true;
                         }
                     }
-                    return false;
-                }""",
-                product_number,
-            )
+                }
+                return false;
+            }""",
+            num_str,
+        )
 
-            if sections:
-                product_locator = self.page.locator(
-                    f'[data-faq-product="{product_number}"]'
-                )
-                if await product_locator.count() > 0:
-                    await product_locator.first.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.3)
-                    return product_locator.first
-        except Exception as e:
-            self.logger.debug(f"Product section search strategy 1 failed: {e}")
+        if not found:
+            self.logger.warning(f"Could not find product section for #{product_number}")
+            return None
 
-        # Strategy 2: Use text content matching
-        try:
-            # Look for the number text as a standalone element
-            num_str = str(product_number)
-            candidates = self.page.locator(f'text="{num_str}"')
-            count = await candidates.count()
+        locator = self.page.locator(f'[data-faq-product="{num_str}"]')
+        if await locator.count() == 0:
+            self.logger.warning(f"Tagged element disappeared for #{product_number}")
+            return None
 
-            for i in range(count):
-                candidate = candidates.nth(i)
-                try:
-                    text = await candidate.text_content()
-                    if text and text.strip() == num_str:
-                        # Found the number label, navigate up to the product container
-                        # that has an "+ Add" button
-                        container = await candidate.evaluate_handle(
-                            """(el) => {
-                                let p = el;
-                                for (let i = 0; i < 10; i++) {
-                                    if (!p.parentElement) break;
-                                    p = p.parentElement;
-                                    // Check if this container has an Add button
-                                    const addBtn = p.querySelector('button');
-                                    if (addBtn && (addBtn.textContent.includes('Add') ||
-                                                   addBtn.textContent.includes('+'))) {
-                                        return p;
-                                    }
-                                }
-                                return null;
-                            }"""
-                        )
-                        if container:
-                            await candidate.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.3)
-                            return container
-                except Exception:
-                    continue
-        except Exception as e:
-            self.logger.debug(f"Product section search strategy 2 failed: {e}")
-
-        self.logger.warning(f"Could not find product section for #{product_number}")
-        return None
+        await locator.first.scroll_into_view_if_needed()
+        # Wait for lazy-rendered Q&A rows to load after scroll
+        await asyncio.sleep(1.5)
+        return locator.first
 
     async def add_qa_entries(self, product_section, count: int) -> bool:
-        """Click '+ Add' button within a product section ``count`` times."""
+        """Click the header 'Add' button within a product section ``count`` times.
+
+        The header "Add" button (uppercase, Chakra UI) triggers a server-side
+        Q&A row creation. After each click the button enters a cooldown state
+        (opacity animation) and a new question input appears once the server
+        responds (~1-2 s). We poll for the new input rather than using a fixed
+        sleep to avoid swallowed clicks.
+        """
         self.logger.info(f"Adding {count} Q&A entries...")
+
+        add_btn = product_section.get_by_role("button", name="Add", exact=True)
+        question_inputs = product_section.get_by_placeholder("enter the question")
 
         for i in range(count):
             try:
-                # Try to find the Add button within the product section
-                add_btn = None
-
-                # Strategy 1: Find button with "+ Add" text in the section
-                try:
-                    add_btn = await product_section.query_selector(
-                        'button:has-text("Add")'
-                    )
-                except Exception:
-                    pass
-
-                if not add_btn:
-                    try:
-                        add_btn = await product_section.query_selector(
-                            'button:has-text("+")'
-                        )
-                    except Exception:
-                        pass
-
-                if add_btn:
-                    await add_btn.scroll_into_view_if_needed()
-                    await add_btn.click()
-                    self.logger.debug(f"Clicked + Add ({i + 1}/{count})")
-                else:
-                    self.logger.error(f"Could not find + Add button for entry {i + 1}")
+                if await add_btn.count() == 0:
+                    self.logger.error(f"Could not find Add button for entry {i + 1}")
                     return False
 
-                # Wait for the new row to appear
-                await asyncio.sleep(0.5)
+                count_before = await question_inputs.count()
+                target = count_before + 1
+
+                # Wait for button cooldown to finish (opacity returns to 1)
+                for _ in range(30):
+                    opacity = await add_btn.first.evaluate(
+                        "b => getComputedStyle(b).opacity"
+                    )
+                    if opacity == "1":
+                        break
+                    await asyncio.sleep(0.1)
+
+                await add_btn.first.scroll_into_view_if_needed()
+                await add_btn.first.click()
+                self.logger.debug(f"Clicked Add ({i + 1}/{count})")
+
+                # Poll until a new question input appears (server round-trip)
+                added = False
+                for _ in range(16):  # up to ~8 s
+                    await asyncio.sleep(0.5)
+                    if await question_inputs.count() >= target:
+                        added = True
+                        break
+
+                if not added:
+                    self.logger.error(
+                        f"New row did not appear after Add click {i + 1} "
+                        f"(expected {target}, got {await question_inputs.count()})"
+                    )
+                    return False
 
             except Exception as e:
                 self.logger.error(f"Failed to add Q&A entry {i + 1}: {e}")
@@ -477,28 +489,30 @@ class FAQAutomation(BrowserAutomation):
         question: str,
         audio_path: Optional[str],
     ) -> bool:
-        """Fill a single Q&A row (question + audio upload)."""
+        """Fill a single Q&A row (question + audio upload).
+
+        Question fields are textbox elements (not ``<input>``), matched by
+        their placeholder text. We use ``get_by_placeholder`` + ``nth()``
+        to target the correct row within the product section.
+        """
         row_num = row_index + 1
 
-        # Fill question input
+        # Fill question input — elements have placeholder containing "enter the question"
         try:
-            question_inputs = await product_section.query_selector_all(
-                'input[placeholder*="question"], input[placeholder*="Question"]'
-            )
+            question_inputs = product_section.get_by_placeholder("enter the question")
+            input_count = await question_inputs.count()
 
-            if row_index < len(question_inputs):
-                question_input = question_inputs[row_index]
-                ok = await self.clear_and_fill(question_input, question)
-                if not ok:
-                    self.logger.error(f"Failed to fill question for row {row_num}")
-                    return False
-                self.logger.debug(f"Filled question for row {row_num}: {question[:50]}")
-            else:
+            if row_index >= input_count:
                 self.logger.error(
                     f"Could not find question input for row {row_num} "
-                    f"(found {len(question_inputs)} inputs)"
+                    f"(found {input_count} inputs)"
                 )
                 return False
+
+            target_input = question_inputs.nth(row_index)
+            await target_input.scroll_into_view_if_needed()
+            await target_input.fill(question)
+            self.logger.debug(f"Filled question for row {row_num}: {question[:50]}")
         except Exception as e:
             self.logger.error(f"Error filling question row {row_num}: {e}")
             return False
@@ -518,51 +532,242 @@ class FAQAutomation(BrowserAutomation):
 
         return True
 
+    async def _wait_for_upload_confirmation(
+        self,
+        product_section,
+        audio_filename: str,
+        timeout_ms: int = 20000,
+    ) -> bool:
+        """Poll until *audio_filename* text appears in the product section,
+        confirming the OSS upload completed and the server persisted the file.
+
+        The page renders the filename (e.g. ``SFD4.mp3``) as a ``<p>`` once
+        the upload finishes.  This is more reliable than checking button names
+        which may match across product boundaries.
+        """
+        interval = 0.5
+        elapsed = 0.0
+        max_wait = timeout_ms / 1000
+        while elapsed < max_wait:
+            found = await product_section.get_by_text(
+                audio_filename, exact=True
+            ).count()
+            if found > 0:
+                return True
+            await asyncio.sleep(interval)
+            elapsed += interval
+        return False
+
     async def _upload_audio(
         self, product_section, row_index: int, audio_path: str
     ) -> bool:
         """Upload an audio file for a Q&A row.
 
-        Primary: Use page.expect_file_chooser() event.
-        Fallback: Find hidden input[type=file] and use set_input_files().
+        After setting the file via the native file chooser, poll until the
+        audio filename text appears in the product section DOM — this confirms
+        the OSS upload completed and the server persisted the file.
         """
         row_num = row_index + 1
+        audio_filename = os.path.basename(audio_path)
         self.logger.debug(f"Uploading audio for row {row_num}: {audio_path}")
 
-        # Strategy 1: Find upload button/area and use file chooser
-        try:
-            upload_areas = await product_section.query_selector_all(
-                'button:has-text("Upload"), '
-                '[class*="upload"], '
-                '[class*="audio"] button, '
-                'button:has-text("Voice Reply")'
-            )
+        # Capture upload-related console logs for debugging
+        console_msgs: list[str] = []
 
-            if row_index < len(upload_areas):
-                upload_area = upload_areas[row_index]
+        def _on_console(msg) -> None:
+            text = msg.text
+            if any(kw in text.lower() for kw in ("upload", "oss", "上传")):
+                console_msgs.append(text[:120])
+
+        self.page.on("console", _on_console)
+        try:
+            result = await self._do_upload(
+                product_section,
+                row_index,
+                audio_path,
+                audio_filename,
+                console_msgs,
+            )
+        finally:
+            self.page.remove_listener("console", _on_console)
+        return result
+
+    async def _do_upload(
+        self,
+        product_section,
+        row_index: int,
+        audio_path: str,
+        audio_filename: str,
+        console_msgs: list[str],
+    ) -> bool:
+        """Try 3 strategies to upload audio, confirming via filename text.
+
+        1. Click ``upload-audio`` button (new empty rows) — always ``.first``
+           because previous rows' buttons change to exchange-audio after upload.
+        2. Click ``exchange-audio`` button (replace existing audio).
+        3. Hidden ``input[type=file]`` fallback indexed by ``row_index``.
+        """
+        row_num = row_index + 1
+
+        # Strategy 1: Click upload-audio button (new empty rows)
+        try:
+            upload_btns = product_section.get_by_role("button", name="upload-audio")
+            btn_count = await upload_btns.count()
+            if btn_count > 0:
                 async with self.page.expect_file_chooser(timeout=5000) as fc_info:
-                    await upload_area.click()
+                    await upload_btns.first.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(audio_path)
-                self.logger.info(f"Uploaded audio for row {row_num}")
-                await asyncio.sleep(0.5)
-                return True
+                self.logger.debug(
+                    f"File set for row {row_num}, waiting for OSS upload "
+                    f"({audio_filename})..."
+                )
+                if await self._wait_for_upload_confirmation(
+                    product_section, audio_filename
+                ):
+                    self.logger.info(f"Uploaded audio for row {row_num}")
+                    return True
+                if console_msgs:
+                    self.logger.debug(f"Console during upload: {console_msgs}")
+                self.logger.warning(
+                    f"Upload confirmation timeout for row {row_num} — "
+                    f"'{audio_filename}' not found in DOM after 20s"
+                )
+                return False
         except Exception as e:
-            self.logger.debug(f"File chooser strategy failed for row {row_num}: {e}")
+            self.logger.debug(f"Upload-audio strategy failed for row {row_num}: {e}")
 
-        # Strategy 2: Find hidden input[type=file]
+        # Strategy 2: Click exchange-audio button (replacing existing audio)
         try:
-            file_inputs = await product_section.query_selector_all('input[type="file"]')
-            if row_index < len(file_inputs):
-                await file_inputs[row_index].set_input_files(audio_path)
-                self.logger.info(f"Uploaded audio for row {row_num} (via hidden input)")
-                await asyncio.sleep(0.5)
-                return True
+            exchange_btns = product_section.get_by_role("button", name="exchange-audio")
+            if await exchange_btns.count() > 0:
+                async with self.page.expect_file_chooser(timeout=5000) as fc_info:
+                    await exchange_btns.first.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(audio_path)
+                self.logger.debug(
+                    f"File set for replacement on row {row_num}, "
+                    f"waiting for confirmation..."
+                )
+                if await self._wait_for_upload_confirmation(
+                    product_section, audio_filename
+                ):
+                    self.logger.info(f"Replaced audio for row {row_num}")
+                    return True
+                self.logger.warning(
+                    f"Replacement confirmation timeout for row {row_num}"
+                )
+                return False
+        except Exception as e:
+            self.logger.debug(f"Exchange-audio strategy failed for row {row_num}: {e}")
+
+        # Strategy 3: Find hidden input[type=file]
+        try:
+            file_inputs = product_section.locator('input[type="file"]')
+            if await file_inputs.count() > row_index:
+                await file_inputs.nth(row_index).set_input_files(audio_path)
+                self.logger.debug(
+                    f"File set via hidden input for row {row_num}, "
+                    f"waiting for confirmation..."
+                )
+                if await self._wait_for_upload_confirmation(
+                    product_section, audio_filename
+                ):
+                    self.logger.info(
+                        f"Uploaded audio for row {row_num} (via hidden input)"
+                    )
+                    return True
+                self.logger.warning(
+                    f"Hidden input confirmation timeout for row {row_num}"
+                )
+                return False
         except Exception as e:
             self.logger.debug(f"Hidden input strategy failed for row {row_num}: {e}")
 
         self.logger.warning(f"Could not upload audio for row {row_num}")
         return False
+
+    async def _upload_missing_audio(
+        self,
+        product_section,
+        product_faq: ProductFAQ,
+    ) -> tuple[int, int]:
+        """Upload audio for rows that have questions filled but no audio.
+
+        Returns ``(needed, uploaded)`` — the number of rows that needed audio
+        and how many were successfully uploaded.
+        """
+        upload_btns = product_section.get_by_role("button", name="upload-audio")
+        missing_count = await upload_btns.count()
+        if missing_count == 0:
+            return (0, 0)
+
+        self.logger.info(
+            f"Product #{product_faq.product_number}: {missing_count} rows "
+            f"have questions but missing audio, uploading..."
+        )
+
+        # Determine which rows are missing audio by checking if the
+        # audio filename text is already visible in the section.
+        question_inputs = product_section.get_by_placeholder("enter the question")
+        total_rows = await question_inputs.count()
+
+        rows_needing_audio: list[tuple[int, str]] = []  # (row_idx, audio_path)
+        for row_idx in range(min(total_rows, len(product_faq.rows))):
+            faq_row = product_faq.rows[row_idx]
+            if not faq_row.audio_code:
+                continue
+            audio_path = resolve_audio_file(
+                faq_row.audio_code,
+                faq_row.product_number,
+                self.config.audio_dir,
+                self.config.audio_extensions,
+                self.logger,
+            )
+            if not audio_path:
+                self.logger.warning(
+                    f"No audio file for row {row_idx + 1} "
+                    f"(code: {faq_row.audio_code})"
+                )
+                continue
+            # Skip if audio filename already visible (already uploaded)
+            audio_filename = os.path.basename(audio_path)
+            already_has = await product_section.get_by_text(
+                audio_filename, exact=True
+            ).count()
+            if already_has > 0:
+                continue
+            rows_needing_audio.append((row_idx, audio_path))
+
+        if not rows_needing_audio:
+            return (0, 0)  # all rows already have audio
+
+        uploaded = 0
+        section = product_section
+        for row_idx, audio_path in rows_needing_audio:
+            try:
+                ok = await self._upload_audio(section, row_idx, audio_path)
+                if ok:
+                    uploaded += 1
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to upload audio for row {row_idx + 1}: {e}"
+                )
+
+            # Re-find section after upload (DOM may have changed)
+            section = await self.find_product_section(product_faq.product_number)
+            if section is None:
+                self.logger.error(
+                    f"Lost product #{product_faq.product_number} "
+                    f"after uploading audio for row {row_idx + 1}"
+                )
+                break
+
+        self.logger.info(
+            f"Product #{product_faq.product_number}: uploaded {uploaded}/"
+            f"{len(rows_needing_audio)} missing audio files"
+        )
+        return (len(rows_needing_audio), uploaded)
 
     async def process_product(self, product_faq: ProductFAQ) -> bool:
         """Process all Q&A entries for a single product."""
@@ -581,15 +786,75 @@ class FAQAutomation(BrowserAutomation):
                 self.logger.error(product_faq.error)
                 return False
 
-            # Click "+ Add" for each question
-            if not await self.add_qa_entries(section, len(product_faq.rows)):
-                product_faq.error = "Failed to add Q&A entries"
-                self.logger.error(product_faq.error)
-                return False
+            # Check for existing Q&A rows (from previous runs or partial fills)
+            existing_inputs = section.get_by_placeholder("enter the question")
+            existing_count = await existing_inputs.count()
 
-            # Fill each row
-            successful = 0
-            for i, faq_row in enumerate(product_faq.rows):
+            # Count how many rows already have question text (filled rows)
+            filled_count = 0
+            for idx in range(existing_count):
+                val = await existing_inputs.nth(idx).input_value()
+                if val.strip():
+                    filled_count += 1
+
+            rows_needed = len(product_faq.rows)
+            fill_offset = 0
+
+            if filled_count >= rows_needed:
+                # Questions are filled — but audio may be missing from
+                # earlier buggy runs.  Check for upload-audio buttons
+                # (present when no audio is attached) and re-upload.
+                if not self.dry_run:
+                    needed, uploaded = await self._upload_missing_audio(
+                        section, product_faq
+                    )
+                    if needed == 0:
+                        self.logger.info(
+                            f"Product #{product_faq.product_number} already "
+                            f"has {filled_count} filled rows with audio, "
+                            f"skipping"
+                        )
+                    elif uploaded < needed:
+                        product_faq.error = (
+                            f"{needed - uploaded}/{needed} audio uploads failed"
+                        )
+                    # else: all uploads succeeded, logged inside method
+                else:
+                    self.logger.info(
+                        f"Product #{product_faq.product_number} already has "
+                        f"{filled_count} filled rows, skipping (dry-run)"
+                    )
+                product_faq.success = product_faq.error is None
+                return product_faq.success
+            elif filled_count > 0:
+                fill_offset = filled_count
+                self.logger.warning(
+                    f"Product #{product_faq.product_number} has {filled_count} "
+                    f"filled rows, will fill remaining {rows_needed - filled_count}"
+                )
+
+            # We need (rows_needed - fill_offset) total rows to fill.
+            # Some empty rows may already exist from a previous partial run.
+            # Only click Add for rows beyond what already exist in the DOM.
+            rows_to_add = rows_needed - existing_count
+            if rows_to_add > 0:
+                self.logger.info(
+                    f"Need {rows_needed} total rows, {existing_count} exist "
+                    f"({filled_count} filled, {existing_count - filled_count} empty), "
+                    f"clicking Add {rows_to_add} times"
+                )
+                if not await self.add_qa_entries(section, rows_to_add):
+                    product_faq.error = "Failed to add Q&A entries"
+                    self.logger.error(product_faq.error)
+                    return False
+
+            # Fill only the unfilled rows (starting from fill_offset).
+            # Re-find the product section after each row because audio
+            # uploads trigger React re-renders that replace DOM elements,
+            # invalidating the data-faq-product attribute and locator.
+            successful = fill_offset  # count filled rows as already done
+            for i in range(fill_offset, rows_needed):
+                faq_row = product_faq.rows[i]
                 audio_path = resolve_audio_file(
                     faq_row.audio_code,
                     faq_row.product_number,
@@ -602,16 +867,26 @@ class FAQAutomation(BrowserAutomation):
                 if ok:
                     successful += 1
 
+                # Re-find section for next iteration (DOM may have changed)
+                if i < rows_needed - 1:
+                    section = await self.find_product_section(
+                        product_faq.product_number
+                    )
+                    if section is None:
+                        self.logger.error(
+                            f"Lost product #{product_faq.product_number} "
+                            f"after filling row {i + 1}"
+                        )
+                        break
+
             self.logger.info(
                 f"Product #{product_faq.product_number}: "
-                f"{successful}/{len(product_faq.rows)} questions filled"
+                f"{successful}/{rows_needed} questions filled"
             )
 
-            product_faq.success = successful == len(product_faq.rows)
+            product_faq.success = successful == rows_needed
             if not product_faq.success:
-                product_faq.error = (
-                    f"{len(product_faq.rows) - successful} questions failed"
-                )
+                product_faq.error = f"{rows_needed - successful} questions failed"
             return product_faq.success
 
         except Exception as e:
@@ -621,8 +896,8 @@ class FAQAutomation(BrowserAutomation):
             )
             try:
                 await self.take_screenshot(f"product_{product_faq.product_number}")
-            except Exception:
-                pass
+            except Exception as screenshot_err:
+                self.logger.debug(f"Failed to take error screenshot: {screenshot_err}")
             return False
 
 
@@ -746,7 +1021,7 @@ async def main() -> None:
     elif args.config:
         config_path = args.config
     else:
-        config_path = "configs/faq_template.json"
+        config_path = "configs/default_faq.json"
 
     cli_overrides: dict = {}
     if args.base_url:
