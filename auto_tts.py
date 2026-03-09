@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 import asyncio
 import argparse
-import glob
 import json
 import logging
 import os
-import sys
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -14,48 +12,27 @@ from typing import List, Optional, Callable
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
-# In packaged apps Playwright may default to looking for browsers inside the
-# application bundle. Force use of the standard macOS cache directory where
-# `python -m playwright install chromium` downloads browsers.
-os.environ.setdefault(
-    "PLAYWRIGHT_BROWSERS_PATH",
-    os.path.join(str(Path.home()), "Library", "Caches", "ms-playwright"),
+# Re-export shared utilities so menubar_gui.py and other callers that
+# import from auto_tts continue to work without changes.
+from shared import (  # noqa: F401
+    set_app_support_dir,
+    get_session_file_path,
+    get_browser_data_dir,
+    EmojiFormatter,
+    CallbackLogHandler,
+    setup_logging,
+    find_csv_file,
+    load_csv,
+    is_session_valid,
+    setup_login,
 )
-
-DEFAULT_TIMEOUT = 30000
-CLICK_TIMEOUT = 8000
-NAVIGATION_TIMEOUT = 45000
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 2
-POST_AUTOSAVE_DELAY_SECONDS = 3.0
-PRE_FILL_START_DELAY_SECONDS = 0.5
-SESSION_FILE = "session_state.json"
-
-_app_support_dir = None
-
-def set_app_support_dir(path: Optional[str]):
-    global _app_support_dir
-    _app_support_dir = path
-
-def get_session_file_path() -> str:
-    if _app_support_dir:
-        return os.path.join(_app_support_dir, "session_state.json")
-    return SESSION_FILE
-
-
-def get_browser_data_dir() -> str:
-    """Return the directory used for Playwright persistent context.
-
-    IMPORTANT: In a packaged macOS .app, the current working directory can be
-    unexpected (often '/'), so using a relative path like './browser_data' can
-    break silently (no profile/session persisted; permission errors).
-
-    When running in menubar GUI mode we set _app_support_dir, so we store browser
-    data under ~/Library/Application Support/AnyLiveTTS/browser_data.
-    """
-    if _app_support_dir:
-        return os.path.join(_app_support_dir, "browser_data")
-    return "./browser_data"
+from shared import (
+    DEFAULT_TIMEOUT,
+    CLICK_TIMEOUT,
+    NAVIGATION_TIMEOUT,
+    POST_AUTOSAVE_DELAY_SECONDS,
+    PRE_FILL_START_DELAY_SECONDS,
+)
 
 SELECTORS = {
     "add_version_btn": [
@@ -85,7 +62,7 @@ SELECTORS = {
         'button:has-text("Copy From Version")',
         'text="Select Version"',
         '[role="combobox"]',
-        'select',
+        "select",
     ],
     "save_changes_btn": [
         'button:has-text("Save Changes")',
@@ -162,7 +139,7 @@ def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> Clien
             f"Please create a config file or use the template at configs/template.json"
         )
 
-    with open(config_path, 'r', encoding='utf-8') as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         config_data = json.load(f)
 
     if cli_overrides:
@@ -203,81 +180,12 @@ class Report:
     versions: List[dict] = field(default_factory=list)
 
 
-class EmojiFormatter(logging.Formatter):
-    def format(self, record):
-        return f"{self.formatTime(record, '%H:%M:%S')} | {record.levelname} | {record.getMessage()}"
-
-
-class CallbackLogHandler(logging.Handler):
-    def __init__(self, callback: Callable[[str], None]):
-        super().__init__()
-        self.callback = callback
-        self.setFormatter(EmojiFormatter())
-
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            self.callback(msg)
-        except Exception:
-            self.handleError(record)
-
-
-def setup_logging(timestamp: str, logs_dir: Optional[str] = None, log_callback: Optional[Callable[[str], None]] = None) -> logging.Logger:
-    if logs_dir is None:
-        logs_dir = Path("logs")
-    else:
-        logs_dir = Path(logs_dir)
-    logs_dir.mkdir(exist_ok=True)
-
-    logger = logging.getLogger("auto_tts")
-    logger.setLevel(logging.DEBUG)
-    logger.handlers.clear()
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(EmojiFormatter())
-    logger.addHandler(console_handler)
-
-    file_handler = logging.FileHandler(logs_dir / f"auto_tts_{timestamp}.log", encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(file_handler)
-
-    if log_callback:
-        callback_handler = CallbackLogHandler(log_callback)
-        callback_handler.setLevel(logging.INFO)
-        logger.addHandler(callback_handler)
-
-    return logger
-
-
-def find_csv_file(explicit_path: Optional[str]) -> str:
-    if explicit_path:
-        if not os.path.exists(explicit_path):
-            raise FileNotFoundError(f"CSV file not found: {explicit_path}")
-        return explicit_path
-
-    csv_files = glob.glob("*.csv")
-
-    if len(csv_files) == 0:
-        raise FileNotFoundError("No CSV file found in project folder")
-    elif len(csv_files) == 1:
-        return csv_files[0]
-    else:
-        raise ValueError(f"Multiple CSV files found: {csv_files}. Use --csv to specify.")
-
-
-def load_csv(path: str, logger: logging.Logger) -> pd.DataFrame:
-    logger.info(f"📂 Loading CSV: {path}")
-    try:
-        df = pd.read_csv(path, encoding="utf-8", header=0)
-    except UnicodeDecodeError:
-        logger.debug("UTF-8 failed, trying cp874 encoding")
-        df = pd.read_csv(path, encoding="cp874", header=0)
-    return df
-
-
-def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logger, flat_mode: bool = False) -> List[Version]:
+def parse_csv_data(
+    df: pd.DataFrame,
+    config: ClientConfig,
+    logger: logging.Logger,
+    flat_mode: bool = False,
+) -> List[Version]:
     col_product_no = config.csv_columns.get("product_number", "No")
     col_product_name = config.csv_columns.get("product_name", "Product Name")
     col_script = config.csv_columns.get("script_content", "TH Script")
@@ -299,15 +207,21 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
         first_row_set = set(first_row_values)
 
         header_in_first_row = required_cols.issubset(first_row_set) or any(
-            v.lower() in {col_product_name.lower(), "product name", "th version", "th script"}
+            v.lower()
+            in {col_product_name.lower(), "product name", "th version", "th script"}
             for v in first_row_values
         )
 
         if header_in_first_row:
             new_header = list(df.iloc[0])
             df = df[1:].reset_index(drop=True)
-            df.columns = [str(v).strip() if pd.notna(v) else f"col_{i}" for i, v in enumerate(new_header)]
-            logger.debug(f"Header auto-detected from first data row: {list(df.columns)}")
+            df.columns = [
+                str(v).strip() if pd.notna(v) else f"col_{i}"
+                for i, v in enumerate(new_header)
+            ]
+            logger.debug(
+                f"Header auto-detected from first data row: {list(df.columns)}"
+            )
         else:
             logger.warning(
                 f"Could not find expected columns {required_cols} in CSV. "
@@ -317,10 +231,10 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
     df = df[df[col_product_name] != col_product_name]
     df = df[~df[col_script].str.contains("TH Version", na=False, case=False)]
 
-    df[col_product_name] = df[col_product_name].replace('', pd.NA)
+    df[col_product_name] = df[col_product_name].replace("", pd.NA)
     df[col_product_name] = df[col_product_name].ffill()
 
-    df[col_product_no] = df[col_product_no].replace('', pd.NA)
+    df[col_product_no] = df[col_product_no].replace("", pd.NA)
     df[col_product_no] = df[col_product_no].ffill()
 
     valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
@@ -328,7 +242,9 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 
     script_rows: List[ScriptRow] = []
     for idx, row in valid_rows.iterrows():
-        raw_number = str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "XX"
+        raw_number = (
+            str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "XX"
+        )
 
         try:
             num_value = float(raw_number)
@@ -336,18 +252,29 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
         except ValueError:
             product_number = raw_number
 
-        product_name = str(row[col_product_name]).strip() if pd.notna(row[col_product_name]) else ""
-        script_rows.append(ScriptRow(
-            product_number=product_number,
-            product_name=product_name,
-            script_content=str(row[col_script]).strip() if pd.notna(row[col_script]) else "",
-            audio_code=str(row[col_audio]).strip() if pd.notna(row[col_audio]) else "",
-            row_number=int(idx) + 2
-        ))
+        product_name = (
+            str(row[col_product_name]).strip()
+            if pd.notna(row[col_product_name])
+            else ""
+        )
+        script_rows.append(
+            ScriptRow(
+                product_number=product_number,
+                product_name=product_name,
+                script_content=(
+                    str(row[col_script]).strip() if pd.notna(row[col_script]) else ""
+                ),
+                audio_code=(
+                    str(row[col_audio]).strip() if pd.notna(row[col_audio]) else ""
+                ),
+                row_number=int(idx) + 2,
+            )
+        )
 
     logger.info(f"Total script rows: {len(script_rows)}")
 
     from collections import defaultdict
+
     product_groups = defaultdict(list)
     for row in script_rows:
         key = (row.product_number, row.product_name)
@@ -357,10 +284,11 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
 
     def sanitize_product_name(name: str) -> str:
         import re
+
         # Include Thai Unicode range (U+0E00-U+0E7F) to preserve combining
         # characters such as tone marks (่ ้ ๊ ๋) and vowel marks (ิ ี ึ ื ุ ู ั)
-        sanitized = re.sub(r'[^\w\s\u0E00-\u0E7F-]', '', name)
-        sanitized = re.sub(r'\s+', '_', sanitized)
+        sanitized = re.sub(r"[^\w\s\u0E00-\u0E7F-]", "", name)
+        sanitized = re.sub(r"\s+", "_", sanitized)
         return sanitized
 
     versions: List[Version] = []
@@ -369,175 +297,81 @@ def parse_csv_data(df: pd.DataFrame, config: ClientConfig, logger: logging.Logge
         # Flat mode: ignore product boundaries, pack all rows sequentially
         # into fixed-size batches of max_scripts_per_version.
         batch_size = config.max_scripts_per_version
-        logger.info(f"📦 FLAT MODE: grouping all {len(script_rows)} scripts into batches of {batch_size}")
+        logger.info(
+            f"📦 FLAT MODE: grouping all {len(script_rows)} scripts into batches of {batch_size}"
+        )
         for chunk_idx in range(0, len(script_rows), batch_size):
-            chunk = script_rows[chunk_idx:chunk_idx + batch_size]
+            chunk = script_rows[chunk_idx : chunk_idx + batch_size]
             batch_number = chunk_idx // batch_size + 1
             version_name = f"batch_{batch_number:02d}"
 
             scripts = [row.script_content for row in chunk]
             audio_codes = [row.audio_code for row in chunk]
-            product_names = list(dict.fromkeys(row.product_name for row in chunk))  # ordered-unique
+            product_names = list(
+                dict.fromkeys(row.product_name for row in chunk)
+            )  # ordered-unique
 
-            versions.append(Version(
-                name=version_name,
-                products=product_names,
-                scripts=scripts,
-                audio_codes=audio_codes,
-                product_number="",
-            ))
+            versions.append(
+                Version(
+                    name=version_name,
+                    products=product_names,
+                    scripts=scripts,
+                    audio_codes=audio_codes,
+                    product_number="",
+                )
+            )
 
-            logger.debug(f"Created flat version: {version_name} with {len(scripts)} scripts")
+            logger.debug(
+                f"Created flat version: {version_name} with {len(scripts)} scripts"
+            )
     else:
         for (product_number, product_name), rows in product_groups.items():
             sanitized_name = sanitize_product_name(product_name)
 
             for chunk_idx in range(0, len(rows), config.max_scripts_per_version):
-                chunk = rows[chunk_idx:chunk_idx + config.max_scripts_per_version]
+                chunk = rows[chunk_idx : chunk_idx + config.max_scripts_per_version]
                 chunk_number = chunk_idx // config.max_scripts_per_version
 
                 if chunk_number == 0:
                     version_name = f"{product_number}_{sanitized_name}"
                 else:
-                    version_name = f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
+                    version_name = (
+                        f"{product_number}_{sanitized_name}_v{chunk_number + 1}"
+                    )
 
                 scripts = [row.script_content for row in chunk]
                 audio_codes = [row.audio_code for row in chunk]
 
-                versions.append(Version(
-                    name=version_name,
-                    products=[product_name],
-                    scripts=scripts,
-                    audio_codes=audio_codes,
-                    product_number=product_number,
-                    version_suffix=f"_v{chunk_number + 1}" if chunk_number > 0 else None
-                ))
+                versions.append(
+                    Version(
+                        name=version_name,
+                        products=[product_name],
+                        scripts=scripts,
+                        audio_codes=audio_codes,
+                        product_number=product_number,
+                        version_suffix=(
+                            f"_v{chunk_number + 1}" if chunk_number > 0 else None
+                        ),
+                    )
+                )
 
-                logger.debug(f"Created version: {version_name} with {len(scripts)} scripts")
+                logger.debug(
+                    f"Created version: {version_name} with {len(scripts)} scripts"
+                )
 
     logger.info(f"Created {len(versions)} versions total")
     return versions
 
 
-async def setup_login(logger: logging.Logger, gui_mode: bool = False):
-    logger.info("🔐 Starting login setup...")
-    session_file = get_session_file_path()
-
-    async with async_playwright() as p:
-        # Always use persistent context for consistent session management
-        logger.info("🌐 Initializing browser with persistent context...")
-        logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
-        user_data_dir = get_browser_data_dir()
-        logger.info(f"📁 Browser profile dir: {user_data_dir}")
-        os.makedirs(user_data_dir, exist_ok=True)
-
-        try:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=False,
-                args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
-            )
-        except Exception as e:
-            logger.exception("❌ Failed to launch Chromium persistent context")
-            raise
-
-        # launch_persistent_context auto-opens one blank tab — reuse it.
-        page = context.pages[0] if context.pages else await context.new_page()
-
-        # In GUI mode, always open browser for manual login
-        if not gui_mode:
-            # Check if existing session exists and try to validate it
-            if is_session_valid():
-                logger.info(f"📦 Found existing session file: {session_file}")
-                logger.info("🔍 Verifying session validity...")
-
-                try:
-                    await page.goto("https://app.anylive.jp", wait_until="networkidle", timeout=30000)
-
-                    # Check if we're still logged in (not redirected to login page)
-                    current_url = page.url
-                    if "login" not in current_url.lower():
-                        logger.info("✅ Existing session is still valid!")
-                        logger.info("🎉 Setup complete! You can now run without --setup")
-                        await context.close()
-                        return
-                    else:
-                        logger.warning("⚠️ Session expired. Need to login again.")
-                except Exception as e:
-                    logger.warning(f"⚠️ Session validation failed: {e}")
-            else:
-                logger.info("📭 No existing session found.")
-        else:
-            logger.info("🌐 GUI mode: Always opening browser for manual login")
-
-        # If we reach here, need manual login
-        logger.info("🌐 Opening browser for manual login...")
-
-        await page.goto("https://app.anylive.jp", wait_until="networkidle")
-        logger.info("🌐 Navigated to AnyLive. Please log in manually.")
-
-        if not gui_mode:
-            input("Press Enter when you have completed login...")
-        else:
-            # In GUI mode, wait for user to complete login with better feedback
-            logger.info("🌐 GUI mode: Please complete login in the browser window...")
-            logger.info("🌐 The browser window should open in a new window...")
-
-            # Bring browser to front
-            try:
-                await page.bring_to_front()
-            except:
-                pass
-
-            # Wait and check periodically if login is complete
-            for i in range(60):  # Wait up to 60 seconds
-                await asyncio.sleep(1)
-                try:
-                    current_url = page.url
-                    if "login" not in current_url.lower():
-                        logger.info("✅ Login detected automatically!")
-                        break
-                except:
-                    pass
-
-                if i % 10 == 0:  # Every 10 seconds
-                    logger.info(f"🌐 Waiting for login... ({60-i}s remaining)")
-
-            # Final check
-            current_url = page.url
-            if "login" in current_url.lower():
-                logger.warning("⚠️ Login timeout. You may need to try again.")
-
-        # Verify login by checking current URL
-        current_url = page.url
-        logger.info(f"Current URL: {current_url}")
-
-        if "login" in current_url.lower():
-            logger.warning("⚠️ Still on login page. Please make sure you're logged in.")
-        else:
-            logger.info("✅ Login detected!")
-
-        # Save session marker (persistent context auto-saves to browser_data)
-        if "login" in current_url.lower():
-            logger.warning("⚠️ Not saving session marker because login was not completed")
-        else:
-            with open(session_file, 'w') as f:
-                json.dump({'setup_complete': True, 'timestamp': datetime.now().isoformat()}, f)
-            logger.info("✅ Session saved to browser_data directory")
-            logger.info(f"✅ Setup marker saved to {session_file}")
-
-        await context.close()
-
-    logger.info("🎉 Setup complete! You can now run without --setup")
-
-
-def is_session_valid() -> bool:
-    session_file = get_session_file_path()
-    return os.path.exists(session_file)
-
-
 class TTSAutomation:
-    def __init__(self, config: ClientConfig, headless: bool, logger: logging.Logger, dry_run: bool = False, screenshots_dir: Optional[str] = None):
+    def __init__(
+        self,
+        config: ClientConfig,
+        headless: bool,
+        logger: logging.Logger,
+        dry_run: bool = False,
+        screenshots_dir: Optional[str] = None,
+    ):
         self.config = config
         self.headless = headless
         self.logger = logger
@@ -548,7 +382,9 @@ class TTSAutomation:
         self.playwright = None
 
     async def start_browser(self):
-        self.logger.info(f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}")
+        self.logger.info(
+            f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH')}"
+        )
         self.playwright = await async_playwright().start()
 
         # Always use persistent context for consistent session management
@@ -561,15 +397,23 @@ class TTSAutomation:
             accept_downloads=True,
             # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
             # These flags are known to improve stability for this app.
-            args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
+            args=[
+                "--start-maximized",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor",
+            ],
         )
         # launch_persistent_context auto-opens one blank tab — reuse it.
-        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        self.page = (
+            self.context.pages[0]
+            if self.context.pages
+            else await self.context.new_page()
+        )
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
 
         session_file = get_session_file_path()
         if is_session_valid():
-            self.logger.info(f"📦 Using saved session from browser_data directory")
+            self.logger.info("📦 Using saved session from browser_data directory")
 
             if not await self.validate_session():
                 await self.close()
@@ -593,7 +437,9 @@ class TTSAutomation:
     async def validate_session(self) -> bool:
         try:
             self.logger.debug("Validating session...")
-            await self.page.goto(self.config.base_url, wait_until="networkidle", timeout=30000)
+            await self.page.goto(
+                self.config.base_url, wait_until="networkidle", timeout=30000
+            )
 
             current_url = self.page.url
             if "login" in current_url.lower():
@@ -606,15 +452,25 @@ class TTSAutomation:
             self.logger.error(f"❌ Session validation failed: {e}")
             return False
 
-    async def safe_click(self, selector_key: str, description: str, timeout: int = CLICK_TIMEOUT, force: bool = False) -> bool:
+    async def safe_click(
+        self,
+        selector_key: str,
+        description: str,
+        timeout: int = CLICK_TIMEOUT,
+        force: bool = False,
+    ) -> bool:
         selectors = SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
             try:
                 # wait for visible state specifically to avoid waiting for attached but hidden elements
-                element = await self.page.wait_for_selector(selector, timeout=timeout, state="visible")
+                element = await self.page.wait_for_selector(
+                    selector, timeout=timeout, state="visible"
+                )
                 if element:
                     await element.click(force=force)
-                    self.logger.debug(f"Clicked {description} with selector: {selector}")
+                    self.logger.debug(
+                        f"Clicked {description} with selector: {selector}"
+                    )
                     return True
             except Exception:
                 continue
@@ -625,7 +481,9 @@ class TTSAutomation:
         selectors = SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
             try:
-                element = await self.page.wait_for_selector(selector, timeout=CLICK_TIMEOUT)
+                element = await self.page.wait_for_selector(
+                    selector, timeout=CLICK_TIMEOUT
+                )
                 if element:
                     await element.fill(value)
                     self.logger.debug(f"Filled {description} with selector: {selector}")
@@ -673,7 +531,8 @@ class TTSAutomation:
     async def is_edit_script_tab_selected(self) -> bool:
         """Return True when the Edit Script tab is currently selected."""
         try:
-            return await self.page.evaluate("""() => {
+            return await self.page.evaluate(
+                """() => {
                 const candidates = Array.from(document.querySelectorAll('button,[role="tab"],a'));
                 const edit = candidates.find(el => ((el.innerText || '').toLowerCase()).includes('edit script'));
                 if (!edit) return false;
@@ -681,18 +540,22 @@ class TTSAutomation:
                        edit.getAttribute('data-headlessui-state') === 'selected' ||
                        edit.getAttribute('data-selected') !== null ||
                        edit.getAttribute('aria-current') === 'page';
-            }""")
+            }"""
+            )
         except Exception:
             return False
 
-    async def ensure_edit_script_tab_active(self, timeout_seconds: float = 6.0, log_info: bool = False) -> bool:
+    async def ensure_edit_script_tab_active(
+        self, timeout_seconds: float = 6.0, log_info: bool = False
+    ) -> bool:
         """Aggressively switch to Edit Script tab as soon as it becomes available."""
         start = asyncio.get_event_loop().time()
 
         async def _click_edit_script_once() -> bool:
             # Fast JS path: case-insensitive text match across buttons/tabs/links.
             try:
-                clicked = await self.page.evaluate("""() => {
+                clicked = await self.page.evaluate(
+                    """() => {
                     const candidates = Array.from(document.querySelectorAll('button,[role="tab"],a'));
                     const edit = candidates.find(el => ((el.innerText || '').toLowerCase()).includes('edit script'));
                     if (edit) { edit.click(); return true; }
@@ -712,7 +575,8 @@ class TTSAutomation:
                         return true;
                     }
                     return false;
-                }""")
+                }"""
+                )
                 if clicked:
                     return True
             except Exception:
@@ -748,7 +612,9 @@ class TTSAutomation:
             await asyncio.sleep(0.08)
 
         if log_info:
-            self.logger.warning("Could not confirm 'Edit Script' tab is active within timeout.")
+            self.logger.warning(
+                "Could not confirm 'Edit Script' tab is active within timeout."
+            )
         return await self.is_edit_script_tab_selected()
 
     async def clear_and_fill(self, element, value: str, max_retries: int = 5) -> bool:
@@ -833,17 +699,20 @@ class TTSAutomation:
                 # JS fallback
                 try:
                     await element.evaluate(
-                        '''(el, val) => {
+                        """(el, val) => {
                             el.focus();
                             el.value = val;
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
-                        }''',
+                        }""",
                         value,
                     )
                     await asyncio.sleep(0.05)
                     actual_value2 = await element.input_value()
-                    if actual_value2 is not None and actual_value2.strip() == value.strip():
+                    if (
+                        actual_value2 is not None
+                        and actual_value2.strip() == value.strip()
+                    ):
                         try:
                             await element.press("Tab")
                         except Exception:
@@ -856,25 +725,39 @@ class TTSAutomation:
                 if await _clipboard_paste(element, value):
                     return True
 
-                self.logger.debug(f"Attempt {attempt + 1}: expected '{value}', got '{(actual_value or '').strip()}'")
+                self.logger.debug(
+                    f"Attempt {attempt + 1}: expected '{value}', got '{(actual_value or '').strip()}'"
+                )
             except Exception as e:
-                self.logger.debug(f"clear_and_fill attempt {attempt + 1}/{max_retries} failed: {e}")
+                self.logger.debug(
+                    f"clear_and_fill attempt {attempt + 1}/{max_retries} failed: {e}"
+                )
 
             await asyncio.sleep(0.12)
 
-        self.logger.warning(f"clear_and_fill failed after {max_retries} attempts for value: {value}")
+        self.logger.warning(
+            f"clear_and_fill failed after {max_retries} attempts for value: {value}"
+        )
         return False
 
-    async def validate_slot_fields(self, slot_index: int, expected_title: str, expected_content: str) -> tuple[bool, str]:
+    async def validate_slot_fields(
+        self, slot_index: int, expected_title: str, expected_content: str
+    ) -> tuple[bool, str]:
         slot_num = slot_index + 1
         self.logger.debug(f"Validating slot {slot_num} fields...")
 
         try:
             title_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
-            content_selector = f'textarea[aria-label="Section Content"] >> nth={slot_index}'
+            content_selector = (
+                f'textarea[aria-label="Section Content"] >> nth={slot_index}'
+            )
 
-            title_input = await self.page.wait_for_selector(title_selector, timeout=5000)
-            content_textarea = await self.page.wait_for_selector(content_selector, timeout=5000)
+            title_input = await self.page.wait_for_selector(
+                title_selector, timeout=5000
+            )
+            content_textarea = await self.page.wait_for_selector(
+                content_selector, timeout=5000
+            )
 
             if not title_input or not content_textarea:
                 error_msg = f"Slot {slot_num}: Could not find form fields"
@@ -890,7 +773,9 @@ class TTSAutomation:
                 error_msg = f"Slot {slot_num}: Both Section Title and Section Content are empty (at least one required)"
                 return False, error_msg
 
-            self.logger.debug(f"Slot {slot_num} validation passed (title: {'✓' if title_filled else '✗'}, content: {'✓' if content_filled else '✗'})")
+            self.logger.debug(
+                f"Slot {slot_num} validation passed (title: {'✓' if title_filled else '✗'}, content: {'✓' if content_filled else '✗'})"
+            )
             return True, ""
 
         except Exception as e:
@@ -905,7 +790,9 @@ class TTSAutomation:
         """
         try:
             dialog = self.page.get_by_role("dialog", name="Create New Version")
-            dropdown = dialog.locator('[aria-haspopup="listbox"], [role="combobox"], button:has-text("Select a version to copy from")').first
+            dropdown = dialog.locator(
+                '[aria-haspopup="listbox"], [role="combobox"], button:has-text("Select a version to copy from")'
+            ).first
 
             async def open_dropdown() -> None:
                 try:
@@ -921,7 +808,9 @@ class TTSAutomation:
                 searched = False
                 try:
                     # Dropdown popover may render outside the dialog (portal), so use page scope.
-                    search = self.page.locator('input[placeholder*="Search"]:visible').last
+                    search = self.page.locator(
+                        'input[placeholder*="Search"]:visible'
+                    ).last
                     if await search.count() > 0:
                         await search.click(timeout=1200)
                         await search.fill("")
@@ -933,7 +822,9 @@ class TTSAutomation:
 
                 # Wait for either options OR the "No results" empty state.
                 try:
-                    await self.page.wait_for_selector('[role="option"], text="No results found"', timeout=3000)
+                    await self.page.wait_for_selector(
+                        '[role="option"], text="No results found"', timeout=3000
+                    )
                 except Exception:
                     pass
 
@@ -963,31 +854,45 @@ class TTSAutomation:
                     continue
 
                 # Prefer role-based option.
-                opt = self.page.get_by_role("option", name=self.config.version_template, exact=True)
+                opt = self.page.get_by_role(
+                    "option", name=self.config.version_template, exact=True
+                )
                 if await opt.count() > 0:
                     await opt.first.click()
-                    self.logger.debug(f"Selected template: {self.config.version_template}")
+                    self.logger.debug(
+                        f"Selected template: {self.config.version_template}"
+                    )
                     return True
 
                 # Non-exact option text fallback
                 try:
-                    opt2 = self.page.get_by_role("option", name=self.config.version_template)
+                    opt2 = self.page.get_by_role(
+                        "option", name=self.config.version_template
+                    )
                     if await opt2.count() > 0:
                         await opt2.first.click()
-                        self.logger.debug(f"Selected template (after search): {self.config.version_template}")
+                        self.logger.debug(
+                            f"Selected template (after search): {self.config.version_template}"
+                        )
                         return True
 
-                    cand = self.page.locator(f'[role="option"]:has-text("{self.config.version_template}")')
+                    cand = self.page.locator(
+                        f'[role="option"]:has-text("{self.config.version_template}")'
+                    )
                     if await cand.count() > 0:
                         await cand.first.click(timeout=2000)
-                        self.logger.debug(f"Selected template by text: {self.config.version_template}")
+                        self.logger.debug(
+                            f"Selected template by text: {self.config.version_template}"
+                        )
                         return True
                 except Exception:
                     pass
 
                 # If search box was unavailable on this attempt, try reopening once next loop.
                 if not searched:
-                    self.logger.debug("Template search input not available; retrying dropdown open.")
+                    self.logger.debug(
+                        "Template search input not available; retrying dropdown open."
+                    )
 
                 # Close popover before retry loop
                 try:
@@ -996,7 +901,9 @@ class TTSAutomation:
                     pass
                 await asyncio.sleep(0.3)
 
-            self.logger.error(f"Could not find template in dropdown after retries: {self.config.version_template}")
+            self.logger.error(
+                f"Could not find template in dropdown after retries: {self.config.version_template}"
+            )
             return False
         except Exception as e:
             self.logger.error(f"Failed to select template: {e}")
@@ -1012,7 +919,9 @@ class TTSAutomation:
                     await option.click()
                     self.logger.debug(f"Selected exact match: {self.config.voice_name}")
                     return True
-            self.logger.error(f"Could not find exact match for {self.config.voice_name}")
+            self.logger.error(
+                f"Could not find exact match for {self.config.voice_name}"
+            )
             return False
         except Exception as e:
             self.logger.error(f"Failed to select voice: {e}")
@@ -1028,7 +937,9 @@ class TTSAutomation:
 
         # First attempt right away. If tab appears later, we keep retrying in the loop below.
         if await self.is_edit_script_tab_selected():
-            self.logger.info("'Edit Script' tab already selected. Proceeding to stability check.")
+            self.logger.info(
+                "'Edit Script' tab already selected. Proceeding to stability check."
+            )
         else:
             self.logger.info("'Edit Script' tab NOT selected. Clicking immediately...")
             await self.ensure_edit_script_tab_active(timeout_seconds=1.8)
@@ -1048,7 +959,7 @@ class TTSAutomation:
         last_tab_switch_time = 0.0
 
         start_time = asyncio.get_event_loop().time()
-        
+
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
                 template_inputs = await self.page.query_selector_all(template_selector)
@@ -1057,7 +968,9 @@ class TTSAutomation:
                 current_count = len(template_inputs)
                 script_count = len(script_textareas)
 
-                self.logger.debug(f"Found {current_count} template inputs, {script_count} script textareas")
+                self.logger.debug(
+                    f"Found {current_count} template inputs, {script_count} script textareas"
+                )
 
                 if current_count > 0 and current_count == script_count:
                     if current_count == last_count:
@@ -1065,23 +978,31 @@ class TTSAutomation:
                     else:
                         stable_iterations = 0
                         last_count = current_count
-                    
+
                     # If we hit expected count, we can return immediately
                     if current_count >= expected_count:
-                        self.logger.info(f"Form ready: Found expected {current_count} slots.")
+                        self.logger.info(
+                            f"Form ready: Found expected {current_count} slots."
+                        )
                         return True
-                    
+
                     # If stable for enough time, proceed even if < expected
                     if stable_iterations >= REQUIRED_STABLE_ITERATIONS:
-                        self.logger.info(f"Form ready: Count stabilized at {current_count} slots (Expected {expected_count}). Proceeding.")
+                        self.logger.info(
+                            f"Form ready: Count stabilized at {current_count} slots (Expected {expected_count}). Proceeding."
+                        )
                         return True
                 else:
                     stable_iterations = 0
                     now = asyncio.get_event_loop().time()
                     if (now - last_tab_switch_time) >= TAB_RETRY_INTERVAL_SECONDS:
-                        switched = await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                        switched = await self.ensure_edit_script_tab_active(
+                            timeout_seconds=1.0
+                        )
                         if switched:
-                            self.logger.debug("Switched to 'Edit Script' tab while waiting for fields.")
+                            self.logger.debug(
+                                "Switched to 'Edit Script' tab while waiting for fields."
+                            )
                         last_tab_switch_time = now
 
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
@@ -1089,7 +1010,9 @@ class TTSAutomation:
                 self.logger.debug(f"Error checking form fields: {e}")
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-        self.logger.warning(f"Timeout. Proceeding with {last_count} slots (Expected {expected_count}).")
+        self.logger.warning(
+            f"Timeout. Proceeding with {last_count} slots (Expected {expected_count})."
+        )
         return last_count > 0
 
     async def navigate_to_scripts(self):
@@ -1103,7 +1026,7 @@ class TTSAutomation:
         """
         current_url = self.page.url
 
-        base = self.config.base_url.split('?')[0].rstrip('/')
+        base = self.config.base_url.split("?")[0].rstrip("/")
         self.logger.info(f"🌐 Navigating to {base}?page=1")
 
         target = f"{base}?page=1"
@@ -1112,21 +1035,29 @@ class TTSAutomation:
         if current_url.startswith(base) and ("/edit/" not in current_url):
             return
 
-        await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+        await self.page.goto(
+            target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
+        )
 
         # Sometimes AnyLive keeps you on /edit even after a goto due to SPA routing.
         # Force list page by clicking the sidebar "Live Assets" if still on edit.
         try:
             if "/edit/" in self.page.url:
-                await self.page.get_by_role("link", name="Live Assets").click(timeout=8000)
+                await self.page.get_by_role("link", name="Live Assets").click(
+                    timeout=8000
+                )
                 await self.page.wait_for_load_state("domcontentloaded")
-                await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                await self.page.goto(
+                    target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
+                )
         except Exception:
             pass
 
         # Wait for Add Version button to confirm list page is ready.
         try:
-            await self.page.get_by_role("button", name="Add Version").wait_for(state="visible", timeout=15000)
+            await self.page.get_by_role("button", name="Add Version").wait_for(
+                state="visible", timeout=15000
+            )
         except Exception:
             pass
 
@@ -1147,7 +1078,9 @@ class TTSAutomation:
         for attempt in range(3):
             try:
                 # Ensure list page really loaded
-                await self.page.get_by_role("button", name="Add Version").wait_for(state="visible", timeout=15000)
+                await self.page.get_by_role("button", name="Add Version").wait_for(
+                    state="visible", timeout=15000
+                )
                 await add_btn.scroll_into_view_if_needed()
                 await add_btn.click(timeout=8000, force=True)
                 break
@@ -1197,7 +1130,9 @@ class TTSAutomation:
             except Exception:
                 return False
 
-            if not await self.safe_fill("version_name_input", name, "Version Name input"):
+            if not await self.safe_fill(
+                "version_name_input", name, "Version Name input"
+            ):
                 return False
 
             selected = await self.select_template_from_dropdown()
@@ -1206,7 +1141,9 @@ class TTSAutomation:
 
         # Confirm we actually selected something (placeholder should disappear)
         try:
-            await self.page.wait_for_selector('text="Copy From Version is required"', state='hidden', timeout=1500)
+            await self.page.wait_for_selector(
+                'text="Copy From Version is required"', state="hidden", timeout=1500
+            )
         except Exception:
             pass
 
@@ -1220,7 +1157,9 @@ class TTSAutomation:
 
         # Wait for modal overlay to fully disappear (it can intercept clicks).
         try:
-            await self.page.wait_for_selector('dialog:has-text("Create New Version")', state='hidden', timeout=1500)
+            await self.page.wait_for_selector(
+                'dialog:has-text("Create New Version")', state="hidden", timeout=1500
+            )
         except Exception:
             pass
 
@@ -1242,7 +1181,9 @@ class TTSAutomation:
 
                 try:
                     # If form fields are already present, we are effectively on edit surface.
-                    title_fields = await self.page.query_selector_all('input[aria-label="Section Title"]')
+                    title_fields = await self.page.query_selector_all(
+                        'input[aria-label="Section Title"]'
+                    )
                     if len(title_fields) > 0:
                         await self.ensure_edit_script_tab_active(timeout_seconds=0.8)
                         switched_to_edit = True
@@ -1250,15 +1191,27 @@ class TTSAutomation:
 
                     link = await self.page.query_selector(f'a:has-text("{name}")')
                     if link:
-                        href = await link.get_attribute('href')
-                        if href and href.startswith('/'):
-                            await self.page.goto(f"https://app.anylive.jp{href}?tab=edit-script", wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-                            await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                        href = await link.get_attribute("href")
+                        if href and href.startswith("/"):
+                            await self.page.goto(
+                                f"https://app.anylive.jp{href}?tab=edit-script",
+                                wait_until="domcontentloaded",
+                                timeout=NAVIGATION_TIMEOUT,
+                            )
+                            await self.ensure_edit_script_tab_active(
+                                timeout_seconds=1.0
+                            )
                             switched_to_edit = True
                             break
                         elif href:
-                            await self.page.goto(href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
-                            await self.ensure_edit_script_tab_active(timeout_seconds=1.0)
+                            await self.page.goto(
+                                href,
+                                wait_until="domcontentloaded",
+                                timeout=NAVIGATION_TIMEOUT,
+                            )
+                            await self.ensure_edit_script_tab_active(
+                                timeout_seconds=1.0
+                            )
                             switched_to_edit = True
                             break
                 except Exception:
@@ -1267,7 +1220,9 @@ class TTSAutomation:
                 await asyncio.sleep(0.08)
 
             if not switched_to_edit:
-                self.logger.warning("Created version but could not auto-open edit page quickly.")
+                self.logger.warning(
+                    "Created version but could not auto-open edit page quickly."
+                )
 
         # New UI often lands on "Provide Live Knowledge" first. Switch to Edit Script immediately.
         await self.ensure_edit_script_tab_active(timeout_seconds=1.2)
@@ -1308,13 +1263,19 @@ class TTSAutomation:
         filled = 0
 
         try:
-            await self.page.wait_for_selector('textarea[aria-label="Section Content"]', timeout=CLICK_TIMEOUT)
-            textareas = await self.page.query_selector_all('textarea[aria-label="Section Content"]')
+            await self.page.wait_for_selector(
+                'textarea[aria-label="Section Content"]', timeout=CLICK_TIMEOUT
+            )
+            textareas = await self.page.query_selector_all(
+                'textarea[aria-label="Section Content"]'
+            )
             textarea_count = len(textareas)
             self.logger.info(f"Found {textarea_count} script textareas in DOM")
 
             if textarea_count < len(scripts):
-                self.logger.warning(f"Expected {len(scripts)} script textareas, but found only {textarea_count}")
+                self.logger.warning(
+                    f"Expected {len(scripts)} script textareas, but found only {textarea_count}"
+                )
         except Exception as e:
             self.logger.error(f"Failed to find script textareas: {e}")
             return 0
@@ -1333,25 +1294,35 @@ class TTSAutomation:
         return filled
 
     async def fill_template_fields(self, audio_codes: List[str]) -> int:
-        self.logger.info(f"Filling {len(audio_codes)} template fields with audio codes...")
+        self.logger.info(
+            f"Filling {len(audio_codes)} template fields with audio codes..."
+        )
 
         filled = 0
 
         try:
-            await self.page.wait_for_selector('input[aria-label="Section Title"]', timeout=CLICK_TIMEOUT)
-            template_inputs = await self.page.query_selector_all('input[aria-label="Section Title"]')
+            await self.page.wait_for_selector(
+                'input[aria-label="Section Title"]', timeout=CLICK_TIMEOUT
+            )
+            template_inputs = await self.page.query_selector_all(
+                'input[aria-label="Section Title"]'
+            )
             input_count = len(template_inputs)
             self.logger.info(f"Found {input_count} template inputs in DOM")
 
             if input_count < len(audio_codes):
-                self.logger.warning(f"Expected {len(audio_codes)} template inputs, but found only {input_count}")
+                self.logger.warning(
+                    f"Expected {len(audio_codes)} template inputs, but found only {input_count}"
+                )
         except Exception as e:
             self.logger.error(f"Failed to find template inputs: {e}")
             return 0
 
         for i, audio_code in enumerate(audio_codes):
             if i < len(template_inputs) and audio_code:
-                self.logger.info(f"Filling template field {i+1}/{len(audio_codes)} with: {audio_code}")
+                self.logger.info(
+                    f"Filling template field {i+1}/{len(audio_codes)} with: {audio_code}"
+                )
                 if await self.clear_and_fill(template_inputs[i], audio_code):
                     filled += 1
                     self.logger.info(f"Successfully filled template field {i+1}")
@@ -1365,7 +1336,9 @@ class TTSAutomation:
     async def fill_product_info(self) -> bool:
         try:
             await self.safe_fill("product_name_input", "-", "Product Name input")
-            await self.safe_fill("selling_point_textarea", "-", "Selling Point textarea")
+            await self.safe_fill(
+                "selling_point_textarea", "-", "Selling Point textarea"
+            )
             return True
         except Exception as e:
             self.logger.warning(f"⚠️ Could not fill product info: {e}")
@@ -1375,7 +1348,13 @@ class TTSAutomation:
         self.logger.info("🔊 Clicking Generate Speech buttons...")
 
         triggered = 0
-        buttons = await self.page.query_selector_all(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
+        buttons = await self.page.query_selector_all(
+            ",".join(
+                SELECTORS.get(
+                    "generate_speech_btn", ['button:has-text("Generate Speech")']
+                )
+            )
+        )
 
         for i, button in enumerate(buttons[:count]):
             try:
@@ -1388,13 +1367,17 @@ class TTSAutomation:
         self.logger.info(f"Triggered {triggered} generations")
         return triggered
 
-    async def fill_and_generate_slot(self, slot_index: int, audio_code: str, script: str, dry_run: bool = False) -> bool:
+    async def fill_and_generate_slot(
+        self, slot_index: int, audio_code: str, script: str, dry_run: bool = False
+    ) -> bool:
         slot_num = slot_index + 1
         self.logger.info(f"Processing slot {slot_num}: {audio_code}")
 
         try:
             # Card-scoped locators (avoid hidden/duplicate inputs from virtualization)
-            card = self.page.locator('div:has(button:has-text("Generate Speech"))').nth(slot_index)
+            card = self.page.locator('div:has(button:has-text("Generate Speech"))').nth(
+                slot_index
+            )
 
             template = None
             try:
@@ -1405,7 +1388,10 @@ class TTSAutomation:
                 template = None
 
             if template is None:
-                template = await self.page.wait_for_selector(f'input[aria-label="Section Title"] >> nth={slot_index}', timeout=CLICK_TIMEOUT)
+                template = await self.page.wait_for_selector(
+                    f'input[aria-label="Section Title"] >> nth={slot_index}',
+                    timeout=CLICK_TIMEOUT,
+                )
 
             async def _type_commit(el, val: str) -> bool:
                 try:
@@ -1453,7 +1439,10 @@ class TTSAutomation:
             #     textarea = None
 
             if textarea is None:
-                textarea = await self.page.wait_for_selector(f'textarea[aria-label="Section Content"] >> nth={slot_index}', timeout=CLICK_TIMEOUT)
+                textarea = await self.page.wait_for_selector(
+                    f'textarea[aria-label="Section Content"] >> nth={slot_index}',
+                    timeout=CLICK_TIMEOUT,
+                )
 
             async def _type_long_text(el, val: str) -> bool:
                 """Last-resort for long Thai scripts: real typing tends to commit in controlled textareas."""
@@ -1486,19 +1475,23 @@ class TTSAutomation:
                 try:
                     # Re-click Edit Script (sometimes focus/virtualization breaks the first textarea)
                     try:
-                        await self.safe_click("edit_script_tab", "Edit Script tab", timeout=5000)
+                        await self.safe_click(
+                            "edit_script_tab", "Edit Script tab", timeout=5000
+                        )
                         await asyncio.sleep(0.2)
                     except Exception:
                         pass
 
                     if slot_index == 0:
                         try:
-                            await self.page.evaluate('window.scrollTo(0, 0)')
+                            await self.page.evaluate("window.scrollTo(0, 0)")
                             await asyncio.sleep(0.1)
                         except Exception:
                             pass
 
-                    textarea2 = self.page.locator('textarea[aria-label="Section Content"]').nth(slot_index)
+                    textarea2 = self.page.locator(
+                        'textarea[aria-label="Section Content"]'
+                    ).nth(slot_index)
                     await textarea2.scroll_into_view_if_needed()
                     await textarea2.click(force=True)
 
@@ -1529,12 +1522,16 @@ class TTSAutomation:
                     title_txt = ""
                     body_txt = ""
                     try:
-                        t = self.page.locator(f'input[name="generatedScript.{idx}.title"]').first
+                        t = self.page.locator(
+                            f'input[name="generatedScript.{idx}.title"]'
+                        ).first
                         title_txt = (await t.input_value()).strip()
                     except Exception:
                         title_txt = ""
                     try:
-                        s = self.page.locator(f'textarea[name="generatedScript.{idx}.content"]').first
+                        s = self.page.locator(
+                            f'textarea[name="generatedScript.{idx}.content"]'
+                        ).first
                         body_txt = (await s.input_value()).strip()
                     except Exception:
                         body_txt = ""
@@ -1552,10 +1549,14 @@ class TTSAutomation:
                         await asyncio.sleep(0.05)
                         tv2 = (await template.input_value()).strip()
                         if tv2 != audio_code.strip():
-                            self.logger.warning(f"Slot {slot_num} title mismatch after retry (expected '{audio_code.strip()}', got '{tv2}')")
+                            self.logger.warning(
+                                f"Slot {slot_num} title mismatch after retry (expected '{audio_code.strip()}', got '{tv2}')"
+                            )
                             return False
                     except Exception:
-                        self.logger.warning(f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')")
+                        self.logger.warning(
+                            f"Slot {slot_num} title mismatch after fill (expected '{audio_code.strip()}', got '{tv}')"
+                        )
                         return False
 
                 if script.strip() and sv != script.strip():
@@ -1566,25 +1567,37 @@ class TTSAutomation:
                             ok_slot1_retry = await _type_long_text(textarea, script)
 
                         if not ok_slot1_retry:
-                            self.logger.warning(f"Slot {slot_num} script mismatch after retry")
+                            self.logger.warning(
+                                f"Slot {slot_num} script mismatch after retry"
+                            )
                             return False
 
                         sv2 = (await textarea.input_value() or "").strip()
                         if sv2 != script.strip():
-                            self.logger.warning(f"Slot {slot_num} script mismatch after retry")
+                            self.logger.warning(
+                                f"Slot {slot_num} script mismatch after retry"
+                            )
                             return False
                     else:
-                        self.logger.warning(f"Slot {slot_num} script mismatch after fill")
+                        self.logger.warning(
+                            f"Slot {slot_num} script mismatch after fill"
+                        )
                         return False
             except Exception:
                 pass
 
             await asyncio.sleep(0.2)
 
-            validation_passed, validation_error = await self.validate_slot_fields(slot_index, audio_code, script)
+            validation_passed, validation_error = await self.validate_slot_fields(
+                slot_index, audio_code, script
+            )
             if not validation_passed:
-                self.logger.warning(f"Slot {slot_num} validation failed: {validation_error}")
-                self.logger.warning(f"Skipping Generate Speech for slot {slot_num} due to empty fields")
+                self.logger.warning(
+                    f"Slot {slot_num} validation failed: {validation_error}"
+                )
+                self.logger.warning(
+                    f"Skipping Generate Speech for slot {slot_num} due to empty fields"
+                )
                 return False
 
             if not dry_run:
@@ -1592,45 +1605,75 @@ class TTSAutomation:
 
                 await asyncio.sleep(0.3)
 
-                template_selector = f'input[aria-label="Section Title"] >> nth={slot_index}'
-                template_fresh = await self.page.wait_for_selector(template_selector, timeout=5000)
+                template_selector = (
+                    f'input[aria-label="Section Title"] >> nth={slot_index}'
+                )
+                template_fresh = await self.page.wait_for_selector(
+                    template_selector, timeout=5000
+                )
 
                 try:
                     parent_container = await template_fresh.evaluate_handle(
-                        '(el) => { let p = el; for(let i=0; i<6; i++) { if(p.parentElement) p = p.parentElement; } return p; }'
+                        "(el) => { let p = el; for(let i=0; i<6; i++) { if(p.parentElement) p = p.parentElement; } return p; }"
                     )
 
                     if parent_container:
-                        button = await parent_container.query_selector(','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")'])))
+                        button = await parent_container.query_selector(
+                            ",".join(
+                                SELECTORS.get(
+                                    "generate_speech_btn",
+                                    ['button:has-text("Generate Speech")'],
+                                )
+                            )
+                        )
                         if button:
                             await button.scroll_into_view_if_needed()
                             await asyncio.sleep(0.2)
                             await button.click()
-                            self.logger.debug(f"Clicked Generate Speech for slot {slot_num} via parent container")
+                            self.logger.debug(
+                                f"Clicked Generate Speech for slot {slot_num} via parent container"
+                            )
                             await asyncio.sleep(0.3)
                             button_clicked = True
                 except Exception as e:
-                    self.logger.debug(f"Parent container approach failed for slot {slot_num}: {e}")
+                    self.logger.debug(
+                        f"Parent container approach failed for slot {slot_num}: {e}"
+                    )
 
                 if not button_clicked:
                     try:
-                        self.logger.debug(f"Falling back to nth-index approach for slot {slot_num}")
+                        self.logger.debug(
+                            f"Falling back to nth-index approach for slot {slot_num}"
+                        )
                         # Match any "Generate" variant, then pick nth.
-                        gen_selectors = ','.join(SELECTORS.get('generate_speech_btn', ['button:has-text("Generate Speech")']))
+                        gen_selectors = ",".join(
+                            SELECTORS.get(
+                                "generate_speech_btn",
+                                ['button:has-text("Generate Speech")'],
+                            )
+                        )
                         button_selector = f"({gen_selectors}) >> nth={slot_index}"
-                        button = await self.page.wait_for_selector(button_selector, timeout=5000)
+                        button = await self.page.wait_for_selector(
+                            button_selector, timeout=5000
+                        )
 
                         if button:
                             await button.scroll_into_view_if_needed()
                             await asyncio.sleep(0.2)
                             await button.click()
-                            self.logger.debug(f"Clicked Generate Speech for slot {slot_num} via nth-index fallback")
+                            self.logger.debug(
+                                f"Clicked Generate Speech for slot {slot_num} via nth-index fallback"
+                            )
                             await asyncio.sleep(0.3)
                             button_clicked = True
                         else:
-                            self.logger.warning(f"Generate Speech button not found for slot {slot_num}")
+                            self.logger.warning(
+                                f"Generate Speech button not found for slot {slot_num}"
+                            )
                     except Exception as e:
-                        self.logger.warning(f"Failed to click Generate Speech for slot {slot_num}: {e}")
+                        self.logger.warning(
+                            f"Failed to click Generate Speech for slot {slot_num}: {e}"
+                        )
 
             self.logger.info(f"Completed slot {slot_num}")
             return True
@@ -1652,7 +1695,9 @@ class TTSAutomation:
             title_count = len(title_inputs)
             content_count = len(content_textareas)
 
-            self.logger.debug(f"Found {title_count} title fields, {content_count} content fields")
+            self.logger.debug(
+                f"Found {title_count} title fields, {content_count} content fields"
+            )
 
             if title_count < expected_count or content_count < expected_count:
                 error_msg = f"Template has insufficient fields: expected at least {expected_count}, found {title_count} titles and {content_count} contents"
@@ -1660,7 +1705,9 @@ class TTSAutomation:
                 return False, error_msg
 
             if title_count > expected_count or content_count > expected_count:
-                self.logger.debug(f"Template has {title_count} slots, using first {expected_count} for this version")
+                self.logger.debug(
+                    f"Template has {title_count} slots, using first {expected_count} for this version"
+                )
 
             empty_titles = []
             empty_contents = []
@@ -1688,9 +1735,13 @@ class TTSAutomation:
             if empty_titles or empty_contents:
                 error_parts = []
                 if empty_titles:
-                    error_parts.append(f"Missing Section Title in slots: {empty_titles}")
+                    error_parts.append(
+                        f"Missing Section Title in slots: {empty_titles}"
+                    )
                 if empty_contents:
-                    error_parts.append(f"Missing Section Content in slots: {empty_contents}")
+                    error_parts.append(
+                        f"Missing Section Content in slots: {empty_contents}"
+                    )
                 error_msg = " and ".join(error_parts)
                 self.logger.error(error_msg)
                 return False, error_msg
@@ -1709,7 +1760,7 @@ class TTSAutomation:
         await asyncio.sleep(0.1)
 
         try:
-            await self.page.evaluate('document.activeElement?.blur()')
+            await self.page.evaluate("document.activeElement?.blur()")
         except Exception:
             pass
 
@@ -1728,7 +1779,11 @@ class TTSAutomation:
             try:
                 # If still saving, allow a bit more time for the status to flip.
                 saving_visible = False
-                for saving_selector in ('text="Saving..."', 'text="Saving"', 'text="Auto Saving"'):
+                for saving_selector in (
+                    'text="Saving..."',
+                    'text="Saving"',
+                    'text="Auto Saving"',
+                ):
                     try:
                         loc = self.page.locator(saving_selector)
                         if await loc.count() > 0 and await loc.first.is_visible():
@@ -1738,10 +1793,14 @@ class TTSAutomation:
                         continue
 
                 wait_timeout = 3500 if saving_visible else 1200
-                await self.page.wait_for_selector('text="Auto Saved"', timeout=wait_timeout)
+                await self.page.wait_for_selector(
+                    'text="Auto Saved"', timeout=wait_timeout
+                )
                 self.logger.info("✅ Auto-saved successfully")
             except Exception as e:
-                self.logger.warning(f"Could not confirm auto-save status quickly (continuing): {e}")
+                self.logger.warning(
+                    f"Could not confirm auto-save status quickly (continuing): {e}"
+                )
                 # Continue anyway as the system likely saved
 
         # Always add a small buffer to avoid racing UI state before clicking Back.
@@ -1772,16 +1831,22 @@ class TTSAutomation:
             successful_slots = 0
             failed_slots: list[int] = []
             for i in range(len(version.scripts)):
-                audio_code = version.audio_codes[i] if i < len(version.audio_codes) else ""
+                audio_code = (
+                    version.audio_codes[i] if i < len(version.audio_codes) else ""
+                )
                 script = version.scripts[i]
-                ok = await self.fill_and_generate_slot(i, audio_code, script, dry_run=self.dry_run)
+                ok = await self.fill_and_generate_slot(
+                    i, audio_code, script, dry_run=self.dry_run
+                )
                 if ok:
                     successful_slots += 1
                 else:
                     failed_slots.append(i + 1)
 
             version.failed_slots = failed_slots
-            self.logger.info(f"Completed {successful_slots}/{len(version.scripts)} slots")
+            self.logger.info(
+                f"Completed {successful_slots}/{len(version.scripts)} slots"
+            )
             if failed_slots:
                 self.logger.warning(f"Failed slots: {failed_slots}")
 
@@ -1796,17 +1861,19 @@ class TTSAutomation:
                 await self.page.get_by_role("button", name="Back").click(timeout=1200)
             except Exception:
                 try:
-                    await self.page.locator('main button').first.click(timeout=800)
+                    await self.page.locator("main button").first.click(timeout=800)
                 except Exception:
                     pass
 
             if failed_slots:
-                self.logger.warning(f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})")
+                self.logger.warning(
+                    f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})"
+                )
             else:
                 self.logger.info(f"SUCCESS: {version.name}")
 
             # Mark success only when all slots succeeded
-            version.success = (len(failed_slots) == 0)
+            version.success = len(failed_slots) == 0
             return version.success
 
         except Exception as e:
@@ -1833,7 +1900,9 @@ class TTSAutomation:
            d. Navigate back to the versions list.
         """
         template_name = (self.config.version_template or "").strip()
-        self.logger.info(f"⬇️  DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')")
+        self.logger.info(
+            f"⬇️  DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')"
+        )
         if template_name and len(template_name) < 4:
             self.logger.warning(
                 "⚠️ version_template is very short ('%s'); use a distinctive template name to avoid accidental skips.",
@@ -1841,11 +1910,13 @@ class TTSAutomation:
             )
 
         # Set up downloads directory.
-        downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
+        downloads_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "downloads"
+        )
         os.makedirs(downloads_dir, exist_ok=True)
         self.logger.info(f"📁 Downloads will be saved to: {downloads_dir}")
 
-        base = self.config.base_url.split('?')[0].rstrip('/')
+        base = self.config.base_url.split("?")[0].rstrip("/")
 
         # --- Phase 1: Collect all version links across all pages ---
         all_versions = []  # list of (name, href) tuples
@@ -1854,22 +1925,28 @@ class TTSAutomation:
         while True:
             target = f"{base}?page={page_num}"
             self.logger.info(f"📄 Scanning page {page_num} for versions...")
-            await self.page.goto(target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+            await self.page.goto(
+                target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
+            )
 
             # Wait for the page content to render.
             try:
-                await self.page.wait_for_selector('a[href*="/live-assets/"]', timeout=10000)
+                await self.page.wait_for_selector(
+                    'a[href*="/live-assets/"]', timeout=10000
+                )
             except Exception:
                 pass
             await asyncio.sleep(0.5)
 
             # Extract version links via JavaScript.
-            versions_on_page = await self.page.evaluate(f"""() => {{
+            versions_on_page = await self.page.evaluate(
+                """() => {
                 const links = Array.from(document.querySelectorAll('a'));
                 return links
                     .filter(a => a.href && a.href.includes('/live-assets/') && a.href.includes('/edit/'))
-                    .map(a => ({{ name: a.innerText.trim(), href: a.href }}));
-            }}""")
+                    .map(a => ({ name: a.innerText.trim(), href: a.href }));
+            }"""
+            )
 
             if not versions_on_page:
                 if page_num == 1:
@@ -1879,16 +1956,20 @@ class TTSAutomation:
                 break
 
             for v in versions_on_page:
-                all_versions.append((v['name'], v['href']))
+                all_versions.append((v["name"], v["href"]))
 
-            self.logger.info(f"  Found {len(versions_on_page)} versions on page {page_num}")
+            self.logger.info(
+                f"  Found {len(versions_on_page)} versions on page {page_num}"
+            )
 
             # Check for next page button.
-            has_next = await self.page.evaluate("""() => {
+            has_next = await self.page.evaluate(
+                """() => {
                 const btn = document.querySelector('button[aria-label="Next page"]');
                 if (!btn) return false;
                 return !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
-            }""")
+            }"""
+            )
 
             if has_next:
                 page_num += 1
@@ -1899,10 +1980,12 @@ class TTSAutomation:
         # Sort versions numerically by the leading number in the version name
         # (e.g. "01_...", "06_...", "13_...") so downloads proceed in order.
         import re as _re
+
         def _version_sort_key(item):
             name = item[0]
-            m = _re.match(r'^(\d+)', name)
-            return (int(m.group(1)) if m else float('inf'), name)
+            m = _re.match(r"^(\d+)", name)
+            return (int(m.group(1)) if m else float("inf"), name)
+
         all_versions.sort(key=_version_sort_key)
         self.logger.info(f"Total versions found: {len(all_versions)}")
 
@@ -1925,36 +2008,44 @@ class TTSAutomation:
                 break
 
             versions_processed += 1
-            self.logger.info(f"")
+            self.logger.info("")
             self.logger.info(f"[{versions_processed}] Opening: {version_name}")
 
             try:
                 # Navigate to the version edit page.
-                await self.page.goto(version_href, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                await self.page.goto(
+                    version_href,
+                    wait_until="domcontentloaded",
+                    timeout=NAVIGATION_TIMEOUT,
+                )
                 await asyncio.sleep(1.0)
 
                 # Click the Edit Script tab explicitly (URL param not reliable in SPA).
                 try:
-                    await self.page.click('text=Edit Script', timeout=5000)
+                    await self.page.click("text=Edit Script", timeout=5000)
                 except Exception:
                     # Fallback: try JS click
-                    await self.page.evaluate("""() => {
+                    await self.page.evaluate(
+                        """() => {
                         const tabs = Array.from(document.querySelectorAll('button, a'));
                         const tab = tabs.find(t => t.textContent.trim() === 'Edit Script');
                         if (tab) tab.click();
-                    }""")
+                    }"""
+                    )
 
                 # Wait for script boxes to appear (div.group elements).
                 try:
-                    await self.page.wait_for_selector('div.group', timeout=8000)
+                    await self.page.wait_for_selector("div.group", timeout=8000)
                 except Exception:
-                    self.logger.warning(f"  Script boxes did not load for: {version_name}")
+                    self.logger.warning(
+                        f"  Script boxes did not load for: {version_name}"
+                    )
                     continue
 
                 await asyncio.sleep(0.5)
 
                 # Create downloads directory for this version.
-                safe_name = version_name.replace('/', '_').replace('\\', '_')[:100]
+                safe_name = version_name.replace("/", "_").replace("\\", "_")[:100]
                 version_dl_dir = os.path.join(downloads_dir, safe_name)
                 os.makedirs(version_dl_dir, exist_ok=True)
 
@@ -1963,7 +2054,8 @@ class TTSAutomation:
                 # the per-row download buttons, but has visible innerText "Export".
                 # Real download buttons are icon-only (empty innerText), so we skip
                 # any button whose trimmed innerText is non-empty to exclude Export.
-                btn_count = await self.page.evaluate("""() => {
+                btn_count = await self.page.evaluate(
+                    """() => {
                     let count = 0;
                     const buttons = Array.from(document.querySelectorAll('button'));
                     for (const btn of buttons) {
@@ -1980,10 +2072,13 @@ class TTSAutomation:
                         }
                     }
                     return count;
-                }""")
+                }"""
+                )
 
                 if btn_count == 0:
-                    self.logger.warning(f"  No download buttons found in: {version_name}")
+                    self.logger.warning(
+                        f"  No download buttons found in: {version_name}"
+                    )
                     continue
 
                 # Click each download button individually with expect_download.
@@ -1991,15 +2086,19 @@ class TTSAutomation:
                 for idx in range(btn_count):
                     try:
                         async with self.page.expect_download(timeout=15000) as dl_info:
-                            await self.page.evaluate(f"""() => {{
+                            await self.page.evaluate(
+                                f"""() => {{
                                 const btn = document.querySelector('button[data-dl-idx="{idx}"]');
                                 if (btn) btn.click();
-                            }}""")
+                            }}"""
+                            )
                         download = await dl_info.value
                         filename = download.suggested_filename or f"audio_{idx+1}.mp3"
                         save_path = os.path.join(version_dl_dir, filename)
                         if os.path.exists(save_path) and not replace:
-                            self.logger.info(f"  ⏭️  Already exists, skipping: {filename}")
+                            self.logger.info(
+                                f"  ⏭️  Already exists, skipping: {filename}"
+                            )
                             await download.cancel()
                             continue
                         await download.save_as(save_path)
@@ -2016,9 +2115,11 @@ class TTSAutomation:
             # Brief pause between versions.
             await asyncio.sleep(0.3)
 
-        self.logger.info(f"")
+        self.logger.info("")
         self.logger.info("=" * 70)
-        self.logger.info(f"⬇️  DOWNLOAD COMPLETE: {total_downloaded} files from {versions_processed} versions")
+        self.logger.info(
+            f"⬇️  DOWNLOAD COMPLETE: {total_downloaded} files from {versions_processed} versions"
+        )
         self.logger.info(f"   Skipped: {total_skipped} (template)")
         self.logger.info("=" * 70)
         return total_downloaded
@@ -2029,11 +2130,19 @@ def print_version_info(version: Version, logger: logging.Logger):
     logger.info("=" * 70)
     logger.info(f"{version.name} - {len(version.scripts)} scripts")
     if version.products:
-        logger.info(f"   Products: {', '.join(version.products[:3])}{'...' if len(version.products) > 3 else ''}")
+        logger.info(
+            f"   Products: {', '.join(version.products[:3])}{'...' if len(version.products) > 3 else ''}"
+        )
     logger.info("=" * 70)
 
 
-def generate_report(versions: List[Version], config: ClientConfig, timestamp: str, logger: logging.Logger, logs_dir: Optional[str] = None) -> Report:
+def generate_report(
+    versions: List[Version],
+    config: ClientConfig,
+    timestamp: str,
+    logger: logging.Logger,
+    logs_dir: Optional[str] = None,
+) -> Report:
     successful = sum(1 for v in versions if v.success)
     partial = sum(1 for v in versions if getattr(v, "failed_slots", None))
     failed = len(versions) - successful
@@ -2042,7 +2151,7 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
         timestamp=datetime.now().isoformat(),
         config={
             "grouping_strategy": "product_based",
-            "max_scripts_per_version": config.max_scripts_per_version
+            "max_scripts_per_version": config.max_scripts_per_version,
         },
         total=len(versions),
         successful=successful,
@@ -2055,10 +2164,10 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
                 "scripts": len(v.scripts),
                 "success": v.success,
                 "failed_slots": v.failed_slots,
-                "error": v.error
+                "error": v.error,
             }
             for v in versions
-        ]
+        ],
     )
 
     logger.info("")
@@ -2066,7 +2175,9 @@ def generate_report(versions: List[Version], config: ClientConfig, timestamp: st
     logger.info("📋 FINAL REPORT")
     logger.info("=" * 70)
     logger.info("")
-    logger.info(f"Total: {report.total} | Success: {successful} ✅ | Partial: {partial} ⚠️ | Failed: {failed} ❌")
+    logger.info(
+        f"Total: {report.total} | Success: {successful} ✅ | Partial: {partial} ⚠️ | Failed: {failed} ❌"
+    )
     logger.info("")
     logger.info("📑 VERSION → PRODUCTS MAPPING:")
     logger.info("-" * 70)
@@ -2098,7 +2209,6 @@ async def run_job(
     *,
     headless: bool = False,
     dry_run: bool = False,
-
     debug: bool = False,
     download: bool = False,
     replace: bool = False,
@@ -2106,7 +2216,7 @@ async def run_job(
     limit: Optional[int] = None,
     app_support_dir: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
-    debug_callback: Optional[Callable[[], None]] = None
+    debug_callback: Optional[Callable[[], None]] = None,
 ) -> dict:
     """
     Main automation job function for GUI and programmatic execution.
@@ -2158,11 +2268,13 @@ async def run_job(
                 config=config,
                 headless=headless,
                 logger=logger,
-                screenshots_dir=screenshots_dir
+                screenshots_dir=screenshots_dir,
             )
             try:
                 await automation.start_browser()
-                count = await automation.download_all_versions(limit=limit, replace=replace)
+                count = await automation.download_all_versions(
+                    limit=limit, replace=replace
+                )
             finally:
                 if debug:
                     logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
@@ -2199,9 +2311,10 @@ async def run_job(
         if dry_run:
             logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
-
         if debug:
-            logger.info("🐛 DEBUG MODE: Browser will stay open after execution (non-blocking)")
+            logger.info(
+                "🐛 DEBUG MODE: Browser will stay open after execution (non-blocking)"
+            )
 
         # Run automation
         automation = TTSAutomation(
@@ -2209,7 +2322,7 @@ async def run_job(
             headless=headless,
             logger=logger,
             dry_run=dry_run,
-            screenshots_dir=screenshots_dir
+            screenshots_dir=screenshots_dir,
         )
 
         try:
@@ -2224,7 +2337,9 @@ async def run_job(
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
-                logger.info("   (Automation will not auto-close the browser in debug mode)")
+                logger.info(
+                    "   (Automation will not auto-close the browser in debug mode)"
+                )
                 if debug_callback:
                     debug_callback()
                 else:
@@ -2247,23 +2362,51 @@ async def run_job(
 async def main():
     parser = argparse.ArgumentParser(description="AnyLive TTS Automation")
     parser.add_argument("--setup", action="store_true", help="One-time login setup")
-    parser.add_argument("--csv", type=str, help="Path to CSV file (auto-detects if not specified)")
-    parser.add_argument("--start-version", type=int, default=1, help="Starting version number")
+    parser.add_argument(
+        "--csv", type=str, help="Path to CSV file (auto-detects if not specified)"
+    )
+    parser.add_argument(
+        "--start-version", type=int, default=1, help="Starting version number"
+    )
     parser.add_argument("--limit", type=int, help="Limit number of versions to process")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
-    parser.add_argument("--dry-run", action="store_true", help="Run without clicking Generate Speech")
+    parser.add_argument(
+        "--headless", action="store_true", help="Run browser in headless mode"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Run without clicking Generate Speech"
+    )
 
-    parser.add_argument("--debug", action="store_true", help="Keep browser open after execution for debugging")
-    parser.add_argument("--download", action="store_true", help="Download files for all versions (except template)")
-    parser.add_argument("--replace", action="store_true", help="Re-download and replace existing files (use with --download)")
-    parser.add_argument("--flat", action="store_true", help="Flat mode: ignore product boundaries and pack scripts sequentially (N per version, set N with --max-scripts)")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Keep browser open after execution for debugging",
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download files for all versions (except template)",
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Re-download and replace existing files (use with --download)",
+    )
+    parser.add_argument(
+        "--flat",
+        action="store_true",
+        help="Flat mode: ignore product boundaries and pack scripts sequentially (N per version, set N with --max-scripts)",
+    )
 
     parser.add_argument("--config", type=str, help="Path to client config JSON file")
-    parser.add_argument("--client", type=str, help="Client name (loads configs/{NAME}.json)")
+    parser.add_argument(
+        "--client", type=str, help="Client name (loads configs/{NAME}.json)"
+    )
     parser.add_argument("--base-url", type=str, help="Override base URL")
     parser.add_argument("--voice", type=str, help="Override voice clone name")
     parser.add_argument("--template", type=str, help="Override version template name")
-    parser.add_argument("--max-scripts", type=int, help="Override max scripts per version")
+    parser.add_argument(
+        "--max-scripts", type=int, help="Override max scripts per version"
+    )
 
     args = parser.parse_args()
 
@@ -2294,9 +2437,9 @@ async def main():
 
         cli_overrides = {}
         if args.base_url:
-            cli_overrides['base_url'] = args.base_url
+            cli_overrides["base_url"] = args.base_url
         if args.template:
-            cli_overrides['version_template'] = args.template
+            cli_overrides["version_template"] = args.template
 
         try:
             config = load_config(config_path, cli_overrides if cli_overrides else None)
@@ -2309,7 +2452,9 @@ async def main():
 
         try:
             await automation.start_browser()
-            await automation.download_all_versions(limit=args.limit, replace=args.replace)
+            await automation.download_all_versions(
+                limit=args.limit, replace=args.replace
+            )
         finally:
             if args.debug:
                 logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
@@ -2328,13 +2473,13 @@ async def main():
 
     cli_overrides = {}
     if args.base_url:
-        cli_overrides['base_url'] = args.base_url
+        cli_overrides["base_url"] = args.base_url
     if args.voice:
-        cli_overrides['voice_name'] = args.voice
+        cli_overrides["voice_name"] = args.voice
     if args.template:
-        cli_overrides['version_template'] = args.template
+        cli_overrides["version_template"] = args.template
     if args.max_scripts:
-        cli_overrides['max_scripts_per_version'] = args.max_scripts
+        cli_overrides["max_scripts_per_version"] = args.max_scripts
 
     try:
         config = load_config(config_path, cli_overrides if cli_overrides else None)
@@ -2352,9 +2497,9 @@ async def main():
     try:
         csv_from_config = None
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 _cfg_raw = json.load(f)
-                csv_from_config = _cfg_raw.get('csv')
+                csv_from_config = _cfg_raw.get("csv")
         except Exception:
             csv_from_config = None
 
@@ -2376,20 +2521,23 @@ async def main():
         logger.info(f"Starting from version {args.start_version}")
 
     if args.limit:
-        versions = versions[:args.limit]
+        versions = versions[: args.limit]
         logger.info(f"Limited to {args.limit} versions")
 
     if args.flat:
-        logger.info(f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version")
+        logger.info(
+            f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version"
+        )
 
     if args.dry_run:
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
-
     if args.debug:
         logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
 
-    automation = TTSAutomation(config=config, headless=args.headless, logger=logger, dry_run=args.dry_run)
+    automation = TTSAutomation(
+        config=config, headless=args.headless, logger=logger, dry_run=args.dry_run
+    )
 
     try:
         await automation.start_browser()
