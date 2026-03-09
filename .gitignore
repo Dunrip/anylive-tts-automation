@@ -1,9 +1,11 @@
 logs/
 screenshots/
 session_state.json
+session_state_faq.json
 __pycache__/
 .venv/
 browser_data/
+browser_data_faq/
 output/
 *.csv
 !configs/test_template.csv
