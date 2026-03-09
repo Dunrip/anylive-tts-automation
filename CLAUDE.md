@@ -9,6 +9,7 @@ AnyLive TTS Automation is a Playwright-based web automation tool that creates TT
 ## Development Setup
 
 ### Initial Setup
+
 ```bash
 # Create and activate virtual environment
 python3 -m venv .venv
@@ -25,6 +26,7 @@ python auto_tts.py --setup
 ```
 
 ### Running the Automation
+
 ```bash
 # TTS automation (uses configs/default.json)
 python auto_tts.py
@@ -45,11 +47,13 @@ python auto_faq.py --start-product 5 --limit 3  # process subset
 ```
 
 ### Running Tests
+
 ```bash
 pytest tests/ -v
 ```
 
 ### Testing and Debugging
+
 ```bash
 # Dry run - fill forms without generating speech
 python auto_tts.py --dry-run
@@ -69,6 +73,7 @@ python auto_tts.py --start-version 5 --limit 3
 ### Core Components
 
 **shared.py** - Shared utilities
+
 - `BrowserAutomation` base class: Browser lifecycle, `safe_click()`, `safe_fill()`, `clear_and_fill()`, `take_screenshot()`
 - `setup_login()`: Parameterized login setup (login URL, browser data dir, session file)
 - Logging: `EmojiFormatter`, `CallbackLogHandler`, `setup_logging()` (parameterized logger name/prefix)
@@ -77,6 +82,7 @@ python auto_tts.py --start-version 5 --limit 3
 - Constants: `DEFAULT_TIMEOUT`, `CLICK_TIMEOUT`, `NAVIGATION_TIMEOUT`, etc.
 
 **auto_tts.py** - TTS automation script
+
 - `TTSAutomation` class: Handles TTS-specific browser automation and form filling
 - `parse_csv_data()`: Reads CSV and groups scripts by product
 - Imports shared utilities from `shared.py` (re-exports for backward compat with menubar_gui.py)
@@ -84,6 +90,7 @@ python auto_tts.py --start-version 5 --limit 3
 - Uses `browser_data/` and `session_state.json` for `app.anylive.jp`
 
 **auto_faq.py** - Product FAQ automation script
+
 - `FAQAutomation` class (extends `BrowserAutomation`): Fills Product Q&A on `live.app.anylive.jp`
 - `parse_faq_csv()`: Reads CSV, groups by product number (int matching)
 - `resolve_audio_file()`: Finds audio files in zero-padded subfolders or flat directory
@@ -91,12 +98,14 @@ python auto_tts.py --start-version 5 --limit 3
 - Uses `browser_data_faq/` and `session_state_faq.json` (separate site, separate auth)
 
 **menubar_gui.py** - macOS menu bar application
+
 - Built with `rumps` for native macOS experience
 - Wraps auto_tts.py functionality in GUI
 - Stores data in ~/Library/Application Support/AnyLiveTTS/
 - Designed for PyInstaller packaging (.app bundle)
 
-**Configuration System**
+#### Configuration System
+
 - External JSON configs in `configs/` directory
 - `configs/template.json` - TTS template for new clients
 - `configs/faq_template.json` - FAQ template for new clients
@@ -105,7 +114,7 @@ python auto_tts.py --start-version 5 --limit 3
 
 ### Data Flow
 
-```
+```text
 CSV File → parse_csv_data() → List[Version] (grouped by product)
     ↓
 For each version:
@@ -121,6 +130,7 @@ Generate JSON report in logs/
 ### CSV Structure
 
 The script expects CSV files with these columns (column names configurable via config):
+
 - **Column A (No)**: Product number → used in version name
 - **Column B (Product Name)**: Product name → grouping key
 - **Column E (TH Script)**: Script content → Section Content fields
@@ -147,6 +157,7 @@ The script expects CSV files with these columns (column names configurable via c
 The `SELECTORS` dict contains multiple fallback selectors for each UI element. This provides resilience against UI changes. Selectors are tried in order until one succeeds.
 
 When AnyLive UI changes:
+
 1. Locate the relevant key in `SELECTORS` dict (auto_tts.py:60-137)
 2. Add new selector variations (most specific first)
 3. Use browser DevTools to inspect elements
@@ -238,6 +249,7 @@ python auto_tts.py --client new_client
 ### Modifying Version Grouping Logic
 
 Current logic groups by product name. To change:
+
 1. Locate `parse_csv_data()` function in auto_tts.py
 2. Modify the `product_groups` dictionary creation
 3. Adjust version naming in the chunking logic
@@ -245,6 +257,7 @@ Current logic groups by product name. To change:
 ### Adding New Selectors
 
 When UI elements change:
+
 1. Run with `--debug` flag
 2. Use browser DevTools to find new selectors
 3. Add to `SELECTORS` dict (most specific selectors first)
@@ -253,22 +266,26 @@ When UI elements change:
 ## Important Constraints
 
 ### Security
+
 - **NEVER** commit `session_state.json` or `session_state_faq.json` (contain auth cookies)
 - **NEVER** commit CSV files (may contain sensitive product data)
 - **NEVER** commit `logs/` directory (may contain sensitive data)
 - All sensitive files are gitignored
 
 ### Session Requirements
+
 - **MUST** run `--setup` before first use
 - If session expires, re-run `--setup`
 - Session validation happens on every run
 
 ### Version Naming
+
 - Product names sanitized: special chars removed, spaces → underscores
 - Pattern: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2`
 - Each product gets separate version(s)
 
 ### Form Filling
+
 - Wait for form readiness before filling
 - Validate all fields before saving
 - Generate Speech triggers background processing (don't wait for completion)
@@ -277,7 +294,8 @@ When UI elements change:
 ## Menu Bar App Specifics
 
 ### App Support Directory Structure
-```
+
+```text
 ~/Library/Application Support/AnyLiveTTS/
 ├── configs/              # User-editable configurations
 ├── logs/                 # Execution logs and reports
@@ -305,7 +323,8 @@ When UI elements change:
 ## File Locations
 
 ### Repository Structure
-```
+
+```text
 anylive-tts-automation/
 ├── shared.py               # Shared utilities (BrowserAutomation base, logging, CSV, session)
 ├── auto_tts.py             # TTS automation script
@@ -342,14 +361,17 @@ anylive-tts-automation/
 ## FAQ Automation (`auto_faq.py`)
 
 ### Overview
+
 Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product questions and audio codes, navigates to products, fills question fields, and uploads audio files.
 
 ### Separate Authentication
+
 - FAQ uses `live.app.anylive.jp` (different site from TTS's `app.anylive.jp`)
 - Separate session: `session_state_faq.json` and `browser_data_faq/`
 - Run `python auto_faq.py --setup` to login (separate from TTS setup)
 
 ### FAQ Config Fields
+
 ```json
 {
   "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
@@ -365,11 +387,14 @@ Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product q
 ```
 
 ### Audio File Resolution
+
 Audio files are matched by `audio_code` in the configured `audio_dir`:
+
 1. **Subfolder match**: `{zero_padded_number}_*/{audio_code}.mp3` (e.g., `01_Product_A/SFD1.mp3`)
 2. **Flat fallback**: `{audio_dir}/{audio_code}.mp3`
 
 ### Key Differences from TTS
+
 - No version splitting (1 product = 1 section on page)
 - Product matching by integer comparison (CSV `No.` → int)
 - Audio upload via `expect_file_chooser()` or hidden `input[type=file]`
@@ -379,11 +404,13 @@ Audio files are matched by `audio_code` in the configured `audio_dir`:
 ## Recent Changes
 
 ### FAQ Automation (auto_faq.py)
+
 Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added 33 unit tests.
 
 ### Version 2.x Breaking Changes
 
 **Version Naming Change** (from README):
+
 - **Old logic (v1.x)**: Fixed 3 products per version, 3 scripts per product
 - **New logic (v2.x)**: 1 product per version, variable scripts (max: 10)
 - Impact: Version names differ from historical data
@@ -392,6 +419,7 @@ Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extract
 ### UI Selector Updates
 
 Recent commits updated selectors for new AnyLive UI version:
+
 - "Add Version" button selector changes
 - "Edit Script" tab click improvements
 - Paragraph card-scoped name locators to avoid hidden fields

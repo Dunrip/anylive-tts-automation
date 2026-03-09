@@ -1,0 +1,11 @@
+{
+  "base_url": "https://live.app.anylive.jp/live/53f0ea1b5ab240edb2231c4bb6243749",
+  "audio_dir": "downloads",
+  "audio_extensions": [".mp3", ".wav"],
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "question": "Keywords",
+    "audio_code": "Audio Code"
+  }
+}
