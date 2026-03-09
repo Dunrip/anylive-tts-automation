@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AnyLive TTS Automation is a Playwright-based web automation tool that creates TTS (Text-to-Speech) script versions on the AnyLive platform. It supports multi-client configuration, product-based version grouping, and both CLI and macOS menu bar GUI interfaces.
+AnyLive TTS Automation is a Playwright-based web automation tool that creates TTS (Text-to-Speech) script versions on the AnyLive platform (`app.anylive.jp`) and fills Product Q&A on the live interaction platform (`live.app.anylive.jp`). It supports multi-client configuration, product-based version grouping, and both CLI and macOS menu bar GUI interfaces.
 
 ## Development Setup
 
@@ -26,7 +26,7 @@ python auto_tts.py --setup
 
 ### Running the Automation
 ```bash
-# Default run (uses configs/default.json)
+# TTS automation (uses configs/default.json)
 python auto_tts.py
 
 # With specific client config
@@ -34,6 +34,19 @@ python auto_tts.py --client mycompany
 
 # Specify CSV file explicitly
 python auto_tts.py --csv /path/to/file.csv
+
+# FAQ automation (Product Q&A on live.app.anylive.jp)
+python auto_faq.py --setup                  # one-time login (separate from TTS)
+python auto_faq.py --csv faq.csv            # run with CSV
+python auto_faq.py --client mybrand_faq   # use config
+python auto_faq.py --dry-run                # fill questions, skip audio upload
+python auto_faq.py --debug                  # keep browser open
+python auto_faq.py --start-product 5 --limit 3  # process subset
+```
+
+### Running Tests
+```bash
+pytest tests/ -v
 ```
 
 ### Testing and Debugging
@@ -55,12 +68,27 @@ python auto_tts.py --start-version 5 --limit 3
 
 ### Core Components
 
-**auto_tts.py** - Main automation script (single-file design)
-- `TTSAutomation` class: Handles browser automation and form filling
+**shared.py** - Shared utilities
+- `BrowserAutomation` base class: Browser lifecycle, `safe_click()`, `safe_fill()`, `clear_and_fill()`, `take_screenshot()`
+- `setup_login()`: Parameterized login setup (login URL, browser data dir, session file)
+- Logging: `EmojiFormatter`, `CallbackLogHandler`, `setup_logging()` (parameterized logger name/prefix)
+- CSV: `find_csv_file()`, `load_csv()` (UTF-8 → CP874 fallback)
+- Session: `is_session_valid()`, `get_session_file_path()`, `get_browser_data_dir()`
+- Constants: `DEFAULT_TIMEOUT`, `CLICK_TIMEOUT`, `NAVIGATION_TIMEOUT`, etc.
+
+**auto_tts.py** - TTS automation script
+- `TTSAutomation` class: Handles TTS-specific browser automation and form filling
 - `parse_csv_data()`: Reads CSV and groups scripts by product
-- Session management with persistent browser state
-- Resilient selector system with multiple fallback selectors
-- Retry logic and validation for form fields
+- Imports shared utilities from `shared.py` (re-exports for backward compat with menubar_gui.py)
+- TTS-specific `SELECTORS` dict
+- Uses `browser_data/` and `session_state.json` for `app.anylive.jp`
+
+**auto_faq.py** - Product FAQ automation script
+- `FAQAutomation` class (extends `BrowserAutomation`): Fills Product Q&A on `live.app.anylive.jp`
+- `parse_faq_csv()`: Reads CSV, groups by product number (int matching)
+- `resolve_audio_file()`: Finds audio files in zero-padded subfolders or flat directory
+- FAQ-specific `FAQ_SELECTORS` dict
+- Uses `browser_data_faq/` and `session_state_faq.json` (separate site, separate auth)
 
 **menubar_gui.py** - macOS menu bar application
 - Built with `rumps` for native macOS experience
@@ -70,8 +98,9 @@ python auto_tts.py --start-version 5 --limit 3
 
 **Configuration System**
 - External JSON configs in `configs/` directory
-- `configs/template.json` - Template for new clients
-- `configs/default.json` - Default client configuration
+- `configs/template.json` - TTS template for new clients
+- `configs/faq_template.json` - FAQ template for new clients
+- `configs/default.json` - Default TTS client configuration
 - CLI overrides supported for all config values
 
 ### Data Flow
@@ -130,7 +159,7 @@ When AnyLive UI changes:
 - **Scroll elements into view** before interaction
 - **Add delays after state changes** for UI stabilization
 
-### Timeout Configuration
+### Timeout Configuration (defined in `shared.py`)
 
 ```python
 DEFAULT_TIMEOUT = 30000        # General waits
@@ -224,7 +253,7 @@ When UI elements change:
 ## Important Constraints
 
 ### Security
-- **NEVER** commit `session_state.json` (contains auth cookies)
+- **NEVER** commit `session_state.json` or `session_state_faq.json` (contain auth cookies)
 - **NEVER** commit CSV files (may contain sensitive product data)
 - **NEVER** commit `logs/` directory (may contain sensitive data)
 - All sensitive files are gitignored
@@ -278,28 +307,79 @@ When UI elements change:
 ### Repository Structure
 ```
 anylive-tts-automation/
-├── auto_tts.py             # Main automation script
+├── shared.py               # Shared utilities (BrowserAutomation base, logging, CSV, session)
+├── auto_tts.py             # TTS automation script
+├── auto_faq.py             # Product FAQ automation script
 ├── menubar_gui.py          # macOS menu bar app
 ├── requirements.txt        # Python dependencies
 ├── menubar_app.spec        # PyInstaller spec file
 ├── configs/                # Client configurations
-│   ├── template.json       # Config template
-│   └── default.json        # Default config
+│   ├── template.json       # TTS config template
+│   ├── faq_template.json   # FAQ config template
+│   └── default.json        # Default TTS config
+├── tests/                  # Unit tests
+│   ├── test_shared.py      # Tests for shared utilities
+│   └── test_auto_faq.py    # Tests for FAQ automation
 ├── logs/                   # Generated at runtime (gitignored)
 ├── screenshots/            # Generated at runtime (gitignored)
-├── browser_data/           # Generated at runtime (gitignored)
-└── session_state.json      # Generated by --setup (gitignored)
+├── browser_data/           # TTS browser context (gitignored)
+├── browser_data_faq/       # FAQ browser context (gitignored)
+├── session_state.json      # TTS session (gitignored)
+└── session_state_faq.json  # FAQ session (gitignored)
 ```
 
 ### Important Files
 
-- `auto_tts.py`: Main automation logic (lines 1-1100+)
+- `shared.py`: Shared utilities — BrowserAutomation base class, logging, CSV, session
+- `auto_tts.py`: TTS automation logic (imports from shared.py)
+- `auto_faq.py`: FAQ automation logic (imports from shared.py)
 - `menubar_gui.py`: Menu bar application wrapper
+- `tests/`: Unit tests (33 tests covering CSV parsing, audio resolution, config, session)
 - `AGENTS.md`: Detailed architecture documentation (legacy, consider this CLAUDE.md authoritative)
 - `README.md`: User-facing documentation
 - `.gitignore`: Excludes logs, screenshots, session files, CSV files
 
+## FAQ Automation (`auto_faq.py`)
+
+### Overview
+Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product questions and audio codes, navigates to products, fills question fields, and uploads audio files.
+
+### Separate Authentication
+- FAQ uses `live.app.anylive.jp` (different site from TTS's `app.anylive.jp`)
+- Separate session: `session_state_faq.json` and `browser_data_faq/`
+- Run `python auto_faq.py --setup` to login (separate from TTS setup)
+
+### FAQ Config Fields
+```json
+{
+  "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
+  "audio_dir": "downloads",
+  "audio_extensions": [".mp3", ".wav"],
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "question": "Keywords",
+    "audio_code": "Audio Code"
+  }
+}
+```
+
+### Audio File Resolution
+Audio files are matched by `audio_code` in the configured `audio_dir`:
+1. **Subfolder match**: `{zero_padded_number}_*/{audio_code}.mp3` (e.g., `01_Product_A/SFD1.mp3`)
+2. **Flat fallback**: `{audio_dir}/{audio_code}.mp3`
+
+### Key Differences from TTS
+- No version splitting (1 product = 1 section on page)
+- Product matching by integer comparison (CSV `No.` → int)
+- Audio upload via `expect_file_chooser()` or hidden `input[type=file]`
+- `--dry-run` fills questions but skips audio upload
+- `--start-product` filters by product number (not index)
+
 ## Recent Changes
+
+### FAQ Automation (auto_faq.py)
+Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added 33 unit tests.
 
 ### Version 2.x Breaking Changes
 
