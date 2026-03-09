@@ -441,7 +441,8 @@ async def setup_login(logger: logging.Logger, gui_mode: bool = False):
             logger.exception("❌ Failed to launch Chromium persistent context")
             raise
 
-        page = await context.new_page()
+        # launch_persistent_context auto-opens one blank tab — reuse it.
+        page = context.pages[0] if context.pages else await context.new_page()
 
         # In GUI mode, always open browser for manual login
         if not gui_mode:
@@ -562,7 +563,8 @@ class TTSAutomation:
             # These flags are known to improve stability for this app.
             args=['--start-maximized', '--disable-web-security', '--disable-features=VizDisplayCompositor']
         )
-        self.page = await self.context.new_page()
+        # launch_persistent_context auto-opens one blank tab — reuse it.
+        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
 
         session_file = get_session_file_path()
@@ -2310,9 +2312,10 @@ async def main():
             await automation.download_all_versions(limit=args.limit, replace=args.replace)
         finally:
             if args.debug:
-                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
-            else:
-                await automation.close()
+                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                logger.info("   Press Enter to close the browser and exit.")
+                input()
+            await automation.close()
         return
 
     config_path = None
@@ -2399,11 +2402,11 @@ async def main():
         if args.debug:
             logger.info("")
             logger.info("=" * 70)
-            logger.info("🐛 DEBUG MODE: Leaving browser open for inspection (non-blocking)")
-            logger.info("   Close the browser manually when you're done.")
+            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+            logger.info("   Press Enter to close the browser and exit.")
             logger.info("=" * 70)
-        else:
-            await automation.close()
+            input()
+        await automation.close()
 
     generate_report(versions, config, timestamp, logger)
 
