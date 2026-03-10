@@ -14,4 +14,7 @@ output/
 tmp/
 configs/CLAUDE.md
 downloads/
-.pycache_local
+.pycache_local/
+.pytest_cache/
+.ruff_cache/
+.playwright-mcp/
