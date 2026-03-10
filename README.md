@@ -7,6 +7,7 @@ Automate the creation of TTS (Text-to-Speech) script versions on the AnyLive pla
 - ✅ **Multi-Client Support**: External JSON configuration for different brands/clients
 - ✅ **Product-Based Grouping**: 1 product = 1 version (auto-splits if >10 scripts)
 - ✅ **Flat Mode**: Override product grouping with `--flat` to pack scripts sequentially (N per version)
+- ✅ **Batch Download**: Download generated audio files for all versions with `--download`
 - ✅ **Session Management**: One-time login with `--setup`, session persists for future runs
 - ✅ **Auto CSV Detection**: Automatically detects CSV files in project folder
 - ✅ **Smart Version Naming**: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2` for overflow
@@ -52,21 +53,6 @@ Place your CSV file in the project root directory. The script will auto-detect i
   - Next 10 scripts: `01_Product_Name_v2`
   - Next 10 scripts: `01_Product_Name_v3`, etc.
 
-### ⚠️ Breaking Change from Previous Versions
-
-**Version Naming Change**:
-- **Old logic (v1.x)**: Fixed 3 products per version, 3 scripts per product
-  - Example: `CLIENT_01` contains Products 1-3 (9 scripts total)
-- **New logic (v2.x)**: 1 product per version, variable scripts (default max: 10)
-  - Example: `01_JBL_Speaker` contains Product 1 only (8 scripts)
-
-**Impact**: Version names will differ from historical data. This change enables:
-- Flexible script counts per product (not fixed to 3)
-- Auto-splitting for products with >10 scripts
-- Clearer product-to-version mapping
-
-**Migration**: No code changes needed. New versions will use new naming. Existing versions in AnyLive remain unchanged.
-
 ## Multi-Client Setup
 
 ### Quick Start (Using Default Config)
@@ -110,6 +96,7 @@ python auto_tts.py
 ### Available Configurations
 
 - `configs/default.json` - Default TTS client configuration
+- `configs/default_faq.json` - Default FAQ client configuration
 - `configs/template.json` - Template for creating new TTS client configs
 - `configs/faq_template.json` - Template for FAQ automation configs
 
@@ -154,9 +141,6 @@ python auto_tts.py --headless
 # Dry run mode (fill forms but skip Generate Speech)
 python auto_tts.py --dry-run
 
-# No-save mode (fill and generate but skip Save button)
-python auto_tts.py --no-save
-
 # Debug mode (keep browser open after execution)
 python auto_tts.py --debug
 
@@ -164,7 +148,22 @@ python auto_tts.py --debug
 python auto_tts.py --flat --max-scripts 10
 
 # Flat mode + dry run (preview versions without browser interaction)
-python auto_tts.py --flat --max-scripts 10 --dry-run --no-save
+python auto_tts.py --flat --max-scripts 10 --dry-run
+```
+
+### Download Mode
+
+Download generated audio files for all versions (skips the template version):
+
+```bash
+# Download all versions
+python auto_tts.py --download
+
+# Download starting from version 5
+python auto_tts.py --download --start-version 5
+
+# Re-download and replace existing files
+python auto_tts.py --download --replace
 ```
 
 ## CLI Options
@@ -179,8 +178,9 @@ python auto_tts.py --flat --max-scripts 10 --dry-run --no-save
 | `--limit` | int | Max versions to process |
 | `--headless` | flag | Run browser in headless mode |
 | `--dry-run` | flag | Fill forms but skip Generate Speech buttons |
-| `--no-save` | flag | Fill and generate but skip Save button |
 | `--debug` | flag | Keep browser open after execution for debugging |
+| `--download` | flag | Download audio files for all versions (skips template) |
+| `--replace` | flag | Re-download and replace existing files (use with `--download`) |
 | `--flat` | flag | Ignore product grouping; pack all scripts sequentially into fixed-size batches (use with `--max-scripts`) |
 
 ### Configuration Options
@@ -208,7 +208,8 @@ anylive-tts-automation/
 ├── configs/                # Client configurations
 │   ├── template.json       # TTS config template
 │   ├── faq_template.json   # FAQ config template
-│   └── default.json        # Default TTS config
+│   ├── default.json        # Default TTS config
+│   └── default_faq.json    # Default FAQ config
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
@@ -433,21 +434,6 @@ Detailed logs are saved to `logs/auto_tts_TIMESTAMP.log`
 
 When errors occur, screenshots are automatically saved to `screenshots/error_VERSION_TIMESTAMP.png`
 
-## Migration from Hardcoded Configuration
-
-If you have an older version with hardcoded constants, the new version is backward compatible:
-
-1. **Default behavior**: Runs with `configs/default.json` which has the same values as old hardcoded constants
-2. **To customize**: Create a new config file or use CLI overrides
-3. **Old constants removed**:
-   - `BASE_URL` → `config.base_url`
-   - `VERSION_PREFIX` → Replaced by product number from CSV column A
-   - `VERSION_TEMPLATE` → `config.version_template`
-   - `VOICE_NAME` → `config.voice_name`
-   - `ENABLE_VOICE_SELECTION` → `config.enable_voice_selection`
-   - `ENABLE_PRODUCT_INFO` → `config.enable_product_info`
-   - `PRODUCTS_PER_VERSION` / `SCRIPTS_PER_PRODUCT` → Removed; replaced by product-based grouping with `max_scripts_per_version`
-
 ## Menu Bar Application (macOS)
 
 A native macOS menu bar application is available for team-friendly usage:
@@ -511,8 +497,9 @@ User data remains in `~/Library/Application Support/AnyLiveTTS/` for persistence
 - Voice selection and product info filling are disabled by default (can be enabled in config)
 - Session file (`session_state.json`) is excluded from git via `.gitignore`
 - Browser data (`browser_data/`) is excluded from git via `.gitignore`
+- The site auto-saves versions — there is no separate save step
 - Use `--dry-run` to test form filling without generating speech
-- Use `--no-save` to test without saving (useful for debugging)
+- Use `--download` to batch-download generated audio files after creation
 - Use `--debug` to inspect the browser state after execution
 
 ## Product FAQ Automation
@@ -571,6 +558,15 @@ downloads/
 
 ## Recent Updates
 
+### Batch Download Mode (`--download`)
+Added `--download` flag to download generated audio files for all versions. Versions are sorted
+numerically and the template version is automatically skipped. Use `--replace` to re-download
+existing files. Supports `--start-version` to resume from a specific version.
+
+### Auto-Save (removed `--no-save`)
+The AnyLive site now auto-saves versions. The `--no-save` flag has been removed as there is
+no longer a separate save step.
+
 ### Product FAQ Automation
 Added `auto_faq.py` for automating Product Q&A filling on `live.app.anylive.jp`. Extracted shared
 utilities into `shared.py` for code reuse between TTS and FAQ scripts. Added unit tests.
@@ -578,18 +574,7 @@ utilities into `shared.py` for code reuse between TTS and FAQ scripts. Added uni
 ### Flat Mode (`--flat`)
 Added `--flat` CLI flag to override the default product-based grouping. In flat mode, all
 scripts are packed sequentially into fixed-size batches (set with `--max-scripts`). Versions
-are named `batch_01`, `batch_02`, etc. instead of by product name. Useful when you want
-a fixed number of slots per version regardless of product boundaries.
-
-### UI Selector Improvements
-Recent commits updated selectors for new AnyLive UI version:
-- Improved "Add Version" button detection
-- Optimized "Edit Script" tab click speed
-- Scoped selectors to paragraph cards to avoid hidden fields
-- Dialog-scoped selectors to prevent clicking wrong elements
-
-### Menu Bar Application
-Added native macOS menu bar application for improved team usability and easier distribution.
+are named `batch_01`, `batch_02`, etc. instead of by product name.
 
 ## Support
 
