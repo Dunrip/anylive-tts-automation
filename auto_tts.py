@@ -1888,7 +1888,7 @@ class TTSAutomation:
             self.logger.error(f"❌ FAILED: {version.name} - {e}")
             return False
 
-    async def download_all_versions(self, limit: int = None, replace: bool = False):
+    async def download_all_versions(self, limit: int = None, replace: bool = False, start_version: int = 1):
         """Download audio files for every version, except the template.
 
         Workflow:
@@ -1988,6 +1988,11 @@ class TTSAutomation:
 
         all_versions.sort(key=_version_sort_key)
         self.logger.info(f"Total versions found: {len(all_versions)}")
+
+        # Apply start_version offset (1-indexed)
+        if start_version > 1:
+            all_versions = all_versions[start_version - 1:]
+            self.logger.info(f"Starting from version #{start_version} (skipping first {start_version - 1})")
 
         # --- Phase 2: Visit each version and download ---
         total_downloaded = 0
@@ -2453,7 +2458,7 @@ async def main():
         try:
             await automation.start_browser()
             await automation.download_all_versions(
-                limit=args.limit, replace=args.replace
+                limit=args.limit, replace=args.replace, start_version=args.start_version
             )
         finally:
             if args.debug:
