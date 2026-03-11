@@ -159,6 +159,9 @@ Download generated audio files for all versions (skips the template version):
 # Download all versions
 python auto_tts.py --download
 
+# Download specific versions by number (ranges and individual)
+python auto_tts.py --download --versions 0,14-26
+
 # Download starting from version 5
 python auto_tts.py --download --start-version 5
 
@@ -180,6 +183,7 @@ python auto_tts.py --download --replace
 | `--dry-run` | flag | Fill forms but skip Generate Speech buttons |
 | `--debug` | flag | Keep browser open after execution for debugging |
 | `--download` | flag | Download audio files for all versions (skips template) |
+| `--versions` | string | Filter specific versions by number, e.g. `15-18,24,30` (use with `--download`) |
 | `--replace` | flag | Re-download and replace existing files (use with `--download`) |
 | `--flat` | flag | Ignore product grouping; pack all scripts sequentially into fixed-size batches (use with `--max-scripts`) |
 
@@ -500,6 +504,7 @@ User data remains in `~/Library/Application Support/AnyLiveTTS/` for persistence
 - The site auto-saves versions — there is no separate save step
 - Use `--dry-run` to test form filling without generating speech
 - Use `--download` to batch-download generated audio files after creation
+- Use `--download --versions 0,14-26` to cherry-pick specific versions by number
 - Use `--debug` to inspect the browser state after execution
 
 ## Product FAQ Automation
@@ -557,6 +562,11 @@ downloads/
 ```
 
 ## Recent Updates
+
+### Selective Version Download (`--versions`)
+Added `--versions` flag to cherry-pick specific versions by their leading number (e.g.,
+`--versions 0,14-26`). Supports individual numbers, ranges, and combinations. When active,
+`--start-version` is ignored. `--limit` still applies on top of the filter.
 
 ### Batch Download Mode (`--download`)
 Added `--download` flag to download generated audio files for all versions. Versions are sorted

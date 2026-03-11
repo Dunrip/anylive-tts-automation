@@ -60,6 +60,9 @@ python auto_tts.py --headless
 
 # Process subset of versions
 python auto_tts.py --start-version 5 --limit 3
+
+# Download specific versions by number
+python auto_tts.py --download --versions 0,14-26
 ```
 
 ### CLI Overrides
