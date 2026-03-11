@@ -237,7 +237,14 @@ def parse_csv_data(
     df[col_product_no] = df[col_product_no].replace("", pd.NA)
     df[col_product_no] = df[col_product_no].ffill()
 
-    valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
+    # Require a non-empty audio_code — rows without one are skipped entirely.
+    audio_not_empty = df[col_audio].notna() & (
+        df[col_audio].astype(str).str.strip() != ""
+    )
+    valid_rows = df[(df[col_script].notna() | df[col_audio].notna()) & audio_not_empty]
+    skipped = len(df) - len(valid_rows)
+    if skipped:
+        logger.info(f"Skipped {skipped} row(s) with empty/missing audio code")
     logger.info(f"Valid rows: {len(valid_rows)}")
 
     script_rows: List[ScriptRow] = []
