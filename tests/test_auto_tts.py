@@ -8,11 +8,111 @@ import pytest
 
 from auto_tts import (
     ClientConfig,
+    Version,
     parse_version_spec,
     _extract_leading_number,
+    filter_versions_from_product,
     collect_expected_audio_codes,
     verify_downloads,
 )
+
+
+def _make_version(product_number: str, name: str) -> Version:
+    """Create a minimal Version for testing."""
+    return Version(
+        name=name,
+        products=[name],
+        scripts=["script"],
+        audio_codes=["code"],
+        product_number=product_number,
+    )
+
+
+class TestFilterVersionsFromProduct:
+    """Tests for filter_versions_from_product()."""
+
+    @pytest.fixture()
+    def logger(self) -> logging.Logger:
+        return logging.getLogger("test_filter")
+
+    @pytest.fixture()
+    def versions(self) -> list[Version]:
+        return [
+            _make_version("0", "0_Introduction"),
+            _make_version("1", "1_ProductA"),
+            _make_version("5", "5_ProductB"),
+            _make_version("5", "5_ProductB_v2"),
+            _make_version("6", "6_ProductC"),
+            _make_version("10", "10_ProductD"),
+        ]
+
+    def test_start_from_product_0(
+        self, versions: list[Version], logger: logging.Logger
+    ) -> None:
+        result = filter_versions_from_product(versions, 0, logger)
+        assert [v.name for v in result] == [v.name for v in versions]
+
+    def test_start_from_product_5(
+        self, versions: list[Version], logger: logging.Logger
+    ) -> None:
+        result = filter_versions_from_product(versions, 5, logger)
+        assert [v.name for v in result] == [
+            "5_ProductB",
+            "5_ProductB_v2",
+            "6_ProductC",
+            "10_ProductD",
+        ]
+
+    def test_start_from_nonexistent_product_uses_next(
+        self, versions: list[Version], logger: logging.Logger
+    ) -> None:
+        """Product 3 doesn't exist — should start from product 5 (next available)."""
+        result = filter_versions_from_product(versions, 3, logger)
+        assert [v.name for v in result] == [
+            "5_ProductB",
+            "5_ProductB_v2",
+            "6_ProductC",
+            "10_ProductD",
+        ]
+
+    def test_start_beyond_all_products_returns_empty(
+        self, versions: list[Version], logger: logging.Logger
+    ) -> None:
+        result = filter_versions_from_product(versions, 99, logger)
+        assert result == []
+
+    def test_multi_version_product_included(
+        self, versions: list[Version], logger: logging.Logger
+    ) -> None:
+        """Both 5_ProductB and 5_ProductB_v2 should be included when starting at 5."""
+        result = filter_versions_from_product(versions, 5, logger)
+        names = [v.name for v in result]
+        assert "5_ProductB" in names
+        assert "5_ProductB_v2" in names
+
+    def test_empty_versions_list(self, logger: logging.Logger) -> None:
+        result = filter_versions_from_product([], 0, logger)
+        assert result == []
+
+    def test_fallback_to_version_name(self, logger: logging.Logger) -> None:
+        """When product_number is empty, fall back to extracting from name."""
+        versions = [
+            _make_version("", "0_Intro"),
+            _make_version("", "5_ProductB"),
+        ]
+        result = filter_versions_from_product(versions, 5, logger)
+        assert [v.name for v in result] == ["5_ProductB"]
+
+
+def _make_version(product_number: str, name: str) -> Version:
+    """Create a minimal Version for testing."""
+    return Version(
+        name=name,
+        products=[name],
+        scripts=["script"],
+        audio_codes=["code"],
+        product_number=product_number,
+    )
 
 
 class TestParseVersionSpec:
