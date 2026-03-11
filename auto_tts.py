@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -146,6 +147,159 @@ def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> Clien
         config_data.update(cli_overrides)
 
     return ClientConfig(**config_data)
+
+
+def parse_version_spec(spec: str) -> set[int]:
+    """Parse a version specification string into a set of version numbers.
+
+    Supports individual numbers and ranges:
+        "15"        -> {15}
+        "15,18,24"  -> {15, 18, 24}
+        "15-18"     -> {15, 16, 17, 18}
+        "15-18,24"  -> {15, 16, 17, 18, 24}
+
+    Whitespace is tolerated around tokens, commas, and dashes.
+    """
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("Version spec cannot be empty")
+
+    result: set[int] = set()
+    tokens = spec.split(",")
+
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            raise ValueError(
+                f"Invalid version spec: trailing or double comma in '{spec}'"
+            )
+
+        if "-" in token:
+            parts = token.split("-")
+            if len(parts) != 2:
+                raise ValueError(f"Invalid range: '{token}'")
+            start_str, end_str = parts[0].strip(), parts[1].strip()
+            if not start_str or not end_str:
+                raise ValueError(f"Invalid range: '{token}'")
+            try:
+                start, end = int(start_str), int(end_str)
+            except ValueError:
+                raise ValueError(f"Non-numeric value in range: '{token}'")
+            if start > end:
+                raise ValueError(
+                    f"Reversed range: '{token}' (start {start} > end {end})"
+                )
+            result.update(range(start, end + 1))
+        else:
+            try:
+                result.add(int(token))
+            except ValueError:
+                raise ValueError(f"Non-numeric version number: '{token}'")
+
+    return result
+
+
+def collect_expected_audio_codes(
+    df: pd.DataFrame,
+    config: ClientConfig,
+    logger: logging.Logger,
+    product_filter: Optional[set[int]] = None,
+) -> set[str]:
+    """Extract all non-empty audio code values from a CSV DataFrame.
+
+    Args:
+        product_filter: If provided, only include audio codes from rows whose
+            product number is in this set (e.g. {0, 11, 12, ..., 25}).
+
+    Returns a set of audio code strings (e.g. {"NCE1", "NCE2", "SCE1"}).
+    """
+    col_audio = config.csv_columns.get("audio_code", "Audio Code")
+    col_product_no = config.csv_columns.get("product_number", "No")
+
+    if col_audio not in df.columns:
+        logger.warning(f"Audio code column '{col_audio}' not found in CSV")
+        return set()
+
+    filtered = df
+    if product_filter is not None:
+        if col_product_no not in df.columns:
+            logger.warning(
+                f"Product number column '{col_product_no}' not found — "
+                f"cannot filter by product, using all rows"
+            )
+        else:
+            # Forward-fill product numbers (same logic as parse_csv_data)
+            product_nums = df[col_product_no].ffill()
+            mask = product_nums.apply(
+                lambda v: _safe_int(v) in product_filter if pd.notna(v) else False
+            )
+            filtered = df[mask]
+            logger.info(
+                f"   Filtered to {len(filtered)} rows for products: "
+                f"{sorted(product_filter)}"
+            )
+
+    codes = set()
+    for val in filtered[col_audio]:
+        if pd.notna(val):
+            stripped = str(val).strip()
+            if stripped:
+                codes.add(stripped)
+    return codes
+
+
+def _safe_int(val: object) -> Optional[int]:
+    """Try to convert a value to int, returning None on failure."""
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return None
+
+
+def verify_downloads(
+    downloads_dir: str,
+    expected_codes: set[str],
+    logger: logging.Logger,
+) -> list[str]:
+    """Cross-reference downloaded audio files against expected codes from CSV.
+
+    Walks all audio files in downloads_dir, collects stems (filename without
+    extension), and compares against expected_codes from the CSV.
+
+    Returns sorted list of missing audio codes (empty = all good).
+    """
+    downloaded_stems: set[str] = set()
+
+    for dirpath, _dirnames, filenames in os.walk(downloads_dir):
+        for fname in filenames:
+            stem = Path(fname).stem
+            if stem:
+                downloaded_stems.add(stem)
+
+    logger.info("🔍 VERIFY: Checking downloads against CSV...")
+    logger.info(
+        f"   CSV expects {len(expected_codes)} audio files, "
+        f"found {len(downloaded_stems)} in {downloads_dir}"
+    )
+
+    missing = sorted(expected_codes - downloaded_stems)
+    extra = sorted(downloaded_stems - expected_codes)
+
+    if missing:
+        logger.info(f"   ❌ Missing {len(missing)} files: {', '.join(missing)}")
+    else:
+        logger.info("   ✅ All expected audio files are present")
+
+    if extra:
+        logger.info(f"   ℹ️  {len(extra)} extra files not in CSV: {', '.join(extra)}")
+
+    return missing
+
+
+def _extract_leading_number(name: str) -> Optional[int]:
+    """Extract the leading integer from a version name (e.g. '15_ProductA' -> 15)."""
+    m = re.match(r"^(\d+)", name)
+    return int(m.group(1)) if m else None
 
 
 @dataclass
@@ -296,7 +450,6 @@ def parse_csv_data(
     logger.info(f"Found {len(product_groups)} unique products")
 
     def sanitize_product_name(name: str) -> str:
-        import re
 
         # Include Thai Unicode range (U+0E00-U+0E7F) to preserve combining
         # characters such as tone marks (่ ้ ๊ ๋) and vowel marks (ิ ี ึ ื ุ ู ั)
@@ -1901,7 +2054,13 @@ class TTSAutomation:
             self.logger.error(f"❌ FAILED: {version.name} - {e}")
             return False
 
-    async def download_all_versions(self, limit: int = None, replace: bool = False, start_version: int = 1):
+    async def download_all_versions(
+        self,
+        limit: int = None,
+        replace: bool = False,
+        start_version: int = 1,
+        version_filter: Optional[set[int]] = None,
+    ):
         """Download audio files for every version, except the template.
 
         Workflow:
@@ -1992,20 +2151,29 @@ class TTSAutomation:
 
         # Sort versions numerically by the leading number in the version name
         # (e.g. "01_...", "06_...", "13_...") so downloads proceed in order.
-        import re as _re
-
         def _version_sort_key(item):
-            name = item[0]
-            m = _re.match(r"^(\d+)", name)
-            return (int(m.group(1)) if m else float("inf"), name)
+            num = _extract_leading_number(item[0])
+            return (num if num is not None else float("inf"), item[0])
 
         all_versions.sort(key=_version_sort_key)
         self.logger.info(f"Total versions found: {len(all_versions)}")
 
-        # Apply start_version offset (1-indexed)
-        if start_version > 1:
-            all_versions = all_versions[start_version - 1:]
-            self.logger.info(f"Starting from version #{start_version} (skipping first {start_version - 1})")
+        # Apply version_filter (cherry-pick by leading number) or start_version offset
+        if version_filter is not None:
+            all_versions = [
+                (name, href)
+                for name, href in all_versions
+                if _extract_leading_number(name) in version_filter
+            ]
+            self.logger.info(
+                f"Filtered to {len(all_versions)} versions matching: "
+                f"{sorted(version_filter)}"
+            )
+        elif start_version > 1:
+            all_versions = all_versions[start_version - 1 :]
+            self.logger.info(
+                f"Starting from version #{start_version} (skipping first {start_version - 1})"
+            )
 
         # --- Phase 2: Visit each version and download ---
         total_downloaded = 0
@@ -2232,6 +2400,7 @@ async def run_job(
     replace: bool = False,
     start_version: int = 1,
     limit: Optional[int] = None,
+    version_filter: Optional[set[int]] = None,
     app_support_dir: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
     debug_callback: Optional[Callable[[], None]] = None,
@@ -2291,7 +2460,9 @@ async def run_job(
             try:
                 await automation.start_browser()
                 count = await automation.download_all_versions(
-                    limit=limit, replace=replace
+                    limit=limit,
+                    replace=replace,
+                    version_filter=version_filter,
                 )
             finally:
                 if debug:
@@ -2405,9 +2576,20 @@ async def main():
         help="Download files for all versions (except template)",
     )
     parser.add_argument(
+        "--versions",
+        type=str,
+        default=None,
+        help="Filter specific versions by number (e.g., '15-18,24,30'). Use with --download.",
+    )
+    parser.add_argument(
         "--replace",
         action="store_true",
         help="Re-download and replace existing files (use with --download)",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify downloaded files against CSV audio codes (use with --download or standalone)",
     )
     parser.add_argument(
         "--flat",
@@ -2443,8 +2625,71 @@ async def main():
         logger.info("   python auto_tts.py --setup")
         return
 
+    # --- Standalone verify (no download, just scan existing files) ---
+    if args.verify and not args.download:
+        dl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+        if not os.path.isdir(dl_dir):
+            logger.error(f"❌ Downloads directory not found: {dl_dir}")
+            return
+
+        config_path = None
+        if args.client:
+            config_path = f"configs/{args.client}.json"
+        elif args.config:
+            config_path = args.config
+        else:
+            config_path = "configs/default.json"
+
+        cli_overrides = {}
+        if args.base_url:
+            cli_overrides["base_url"] = args.base_url
+
+        try:
+            config = load_config(config_path, cli_overrides if cli_overrides else None)
+        except Exception as e:
+            logger.error(f"❌ {e}")
+            return
+
+        csv_from_config = None
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                csv_from_config = json.load(f).get("csv")
+        except Exception:
+            pass
+
+        try:
+            csv_path = find_csv_file(args.csv or csv_from_config)
+        except (FileNotFoundError, ValueError) as e:
+            logger.error(f"❌ {e}")
+            return
+
+        df = load_csv(csv_path, logger)
+
+        product_filter = None
+        if args.versions:
+            try:
+                product_filter = parse_version_spec(args.versions)
+            except ValueError as e:
+                logger.error(f"❌ Invalid --versions spec: {e}")
+                return
+
+        expected = collect_expected_audio_codes(df, config, logger, product_filter)
+        verify_downloads(dl_dir, expected, logger)
+        return
+
     # --- Download-only workflow (separate from fill/create) ---
     if args.download:
+        # Parse --versions filter
+        version_filter = None
+        if args.versions:
+            try:
+                version_filter = parse_version_spec(args.versions)
+            except ValueError as e:
+                logger.error(f"❌ Invalid --versions spec: {e}")
+                return
+            if args.start_version > 1:
+                logger.warning("⚠️ --start-version is ignored when --versions is active")
+
         config_path = None
         if args.client:
             config_path = f"configs/{args.client}.json"
@@ -2471,8 +2716,28 @@ async def main():
         try:
             await automation.start_browser()
             await automation.download_all_versions(
-                limit=args.limit, replace=args.replace, start_version=args.start_version
+                limit=args.limit,
+                replace=args.replace,
+                start_version=args.start_version,
+                version_filter=version_filter,
             )
+            if args.verify:
+                dl_dir = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "downloads"
+                )
+                csv_from_config = None
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        csv_from_config = json.load(f).get("csv")
+                except Exception:
+                    pass
+                try:
+                    csv_path = find_csv_file(args.csv or csv_from_config)
+                    df = load_csv(csv_path, logger)
+                    expected = collect_expected_audio_codes(df, config, logger)
+                    verify_downloads(dl_dir, expected, logger)
+                except (FileNotFoundError, ValueError) as e:
+                    logger.error(f"❌ Cannot verify without CSV: {e}")
         finally:
             if args.debug:
                 logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
