@@ -334,6 +334,33 @@ class Report:
     versions: List[dict] = field(default_factory=list)
 
 
+def filter_versions_from_product(
+    versions: List[Version],
+    start_product: int,
+    logger: logging.Logger,
+) -> List[Version]:
+    """Filter versions to start from the given product number.
+
+    Finds the first version whose product_number (as int) >= start_product
+    and returns that version and all subsequent ones.
+    """
+    for idx, v in enumerate(versions):
+        try:
+            num = int(v.product_number)
+        except (ValueError, TypeError):
+            num = _extract_leading_number(v.name)
+        if num is not None and num >= start_product:
+            if idx > 0:
+                logger.info(
+                    f"Starting from product #{start_product} (skipping {idx} version(s))"
+                )
+            return versions[idx:]
+    logger.warning(
+        f"No version with product number >= {start_product} found; nothing to process"
+    )
+    return []
+
+
 def parse_csv_data(
     df: pd.DataFrame,
     config: ClientConfig,
@@ -2058,7 +2085,7 @@ class TTSAutomation:
         self,
         limit: int = None,
         replace: bool = False,
-        start_version: int = 1,
+        start_version: Optional[int] = None,
         version_filter: Optional[set[int]] = None,
     ):
         """Download audio files for every version, except the template.
@@ -2169,11 +2196,21 @@ class TTSAutomation:
                 f"Filtered to {len(all_versions)} versions matching: "
                 f"{sorted(version_filter)}"
             )
-        elif start_version > 1:
-            all_versions = all_versions[start_version - 1 :]
-            self.logger.info(
-                f"Starting from version #{start_version} (skipping first {start_version - 1})"
+        elif start_version is not None:
+            idx = next(
+                (
+                    i
+                    for i, (name, _) in enumerate(all_versions)
+                    if (num := _extract_leading_number(name)) is not None
+                    and num >= start_version
+                ),
+                len(all_versions),
             )
+            if idx > 0:
+                all_versions = all_versions[idx:]
+                self.logger.info(
+                    f"Starting from product #{start_version} (skipping {idx} version(s))"
+                )
 
         # --- Phase 2: Visit each version and download ---
         total_downloaded = 0
@@ -2398,7 +2435,7 @@ async def run_job(
     debug: bool = False,
     download: bool = False,
     replace: bool = False,
-    start_version: int = 1,
+    start_version: Optional[int] = None,
     limit: Optional[int] = None,
     version_filter: Optional[set[int]] = None,
     app_support_dir: Optional[str] = None,
@@ -2462,6 +2499,7 @@ async def run_job(
                 count = await automation.download_all_versions(
                     limit=limit,
                     replace=replace,
+                    start_version=start_version,
                     version_filter=version_filter,
                 )
             finally:
@@ -2488,10 +2526,8 @@ async def run_job(
             return {"success": False, "report": None, "error": error_msg}
 
         # Apply start_version and limit
-        start_idx = start_version - 1
-        if start_idx > 0:
-            versions = versions[start_idx:]
-            logger.info(f"Starting from version {start_version}")
+        if start_version is not None:
+            versions = filter_versions_from_product(versions, start_version, logger)
 
         if limit:
             versions = versions[:limit]
@@ -2555,7 +2591,10 @@ async def main():
         "--csv", type=str, help="Path to CSV file (auto-detects if not specified)"
     )
     parser.add_argument(
-        "--start-version", type=int, default=1, help="Starting version number"
+        "--start-version",
+        type=int,
+        default=None,
+        help="Start from product number N (skip earlier products)",
     )
     parser.add_argument("--limit", type=int, help="Limit number of versions to process")
     parser.add_argument(
@@ -2687,7 +2726,7 @@ async def main():
             except ValueError as e:
                 logger.error(f"❌ Invalid --versions spec: {e}")
                 return
-            if args.start_version > 1:
+            if args.start_version is not None:
                 logger.warning("⚠️ --start-version is ignored when --versions is active")
 
         config_path = None
@@ -2734,7 +2773,9 @@ async def main():
                 try:
                     csv_path = find_csv_file(args.csv or csv_from_config)
                     df = load_csv(csv_path, logger)
-                    expected = collect_expected_audio_codes(df, config, logger)
+                    expected = collect_expected_audio_codes(
+                        df, config, logger, version_filter
+                    )
                     verify_downloads(dl_dir, expected, logger)
                 except (FileNotFoundError, ValueError) as e:
                     logger.error(f"❌ Cannot verify without CSV: {e}")
@@ -2798,10 +2839,8 @@ async def main():
         logger.error("❌ No versions to process")
         return
 
-    start_idx = args.start_version - 1
-    if start_idx > 0:
-        versions = versions[start_idx:]
-        logger.info(f"Starting from version {args.start_version}")
+    if args.start_version is not None:
+        versions = filter_versions_from_product(versions, args.start_version, logger)
 
     if args.limit:
         versions = versions[: args.limit]
