@@ -255,7 +255,13 @@ def parse_csv_data(
 
         try:
             num_value = float(raw_number)
-            product_number = f"{int(num_value):02d}"
+            # Preserve decimals (e.g. 10.5 stays "10.5") so products with
+            # fractional numbers are not silently merged with their integer
+            # counterpart. Whole numbers are still zero-padded (e.g. "10").
+            if num_value == int(num_value):
+                product_number = f"{int(num_value):02d}"
+            else:
+                product_number = raw_number
         except ValueError:
             product_number = raw_number
 
