@@ -1,5 +1,5 @@
 {
-  "base_url": "https://live.app.anylive.jp/live/70f6c6166b15406a91dc841d85db9761",
+  "base_url": "https://live.app.anylive.jp/live/SESSION_ID_HERE",
   "audio_dir": "downloads",
   "audio_extensions": [".mp3", ".wav"],
   "csv_columns": {
