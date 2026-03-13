@@ -116,7 +116,7 @@ This will:
 1. Open a browser
 2. Navigate to AnyLive
 3. Wait for you to login manually
-4. Save session to `session_state.json`
+4. Save session to `state/session_state.json`
 
 ### Normal Run
 
@@ -179,7 +179,7 @@ python auto_tts.py --download --replace
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `--setup` | flag | One-time login setup, saves session to `session_state.json` |
+| `--setup` | flag | One-time login setup, saves session to `state/session_state.json` |
 | `--csv` | path | Path to CSV file (auto-detects if not specified) |
 | `--start-version` | int | Starting version number (default: 1) |
 | `--limit` | int | Max versions to process |
@@ -213,7 +213,7 @@ anylive-tts-automation/
 ├── menubar_gui.py          # macOS menu bar application
 ├── menubar_app.spec        # PyInstaller specification
 ├── requirements.txt        # Dependencies
-├── .gitignore              # Ignore logs, screenshots, session, csv
+├── .gitignore              # Ignore logs, screenshots, state, csv
 ├── configs/                # Client configurations (nested structure)
 │   ├── CLAUDE.md           # Config structure documentation
 │   ├── default/            # Default client (template + fallback)
@@ -225,14 +225,10 @@ anylive-tts-automation/
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
-├── session_state.json           # TTS login session (gitignored)
-├── session_state_faq.json       # FAQ login session, legacy (gitignored)
-├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
-├── faq_last_client.json         # Last-used FAQ brand (gitignored)
-├── *.csv                        # Input CSV files
-├── browser_data/                # TTS browser context (gitignored)
-├── browser_data_faq/            # FAQ browser context, legacy (gitignored)
-├── browser_data_faq_<client>/   # Per-brand FAQ browser context (gitignored)
+├── state/                  # Runtime state (gitignored)
+│   ├── browser_data*/      # Playwright browser contexts
+│   ├── session_state*.json # Saved login sessions
+│   └── faq_last_client.json # Last-used FAQ brand
 ├── logs/                   # Created at runtime (gitignored)
 │   ├── auto_tts_*.log
 │   ├── auto_faq_*.log
@@ -472,8 +468,10 @@ python menubar_gui.py
 ├── configs/              # User-editable configurations
 ├── logs/                 # Execution logs (menubar.log, auto_tts_*.log)
 ├── screenshots/          # Error screenshots
-├── browser_data/         # Browser persistent context
-├── session_state.json    # Saved browser session
+├── state/                # State and browser data (untracked)
+│   ├── browser_data/     # Playwright persistent context
+│   ├── session_state.json # Saved browser session
+│   └── faq_last_client.json # Last-used brand
 └── menubar_state.json    # GUI state
 ```
 
@@ -510,8 +508,8 @@ User data remains in `~/Library/Application Support/AnyLiveTTS/` for persistence
 - Product names are sanitized for version naming (spaces → underscores, special chars removed)
 - Clicking "Generate Speech" triggers background AI processing - the script doesn't wait for completion
 - Voice selection and product info filling are disabled by default (can be enabled in config)
-- Session file (`session_state.json`) is excluded from git via `.gitignore`
-- Browser data (`browser_data/`) is excluded from git via `.gitignore`
+- Session file (`state/session_state.json`) is excluded from git via `.gitignore`
+- Browser data (`state/browser_data/`) is excluded from git via `.gitignore`
 - The site auto-saves versions — there is no separate save step
 - Use `--dry-run` to test form filling without generating speech
 - Use `--download` to batch-download generated audio files after creation
@@ -551,7 +549,7 @@ python auto_faq.py --start-product 5 --limit 3
 python auto_faq.py --audio-dir ./my_audio
 ```
 
-**Account resolution order:** `--client` > last-used (`faq_last_client.json`) > legacy default (`session_state_faq.json`)
+**Account resolution order:** `--client` > last-used (`state/faq_last_client.json`) > legacy default (`state/session_state_faq.json`)
 
 ### FAQ Configuration
 
@@ -651,9 +649,8 @@ existing files. Supports `--start-version` to resume from a specific version.
 The AnyLive site now auto-saves versions. The `--no-save` flag has been removed as there is
 no longer a separate save step.
 
-### Multi-Account FAQ Support
 `auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
-`session_state_faq_{client}.json` and `browser_data_faq_{client}/` directory. The last-used brand
+`state/session_state_faq_{client}.json` and `state/browser_data_faq_{client}/` directory. The last-used brand
 is saved automatically and selected when `--client` is omitted.
 
 ### Product FAQ Automation

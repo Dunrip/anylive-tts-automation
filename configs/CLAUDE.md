@@ -166,9 +166,9 @@ This enables support for CSVs with different column naming conventions.
 ## Session Management
 
 Each client maintains separate session files:
-- TTS: `session_state.json` (shared across all TTS clients)
-- FAQ: `session_state_faq_{client}.json` (per-brand)
-- Script: Uses same session as FAQ (`session_state_faq_{client}.json`)
+- TTS: `state/session_state.json` (shared across all TTS clients)
+- FAQ: `state/session_state_faq_{client}.json` (per-brand)
+- Script: Uses same session as FAQ (`state/session_state_faq_{client}.json`)
 
 Run `--setup` once per client to establish authentication:
 
