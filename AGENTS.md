@@ -44,6 +44,24 @@ python auto_tts.py --config /path/to/config.json
 python auto_tts.py --csv /path/to/file.csv
 ```
 
+### Script Automation (Set Live Content)
+```bash
+# One-time login setup (shares session with auto_faq.py)
+python auto_script.py --setup --client example
+
+# Upload scripts from CSV
+python auto_script.py --client example --csv scripts.csv
+
+# Delete all scripts from all products (CSV not required)
+python auto_script.py --client example --delete-scripts
+
+# Dry run (preview without browser interaction)
+python auto_script.py --client example --dry-run --limit 2
+
+# Start from a specific product number
+python auto_script.py --client example --start-product 3
+```
+
 ### Testing & Debugging
 ```bash
 # Dry run (fill forms without generating speech)
@@ -76,14 +94,16 @@ python auto_tts.py --template "Template_Name"
 ## Architecture
 
 ### High-Level Overview
-Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces.
+Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces. Also includes `auto_faq.py` for Product Q&A automation and `auto_script.py` for Set Live Content script upload/deletion.
 
 ### Core Components
 
 #### 1. **Configuration System** (`ClientConfig`)
-- External JSON-based multi-client configuration
-- Default config: `configs/default.json`
-- Template: `configs/template.json`
+- External JSON-based multi-client configuration in nested directories
+- Default config: `configs/default/tts.json` (TTS) and `configs/default/live.json` (FAQ/Script)
+- Custom client: `configs/{client}/tts.json` and `configs/{client}/live.json`
+- `default/` folder doubles as both template AND fallback config
+- Config files support `//` inline comments (loaded via `load_jsonc()`)
 - CLI override support for all config values
 
 #### 2. **CSV Parser** (`parse_csv_data`)
@@ -153,9 +173,12 @@ Generate JSON report
 
 ### Key Files
 - `auto_tts.py`: Main automation script (single-file design for app compilation)
+- `auto_faq.py`: Product FAQ automation script (CLI)
+- `auto_script.py`: Set Live Content script automation (CLI) — upload/delete audio scripts
 - `menubar_gui.py`: macOS menu bar application
 - `menubar_app.spec`: PyInstaller specification file
-- `configs/*.json`: Client configurations
+- `configs/{client}/tts.json`: TTS client configuration
+- `configs/{client}/live.json`: FAQ/Script client configuration
 - `session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
 - `screenshots/`: Error screenshots (gitignored)
@@ -271,8 +294,8 @@ graph TD
 ## Development Hints
 
 ### Adding a New Client Configuration
-1. Copy template: `cp configs/template.json configs/new_client.json`
-2. Edit config values:
+1. Copy default folder: `cp -r configs/default configs/new_client`
+2. Edit config values in `configs/new_client/tts.json` and `configs/new_client/live.json`:
    - `base_url`: Target scripts page URL
    - `version_template`: Template version name
    - `voice_name`: Voice clone name

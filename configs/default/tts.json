@@ -1,0 +1,16 @@
+{
+  // TTS config template — copy this folder for new clients
+  // Site: app.anylive.jp (TTS script generation)
+  "base_url": "https://app.anylive.jp/scripts/XXX",
+  "version_template": "Version_Template",  // template version to clone from
+  "voice_name": "Voice Clone Name",        // voice clone for TTS generation
+  "max_scripts_per_version": 10,           // triggers version split when exceeded
+  "enable_voice_selection": false,         // voice clone dropdown (disabled by default)
+  "enable_product_info": false,            // product name/selling point fields
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "script_content": "TH Script",
+    "audio_code": "Audio Code"
+  }
+}

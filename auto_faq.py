@@ -5,6 +5,7 @@ Reads a CSV with product questions and audio codes, navigates to the
 Product Q&A page on live.app.anylive.jp, and fills question fields +
 uploads audio files for each product.
 """
+
 import argparse
 import asyncio
 import json
@@ -23,7 +24,9 @@ from shared import (
     setup_logging,
     find_csv_file,
     load_csv,
+    load_jsonc,
     is_session_valid,
+    get_session_file_path,
     CLICK_TIMEOUT,
     NAVIGATION_TIMEOUT,
 )
@@ -34,6 +37,35 @@ from shared import (
 FAQ_SESSION_FILE = "session_state_faq.json"
 FAQ_BROWSER_DATA = "browser_data_faq"
 FAQ_LOGIN_URL = "https://live.app.anylive.jp"
+FAQ_LAST_CLIENT_FILE = "faq_last_client.json"
+
+
+# ---------------------------------------------------------------------------
+# Multi-account helpers
+# ---------------------------------------------------------------------------
+def _get_faq_session_paths(client: Optional[str]) -> tuple[str, str]:
+    """Return (session_filename, browser_data_subdir) for the given client name."""
+    if client:
+        return f"session_state_faq_{client}.json", f"browser_data_faq_{client}"
+    return FAQ_SESSION_FILE, FAQ_BROWSER_DATA
+
+
+def _get_last_faq_client() -> Optional[str]:
+    path = get_session_file_path(FAQ_LAST_CLIENT_FILE)
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f).get("last_client")
+        except Exception:
+            return None
+    return None
+
+
+def _save_last_faq_client(client: str) -> None:
+    path = get_session_file_path(FAQ_LAST_CLIENT_FILE)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"last_client": client}, f)
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -83,11 +115,10 @@ def load_faq_config(
     if not os.path.exists(config_path):
         raise FileNotFoundError(
             f"Config file not found: {config_path}\n"
-            f"Please create a config file or use the template at configs/faq_template.json"
+            f"Please create a config file by copying configs/default/"
         )
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    config_data = load_jsonc(config_path)
 
     if cli_overrides:
         config_data.update(cli_overrides)
@@ -285,14 +316,16 @@ class FAQAutomation(BrowserAutomation):
         logger: logging.Logger,
         dry_run: bool = False,
         screenshots_dir: Optional[str] = None,
+        browser_data_subdir: str = FAQ_BROWSER_DATA,
+        session_filename: str = FAQ_SESSION_FILE,
     ) -> None:
         super().__init__(
             headless=headless,
             logger=logger,
             dry_run=dry_run,
             screenshots_dir=screenshots_dir,
-            browser_data_subdir=FAQ_BROWSER_DATA,
-            session_filename=FAQ_SESSION_FILE,
+            browser_data_subdir=browser_data_subdir,
+            session_filename=session_filename,
             login_url=FAQ_LOGIN_URL,
             base_url=config.base_url,
         )
@@ -726,8 +759,7 @@ class FAQAutomation(BrowserAutomation):
             )
             if not audio_path:
                 self.logger.warning(
-                    f"No audio file for row {row_idx + 1} "
-                    f"(code: {faq_row.audio_code})"
+                    f"No audio file for row {row_idx + 1} (code: {faq_row.audio_code})"
                 )
                 continue
             # Skip if audio filename already visible (already uploaded)
@@ -988,11 +1020,16 @@ async def main() -> None:
     parser.add_argument(
         "--client",
         type=str,
-        help="Client name (loads configs/{NAME}.json)",
+        help="Client name (loads configs/{NAME}/live.json)",
     )
     parser.add_argument("--base-url", type=str, help="Override base URL")
 
     args = parser.parse_args()
+
+    # Resolve effective client: explicit > last-used > None (falls back to legacy defaults)
+    _explicit_client: Optional[str] = args.client
+    _client: Optional[str] = _explicit_client or _get_last_faq_client()
+    _session_filename, _browser_data_subdir = _get_faq_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger = setup_logging(timestamp, logger_name="auto_faq", log_prefix="auto_faq")
@@ -1000,28 +1037,37 @@ async def main() -> None:
     logger.info("ANYLIVE FAQ AUTOMATION")
     logger.info("=" * 70)
 
+    if _client:
+        logger.info(f"Using account: {_client}")
+
     if args.setup:
         await setup_login(
             logger,
             login_url=FAQ_LOGIN_URL,
-            browser_data_subdir=FAQ_BROWSER_DATA,
-            session_filename=FAQ_SESSION_FILE,
+            browser_data_subdir=_browser_data_subdir,
+            session_filename=_session_filename,
         )
         return
 
-    if not is_session_valid(FAQ_SESSION_FILE):
+    if not is_session_valid(_session_filename):
         logger.error("No FAQ session found. Please run with --setup first.")
-        logger.info("   python auto_faq.py --setup")
+        logger.info(
+            f"   python auto_faq.py --setup --client {_client or '<brand_name>'}"
+        )
         return
+
+    # Persist last-used when explicitly specified (only for automation runs, not --setup)
+    if _explicit_client:
+        _save_last_faq_client(_explicit_client)
 
     # Resolve config path
     config_path: str
     if args.client:
-        config_path = f"configs/{args.client}.json"
+        config_path = f"configs/{args.client}/live.json"
     elif args.config:
         config_path = args.config
     else:
-        config_path = "configs/default_faq.json"
+        config_path = "configs/default/live.json"
 
     cli_overrides: dict = {}
     if args.base_url:
@@ -1043,9 +1089,8 @@ async def main() -> None:
     try:
         csv_from_config = None
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                _cfg_raw = json.load(f)
-                csv_from_config = _cfg_raw.get("csv")
+            _cfg_raw = load_jsonc(config_path)
+            csv_from_config = _cfg_raw.get("csv")
         except Exception:
             csv_from_config = None
 
@@ -1081,6 +1126,8 @@ async def main() -> None:
         headless=args.headless,
         logger=logger,
         dry_run=args.dry_run,
+        browser_data_subdir=_browser_data_subdir,
+        session_filename=_session_filename,
     )
 
     try:
