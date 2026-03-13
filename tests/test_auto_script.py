@@ -3,11 +3,13 @@
 import logging
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from auto_script import (
     ScriptConfig,
     load_script_config,
+    parse_script_csv,
     resolve_audio_file,
 )
 
@@ -92,3 +94,164 @@ class TestResolveAudioFile:
             "", 1, str(tmp_path), [".mp3", ".wav"], _make_logger()
         )
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# parse_script_csv
+# ---------------------------------------------------------------------------
+class TestParseScriptCsv:
+    def _make_df(self, rows: list[dict]) -> pd.DataFrame:
+        return pd.DataFrame(rows)
+
+    def test_basic_grouping(self) -> None:
+        """Test basic product grouping with multiple scripts per product."""
+        df = self._make_df(
+            [
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 1",
+                    "Audio Code": "SFD1",
+                },
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 2",
+                    "Audio Code": "SFD2",
+                },
+                {
+                    "No.": "2",
+                    "Product Name": "Product B",
+                    "TH Script": "Script 3",
+                    "Audio Code": "SFD3",
+                },
+            ]
+        )
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 2
+        assert products[0].product_number == 1
+        assert products[0].product_name == "Product A"
+        assert len(products[0].rows) == 2
+        assert products[1].product_number == 2
+        assert len(products[1].rows) == 1
+
+    def test_forward_fill(self) -> None:
+        """Product number and name should be forward-filled from previous rows."""
+        df = self._make_df(
+            [
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 1",
+                    "Audio Code": "SFD1",
+                },
+                {
+                    "No.": "",
+                    "Product Name": "",
+                    "TH Script": "Script 2",
+                    "Audio Code": "SFD2",
+                },
+                {
+                    "No.": "2",
+                    "Product Name": "Product B",
+                    "TH Script": "Script 3",
+                    "Audio Code": "SFD3",
+                },
+            ]
+        )
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 2
+        assert products[0].product_number == 1
+        assert len(products[0].rows) == 2
+        assert products[0].rows[1].script_content == "Script 2"
+
+    def test_header_detection(self) -> None:
+        """Headers in first data row should be auto-detected."""
+        df = self._make_df(
+            [
+                {
+                    "No.": "No.",
+                    "Product Name": "Product Name",
+                    "TH Script": "TH Script",
+                    "Audio Code": "Audio Code",
+                },
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 1",
+                    "Audio Code": "SFD1",
+                },
+            ]
+        )
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 1
+        assert products[0].product_number == 1
+        assert len(products[0].rows) == 1
+
+    def test_empty_rows_filtered(self) -> None:
+        """Rows without script_content AND audio_code should be excluded."""
+        df = self._make_df(
+            [
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 1",
+                    "Audio Code": "SFD1",
+                },
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": None,
+                    "Audio Code": None,
+                },
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 2",
+                    "Audio Code": "SFD2",
+                },
+            ]
+        )
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 1
+        assert len(products[0].rows) == 2
+
+    def test_product_zero_filtered(self) -> None:
+        """Product number < 1 should be filtered out and logged."""
+        df = self._make_df(
+            [
+                {
+                    "No.": "0",
+                    "Product Name": "Product Zero",
+                    "TH Script": "Script 0",
+                    "Audio Code": "SFD0",
+                },
+                {
+                    "No.": "1",
+                    "Product Name": "Product A",
+                    "TH Script": "Script 1",
+                    "Audio Code": "SFD1",
+                },
+            ]
+        )
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 1
+        assert products[0].product_number == 1
+
+    def test_empty_df(self) -> None:
+        """Empty DataFrame should return empty list."""
+        df = self._make_df([])
+        config = ScriptConfig(base_url="https://example.com")
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 0
