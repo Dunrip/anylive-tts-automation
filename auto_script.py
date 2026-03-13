@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
 
 from shared import (
     get_session_file_path,
@@ -116,6 +117,137 @@ def load_script_config(
         config_data.update(cli_overrides)
 
     return ScriptConfig(**config_data)
+
+
+# ---------------------------------------------------------------------------
+# CSV parsing
+# ---------------------------------------------------------------------------
+def parse_script_csv(
+    df: pd.DataFrame, config: ScriptConfig, logger: logging.Logger
+) -> List[ProductScript]:
+    """Parse script CSV into ProductScript objects.
+
+    Follows the same pattern as parse_faq_csv:
+    - Auto-detects headers from first data row if needed
+    - Forward-fills product_number and product_name
+    - Filters rows with either script_content OR audio_code
+    - Filters out products with product_number < 1
+    - Groups by product_number
+    """
+    col_product_no = config.csv_columns.get("product_number", "No.")
+    col_product_name = config.csv_columns.get("product_name", "Product Name")
+    col_script = config.csv_columns.get("script_content", "TH Script")
+    col_audio = config.csv_columns.get("audio_code", "Audio Code")
+
+    # Handle empty DataFrame
+    if len(df) == 0:
+        logger.info("Valid script rows: 0")
+        logger.info("Total script rows: 0")
+        logger.info("Found 0 unique products")
+        return []
+
+    # Header detection (same pattern as auto_faq.py)
+    required_cols = {col_product_no, col_product_name, col_script, col_audio}
+    actual_cols = set(str(c).strip() for c in df.columns)
+
+    if required_cols.issubset(actual_cols):
+        logger.debug(f"CSV headers already parsed correctly: {list(df.columns)}")
+    else:
+        first_row_values = [str(v).strip() for v in df.iloc[0] if pd.notna(v)]
+        first_row_set = set(first_row_values)
+
+        header_in_first_row = required_cols.issubset(first_row_set) or any(
+            v.lower() in {col_product_name.lower(), "product name"}
+            for v in first_row_values
+        )
+
+        if header_in_first_row:
+            new_header = list(df.iloc[0])
+            df = df[1:].reset_index(drop=True)
+            df.columns = [
+                str(v).strip() if pd.notna(v) else f"col_{i}"
+                for i, v in enumerate(new_header)
+            ]
+            logger.debug(
+                f"Header auto-detected from first data row: {list(df.columns)}"
+            )
+        else:
+            logger.warning(
+                f"Could not find expected columns {required_cols} in CSV. "
+                f"Actual columns: {list(df.columns)}. Proceeding anyway."
+            )
+
+    # Filter header-like rows
+    df = df[df[col_product_name] != col_product_name]
+
+    # Forward-fill product_number and product_name
+    df[col_product_name] = df[col_product_name].replace("", pd.NA)
+    df[col_product_name] = df[col_product_name].ffill()
+    df[col_product_no] = df[col_product_no].replace("", pd.NA)
+    df[col_product_no] = df[col_product_no].ffill()
+
+    # Filter rows that have either script_content or audio_code
+    valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
+    logger.info(f"Valid script rows: {len(valid_rows)}")
+
+    script_rows: List[ScriptRow] = []
+    for idx, row in valid_rows.iterrows():
+        raw_number = (
+            str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "0"
+        )
+        try:
+            product_number = int(float(raw_number))
+        except ValueError:
+            product_number = 0
+
+        product_name = (
+            str(row[col_product_name]).strip()
+            if pd.notna(row[col_product_name])
+            else ""
+        )
+        script_content = (
+            str(row[col_script]).strip() if pd.notna(row[col_script]) else ""
+        )
+        audio_code = str(row[col_audio]).strip() if pd.notna(row[col_audio]) else ""
+
+        script_rows.append(
+            ScriptRow(
+                product_number=product_number,
+                product_name=product_name,
+                script_content=script_content,
+                audio_code=audio_code,
+                row_number=int(idx) + 2,
+            )
+        )
+
+    logger.info(f"Total script rows: {len(script_rows)}")
+
+    # Group by product_number, filter out product_number < 1
+    from collections import defaultdict
+
+    product_groups: dict[int, List[ScriptRow]] = defaultdict(list)
+    for row in script_rows:
+        if row.product_number >= 1:
+            product_groups[row.product_number].append(row)
+        else:
+            logger.info(
+                f"Skipping product #{row.product_number} "
+                "(no sidebar card for product number < 1)"
+            )
+
+    products: List[ProductScript] = []
+    for product_number in sorted(product_groups.keys()):
+        rows = product_groups[product_number]
+        products.append(
+            ProductScript(
+                product_number=product_number,
+                product_name=rows[0].product_name,
+                rows=rows,
+            )
+        )
+
+    logger.info(f"Found {len(products)} unique products")
+    return products
 
 
 # ---------------------------------------------------------------------------
