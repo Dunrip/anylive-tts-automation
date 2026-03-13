@@ -259,16 +259,22 @@ class ScriptAutomation(BrowserAutomation):
         return 0
 
     async def get_product_count(self) -> int:
-        """Read total product count from sidebar header (e.g., '60/60' -> 60)."""
+        """Read total product count from sidebar header (e.g., '60/60' -> 60).
+
+        Excludes N/20 matches (script counter) by checking denominator != 20.
+        """
         if self.page is None:
             raise RuntimeError("Browser page is not initialized")
 
         try:
             count_el = self.page.locator("text=/^\\d+\\/\\d+$/")
-            if await count_el.count() > 0:
-                text = await count_el.first.text_content()
-                if text:
-                    return int(text.split("/")[0])
+            for i in range(await count_el.count()):
+                text = await count_el.nth(i).text_content()
+                if not text:
+                    continue
+                parts = text.split("/")
+                if len(parts) == 2 and parts[1].strip() != "20":
+                    return int(parts[0])
         except Exception as e:
             self.logger.debug(f"Could not read product count: {e}")
         return 60
@@ -689,6 +695,15 @@ def parse_script_csv(
                 f"Could not find expected columns {required_cols} in CSV. "
                 f"Actual columns: {list(df.columns)}. Proceeding anyway."
             )
+
+    actual_cols_after = set(str(c).strip() for c in df.columns)
+    missing = required_cols - actual_cols_after
+    if missing:
+        logger.error(
+            f"CSV is missing required columns: {missing}. "
+            f"Available: {list(df.columns)}. Cannot parse."
+        )
+        return []
 
     # Filter header-like rows
     df = pd.DataFrame(df[df[col_product_name] != col_product_name])
