@@ -25,6 +25,7 @@ from shared import (
     setup_logging,
     find_csv_file,
     load_csv,
+    load_jsonc,
     is_session_valid,
     get_session_file_path,
     CLICK_TIMEOUT,
@@ -610,11 +611,10 @@ def load_script_config(
     if not os.path.exists(config_path):
         raise FileNotFoundError(
             f"Config file not found: {config_path}\n"
-            f"Please create a config file or use the template at configs/script_template.json"
+            f"Please create a config file by copying configs/default/"
         )
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    config_data = load_jsonc(config_path)
 
     if cli_overrides:
         config_data.update(cli_overrides)
@@ -903,7 +903,7 @@ async def main() -> None:
     parser.add_argument(
         "--client",
         type=str,
-        help="Client name (loads configs/{NAME}_script.json)",
+        help="Client name (loads configs/{NAME}/live.json)",
     )
     parser.add_argument("--config", type=str, help="Path to script config JSON file")
     parser.add_argument(
@@ -973,7 +973,7 @@ async def main() -> None:
     # Resolve config path
     config_path: Optional[str] = None
     if args.client:
-        config_path = f"configs/{args.client}_script.json"
+        config_path = f"configs/{args.client}/live.json"
     elif args.config:
         config_path = args.config
 
