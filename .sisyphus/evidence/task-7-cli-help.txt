@@ -1,0 +1,25 @@
+usage: auto_script.py [-h] [--setup] [--csv CSV] [--client CLIENT]
+                      [--config CONFIG] [--delete-scripts]
+                      [--start-product START_PRODUCT] [--limit LIMIT]
+                      [--headless] [--dry-run] [--debug] [--base-url BASE_URL]
+                      [--audio-dir AUDIO_DIR]
+
+AnyLive Script Automation (Set Live Content)
+
+options:
+  -h, --help            show this help message and exit
+  --setup               One-time login setup
+  --csv CSV             Path to CSV file (auto-detects if not specified)
+  --client CLIENT       Client name (loads configs/{NAME}_script.json)
+  --config CONFIG       Path to script config JSON file
+  --delete-scripts      Delete all scripts from all products (CSV not
+                        required)
+  --start-product START_PRODUCT
+                        Starting product number (default: 1)
+  --limit LIMIT         Limit number of products to process
+  --headless            Run browser in headless mode
+  --dry-run             Preview actions without browser interaction
+  --debug               Keep browser open after execution for debugging
+  --base-url BASE_URL   Override base URL from config
+  --audio-dir AUDIO_DIR
+                        Override audio directory path

@@ -570,6 +570,63 @@ downloads/
   02_Product_B/SFD3.mp3, SFD4.mp3
 ```
 
+## Script Automation
+
+A separate script (`auto_script.py`) automates uploading audio scripts to the "Set Live Content" tab on `live.app.anylive.jp`. It also supports bulk deletion of all scripts from every product.
+
+### Script Setup
+
+```bash
+# One-time login per brand (shares session with auto_faq.py — same site)
+python auto_script.py --setup --client mahajak
+```
+
+### Script Usage
+
+```bash
+# Upload scripts from CSV
+python auto_script.py --client mahajak --csv scripts.csv
+
+# Delete all scripts from all products (CSV not required)
+python auto_script.py --client mahajak --delete-scripts
+
+# Dry run (preview without browser interaction)
+python auto_script.py --client mahajak --dry-run --limit 2
+
+# Start from a specific product number
+python auto_script.py --client mahajak --start-product 3
+
+# Debug mode (keep browser open after execution)
+python auto_script.py --client mahajak --debug
+```
+
+### Script Configuration
+
+Config file: `configs/{client}_script.json`
+
+```json
+{
+  "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
+  "audio_dir": "downloads",
+  "audio_extensions": [".mp3", ".wav"],
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "script_content": "TH Script",
+    "audio_code": "Audio Code"
+  }
+}
+```
+
+### Script Audio File Structure
+
+Audio files are resolved from `audio_dir` using the product number:
+```
+downloads/
+  01_Product_A/SFD1.mp3, SFD2.mp3
+  02_Product_B/SFD3.mp3, SFD4.mp3
+```
+
 ## Recent Updates
 
 ### Selective Version Download (`--versions`)

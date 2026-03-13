@@ -7,11 +7,13 @@ existing scripts from every product, and upload mode (default) to add
 audio files from CSV.
 """
 
+import argparse
 import json
 import logging
 import os
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -785,3 +787,300 @@ def resolve_audio_file(
         f"Audio file not found for code '{audio_code}' (product {product_number})"
     )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Report generation
+# ---------------------------------------------------------------------------
+def generate_script_report(
+    products: List[ProductScript],
+    config: ScriptConfig,
+    timestamp: str,
+    logger: logging.Logger,
+    mode: str = "upload",
+    delete_results: Optional[list] = None,
+    logs_dir: Optional[str] = None,
+) -> dict:
+    """Generate and save a JSON execution report."""
+    if mode == "delete" and delete_results is not None:
+        successful = sum(1 for r in delete_results if r["success"])
+        failed = len(delete_results) - successful
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "delete",
+            "total_products": len(delete_results),
+            "successful": successful,
+            "failed": failed,
+            "products": delete_results,
+        }
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("FINAL SCRIPT REPORT (DELETE MODE)")
+        logger.info("=" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed}"
+        )
+        for r in delete_results:
+            status = "OK" if r["success"] else "FAILED"
+            logger.info(
+                f"  {status} Product #{r['product_number']}: "
+                f"{r['scripts_deleted']} scripts deleted"
+            )
+            if r.get("error"):
+                logger.info(f"      Error: {r['error']}")
+    else:
+        successful = sum(1 for p in products if p.success)
+        failed = len(products) - successful
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "upload",
+            "total_products": len(products),
+            "successful": successful,
+            "failed": failed,
+            "products": [
+                {
+                    "product_number": p.product_number,
+                    "product_name": p.product_name,
+                    "scripts": len(p.rows),
+                    "success": p.success,
+                    "error": p.error,
+                }
+                for p in products
+            ],
+        }
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("FINAL SCRIPT REPORT (UPLOAD MODE)")
+        logger.info("=" * 70)
+        logger.info(
+            f"Total: {len(products)} | Success: {successful} | Failed: {failed}"
+        )
+        for p in products:
+            status = "OK" if p.success else "FAILED"
+            logger.info(
+                f"  {status} Product #{p.product_number} ({p.product_name}): "
+                f"{len(p.rows)} scripts"
+            )
+            if p.error:
+                logger.info(f"      Error: {p.error}")
+
+    logs_path = Path(logs_dir) if logs_dir else Path("logs")
+    logs_path.mkdir(exist_ok=True)
+    report_path = logs_path / f"script_report_{timestamp}.json"
+
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"Report saved: {report_path}")
+    return report
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+async def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="AnyLive Script Automation (Set Live Content)"
+    )
+    parser.add_argument("--setup", action="store_true", help="One-time login setup")
+    parser.add_argument(
+        "--csv", type=str, help="Path to CSV file (auto-detects if not specified)"
+    )
+    parser.add_argument(
+        "--client",
+        type=str,
+        help="Client name (loads configs/{NAME}_script.json)",
+    )
+    parser.add_argument("--config", type=str, help="Path to script config JSON file")
+    parser.add_argument(
+        "--delete-scripts",
+        action="store_true",
+        help="Delete all scripts from all products (CSV not required)",
+    )
+    parser.add_argument(
+        "--start-product",
+        type=int,
+        default=1,
+        help="Starting product number (default: 1)",
+    )
+    parser.add_argument("--limit", type=int, help="Limit number of products to process")
+    parser.add_argument(
+        "--headless", action="store_true", help="Run browser in headless mode"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview actions without browser interaction",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Keep browser open after execution for debugging",
+    )
+    parser.add_argument("--base-url", type=str, help="Override base URL from config")
+    parser.add_argument("--audio-dir", type=str, help="Override audio directory path")
+
+    args = parser.parse_args()
+
+    # Resolve client and session paths
+    _client: Optional[str] = args.client
+    _session_filename, _browser_data_subdir = _get_script_session_paths(_client)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger = setup_logging(
+        timestamp, logger_name="auto_script", log_prefix="auto_script"
+    )
+
+    logger.info("ANYLIVE SCRIPT AUTOMATION (SET LIVE CONTENT)")
+    logger.info("=" * 70)
+
+    if _client:
+        logger.info(f"Using account: {_client}")
+
+    if args.setup:
+        await setup_login(
+            logger,
+            login_url=SCRIPT_LOGIN_URL,
+            browser_data_subdir=_browser_data_subdir,
+            session_filename=_session_filename,
+        )
+        return
+
+    if not is_session_valid(_session_filename):
+        logger.error("No session found. Please run with --setup first.")
+        logger.info(
+            f"   python auto_script.py --setup --client {_client or '<client_name>'}"
+        )
+        return
+
+    if _client:
+        _save_last_script_client(_client)
+
+    # Resolve config path
+    config_path: Optional[str] = None
+    if args.client:
+        config_path = f"configs/{args.client}_script.json"
+    elif args.config:
+        config_path = args.config
+
+    cli_overrides: dict = {}
+    if args.base_url:
+        cli_overrides["base_url"] = args.base_url
+    if args.audio_dir:
+        cli_overrides["audio_dir"] = args.audio_dir
+
+    # For delete mode with only --base-url, create a minimal config
+    if config_path is None and args.delete_scripts and args.base_url:
+        config = ScriptConfig(base_url=args.base_url)
+    elif config_path is None and not args.delete_scripts:
+        logger.error("Please specify --client or --config for upload mode")
+        logger.info("   python auto_script.py --client mahajak --csv scripts.csv")
+        return
+    elif config_path is None:
+        logger.error("Please specify --client or --config")
+        return
+    else:
+        try:
+            config = load_script_config(
+                config_path, cli_overrides if cli_overrides else None
+            )
+            logger.info(f"Loaded config: {config_path}")
+        except FileNotFoundError as e:
+            logger.error(f"{e}")
+            return
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            return
+
+    automation = ScriptAutomation(
+        config=config,
+        headless=args.headless,
+        logger=logger,
+        dry_run=args.dry_run,
+        browser_data_subdir=_browser_data_subdir,
+        session_filename=_session_filename,
+    )
+
+    try:
+        await automation.start_browser()
+
+        if not await automation.navigate_to_set_live_content():
+            logger.error("Failed to navigate to Set Live Content page")
+            return
+
+        if args.delete_scripts:
+            # Delete mode: CSV not required, iterate products from sidebar
+            logger.info(
+                f"DELETE MODE: Deleting scripts from products "
+                f"starting at #{args.start_product}"
+            )
+            if args.dry_run:
+                logger.info("DRY RUN MODE: No scripts will be deleted")
+
+            delete_results = await automation.delete_all_scripts(
+                start_product=args.start_product,
+                limit=args.limit,
+                dry_run=args.dry_run,
+            )
+            generate_script_report(
+                products=[],
+                config=config,
+                timestamp=timestamp,
+                logger=logger,
+                mode="delete",
+                delete_results=delete_results,
+            )
+
+        else:
+            # Upload mode: CSV required
+            if args.dry_run:
+                logger.info("DRY RUN MODE: No audio will be uploaded")
+
+            try:
+                csv_from_config = getattr(config, "csv", None)
+                csv_path = find_csv_file(args.csv or csv_from_config or None)
+            except (FileNotFoundError, ValueError) as e:
+                logger.error(f"{e}")
+                return
+
+            df = load_csv(csv_path, logger)
+            products = parse_script_csv(df, config, logger)
+
+            if not products:
+                logger.error("No products to process")
+                return
+
+            # Apply start-product filter
+            if args.start_product > 1:
+                products = [
+                    p for p in products if p.product_number >= args.start_product
+                ]
+                logger.info(f"Starting from product #{args.start_product}")
+
+            if args.limit:
+                products = products[: args.limit]
+                logger.info(f"Limited to {args.limit} products")
+
+            await automation.upload_all_scripts(products, dry_run=args.dry_run)
+
+            generate_script_report(
+                products=products,
+                config=config,
+                timestamp=timestamp,
+                logger=logger,
+                mode="upload",
+            )
+
+    finally:
+        if args.debug:
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info("DEBUG MODE: Browser is open for inspection.")
+            logger.info("   Press Enter to close the browser and exit.")
+            logger.info("=" * 70)
+            input()
+        await automation.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
