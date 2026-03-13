@@ -1,620 +1,168 @@
 # AnyLive TTS Automation
 
-Automate the creation of TTS (Text-to-Speech) script versions on the AnyLive platform and fill Product Q&A on the live interaction platform. Supports multi-client configuration with product-based version grouping.
+Automate the creation of Text-to-Speech script versions on the AnyLive platform and fill Product Q&A on the live interaction platform. This suite provides a multi-client configuration system with intelligent product-based version grouping and batch audio management.
+
+![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Playwright](https://img.shields.io/badge/playwright-latest-green.svg)
+
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Tools](#tools)
+  - [auto_tts.py: TTS Script Creation](#auto_ttspy-tts-script-creation)
+  - [auto_faq.py: Product FAQ](#auto_faqpy-product-faq)
+  - [auto_script.py: Set Live Content](#auto_scriptpy-set-live-content)
+  - [Menu Bar App (macOS)](#menu-bar-app-macos)
+- [CLI Reference](#cli-reference)
+- [Configuration](#configuration)
+  - [Multi-Client Setup](#multi-client-setup)
+  - [CSV Format](#csv-format)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
 
 ## Features
 
-- ✅ **Multi-Client Support**: External JSON configuration for different brands/clients
-- ✅ **Product-Based Grouping**: 1 product = 1 version (auto-splits if >10 scripts)
-- ✅ **Flat Mode**: Override product grouping with `--flat` to pack scripts sequentially (N per version)
-- ✅ **Batch Download**: Download generated audio files for all versions with `--download`
-- ✅ **Session Management**: One-time login with `--setup`, session persists for future runs
-- ✅ **Auto CSV Detection**: Automatically detects CSV files in project folder
-- ✅ **Smart Version Naming**: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2` for overflow
-- ✅ **Error Handling**: Retry logic with screenshot capture on failures
-- ✅ **Detailed Logging**: Console output with emoji indicators + file logs
-- ✅ **JSON Reports**: Final execution report saved to `logs/`
-- ✅ **Dry Run Mode**: Test without generating speech
-- ✅ **Debug Mode**: Keep browser open for inspection
-- ✅ **Menu Bar GUI**: Native macOS menu bar application (optional)
-- ✅ **Product FAQ Automation**: Fill Product Q&A with questions + audio uploads on `live.app.anylive.jp`
+**Automation and Efficiency**
+- Multi-client support with external JSON configurations for different brands.
+- Session persistence with one-time login setup.
+- Automatic CSV detection in the project root.
+- Headless browser mode for background execution.
 
-## Installation
+**Content Management**
+- Product-based grouping where one product equals one or more versions.
+- Flat mode to pack scripts sequentially regardless of product boundaries.
+- Batch download of generated audio files with selective version filtering.
+- Automatic script upload and bulk deletion for live content.
 
-### 1. Install Dependencies
+**Reliability and Reporting**
+- Retry logic with automatic screenshot capture on failures.
+- Detailed logging to both console and timestamped files.
+- Execution reports in JSON format for tracking success and failure.
+- Dry run and debug modes for safe testing and inspection.
 
-```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+## Quick Start
 
-# Install Python packages
-pip install -r requirements.txt
-
-# Install Playwright browsers
-playwright install chromium
-```
-
-### 2. Prepare CSV File
-
-Place your CSV file in the project root directory. The script will auto-detect it.
-
-**CSV Structure**:
-- **Column A** (No): Product number (e.g., "01", "02")
-- **Column B** (Product Name): Product name (used for grouping and version naming)
-- **Column E** (TH Script): Thai script content → Section Content fields
-- **Column G** (Audio Code): Audio identifier → Section Title fields
-
-**Version Grouping Logic**:
-- Scripts are grouped by product name (column B)
-- Each product gets its own version: `{ProductNo}_{ProductName}`
-- If a product has >10 scripts, it splits into multiple versions:
-  - First 10 scripts: `01_Product_Name`
-  - Next 10 scripts: `01_Product_Name_v2`
-  - Next 10 scripts: `01_Product_Name_v3`, etc.
-
-## Multi-Client Setup
-
-### Quick Start (Using Default Config)
-
-```bash
-# Uses configs/default/tts.json by default
-python auto_tts.py --setup
-python auto_tts.py
-```
-
-### Creating a New Client Configuration
-
-1. **Copy the default folder**:
+1. **Install dependencies**
    ```bash
-   cp -r configs/default configs/new_client
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   playwright install chromium
    ```
 
-2. **Edit the configs**:
-   - `configs/new_client/tts.json` for TTS settings
-   - `configs/new_client/live.json` for FAQ/Script settings
-
-   Example `tts.json`:
-   ```json
-   {
-     "base_url": "https://app.anylive.jp/scripts/XXX",
-     "version_template": "Version_Template",
-     "voice_name": "Voice Clone Name",
-     "max_scripts_per_version": 10,
-     "enable_voice_selection": false,
-     "enable_product_info": false,
-     "csv_columns": {
-       "product_number": "No",
-       "product_name": "Product Name",
-       "script_content": "TH Script",
-       "audio_code": "Audio Code"
-     }
-   }
-   ```
-
-3. **Run with your client**:
+2. **Setup authentication**
    ```bash
-   python auto_tts.py --client new_client
+   python auto_tts.py --setup
    ```
 
-### Available Configurations
+3. **Run automation**
+   ```bash
+   # Place your CSV in the root directory
+   python auto_tts.py
+   ```
 
-- `configs/default/tts.json` - Default TTS client configuration
-- `configs/default/live.json` - Default FAQ/Script client configuration
-- `configs/{client}/tts.json` - Custom TTS client configs
-- `configs/{client}/live.json` - Custom FAQ/Script client configs
+## Tools
 
-## Usage
-
-### First Time: Setup Authentication
-
-```bash
-python auto_tts.py --setup
-```
-
-This will:
-1. Open a browser
-2. Navigate to AnyLive
-3. Wait for you to login manually
-4. Save session to `state/session_state.json`
-
-### Normal Run
+### `auto_tts.py`: TTS Script Creation
+Creates TTS script versions on `app.anylive.jp` by reading CSV data and filling web forms. It automatically groups scripts by product and triggers speech generation for each entry.
 
 ```bash
-# Default (uses configs/default/tts.json)
+# Basic run with auto-detected CSV
 python auto_tts.py
 
-# Specify client config
-python auto_tts.py --client mycompany
+# Run for a specific client
+python auto_tts.py --client mybrand
 
-# Custom config file
-python auto_tts.py --config /path/to/config.json
-
-# Override config values via CLI
-python auto_tts.py --client mycompany --voice "Custom Voice" --max-scripts 5
-
-# Or specify CSV explicitly
-python auto_tts.py --csv /path/to/other.csv
-
-# Start from version 5, process only 3 versions
-python auto_tts.py --start-version 5 --limit 3
-
-# Run in headless mode (no browser window)
-python auto_tts.py --headless
-
-# Dry run mode (fill forms but skip Generate Speech)
-python auto_tts.py --dry-run
-
-# Debug mode (keep browser open after execution)
-python auto_tts.py --debug
-
-# Flat mode: ignore product grouping, pack N scripts per version sequentially
+# Flat mode: pack 10 scripts per version regardless of product
 python auto_tts.py --flat --max-scripts 10
 
-# Flat mode + dry run (preview versions without browser interaction)
-python auto_tts.py --flat --max-scripts 10 --dry-run
+# Download generated audio for specific versions
+python auto_tts.py --download --versions 1-5,10
 ```
 
-### Download Mode
+Versions are named `{No}_{ProductName}`. If a product exceeds the script limit, it splits into `{No}_{ProductName}_v2`, `_v3`, etc.
 
-Download generated audio files for all versions (skips the template version):
+### `auto_faq.py`: Product FAQ
+Fills Product Q&A on `live.app.anylive.jp` by uploading questions and corresponding audio files. It supports isolated sessions for multiple brands.
 
 ```bash
-# Download all versions
-python auto_tts.py --download
-
-# Download specific versions by number (ranges and individual)
-python auto_tts.py --download --versions 0,14-26
-
-# Download starting from version 5
-python auto_tts.py --download --start-version 5
-
-# Re-download and replace existing files
-python auto_tts.py --download --replace
-```
-
-## CLI Options
-
-### Basic Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `--setup` | flag | One-time login setup, saves session to `state/session_state.json` |
-| `--csv` | path | Path to CSV file (auto-detects if not specified) |
-| `--start-version` | int | Starting version number (default: 1) |
-| `--limit` | int | Max versions to process |
-| `--headless` | flag | Run browser in headless mode |
-| `--dry-run` | flag | Fill forms but skip Generate Speech buttons |
-| `--debug` | flag | Keep browser open after execution for debugging |
-| `--download` | flag | Download audio files for all versions (skips template) |
-| `--versions` | string | Filter specific versions by number, e.g. `15-18,24,30` (use with `--download`) |
-| `--replace` | flag | Re-download and replace existing files (use with `--download`) |
-| `--flat` | flag | Ignore product grouping; pack all scripts sequentially into fixed-size batches (use with `--max-scripts`) |
-
-### Configuration Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `--client` | name | Load config from `configs/{NAME}/tts.json` (TTS) or `configs/{NAME}/live.json` (FAQ/Script) |
-| `--config` | path | Path to custom config JSON file |
-| `--base-url` | url | Override base URL from config |
-| `--voice` | name | Override voice clone name from config |
-| `--template` | name | Override version template name from config |
-| `--max-scripts` | int | Override max scripts per version from config |
-
-## Project Structure
-
-```
-anylive-tts-automation/
-├── shared.py               # Shared utilities (browser base class, logging, CSV, session)
-├── auto_tts.py             # TTS automation script (CLI)
-├── auto_faq.py             # Product FAQ automation script (CLI)
-├── auto_script.py          # Set Live Content script automation (CLI)
-├── menubar_gui.py          # macOS menu bar application
-├── menubar_app.spec        # PyInstaller specification
-├── requirements.txt        # Dependencies
-├── .gitignore              # Ignore logs, screenshots, state, csv
-├── configs/                # Client configurations (nested structure)
-│   ├── CLAUDE.md           # Config structure documentation
-│   ├── default/            # Default client (template + fallback)
-│   │   ├── tts.json        # TTS configuration
-│   │   └── live.json       # FAQ/Script configuration
-│   └── {client}/           # Custom client configs
-│       ├── tts.json        # TTS configuration
-│       └── live.json       # FAQ/Script configuration
-├── tests/                  # Unit tests
-│   ├── test_shared.py      # Tests for shared utilities
-│   └── test_auto_faq.py    # Tests for FAQ automation
-├── state/                  # Runtime state (gitignored)
-│   ├── browser_data*/      # Playwright browser contexts
-│   ├── session_state*.json # Saved login sessions
-│   └── faq_last_client.json # Last-used FAQ brand
-├── logs/                   # Created at runtime (gitignored)
-│   ├── auto_tts_*.log
-│   ├── auto_faq_*.log
-│   ├── menubar.log
-│   └── report_*.json
-└── screenshots/            # Created at runtime (gitignored)
-    └── error_*.png
-```
-
-## Output
-
-### Console Output (Example)
-
-```
-12:34:56 | INFO | 🚀 ANYLIVE TTS AUTOMATION
-12:34:56 | INFO | ======================================================================
-12:34:57 | INFO | 📋 Loaded config: configs/default/tts.json
-12:34:57 | INFO | 📂 Loading CSV: scripts.csv
-12:34:57 | INFO | Valid rows: 45
-12:34:57 | INFO | Total script rows: 45
-12:34:57 | INFO | Found 3 unique products
-12:34:57 | INFO | Created 4 versions total
-12:35:00 | INFO | ======================================================================
-12:35:00 | INFO | 01_JBL_Endurance_Zone - 8 scripts
-12:35:00 | INFO |    Products: JBL Endurance Zone
-12:35:00 | INFO | ======================================================================
-12:35:01 | INFO | ✅ SUCCESS: 01_JBL_Endurance_Zone
-12:35:02 | INFO | ======================================================================
-12:35:02 | INFO | 02_Samsung_Galaxy - 10 scripts
-12:35:02 | INFO |    Products: Samsung Galaxy
-12:35:02 | INFO | ======================================================================
-12:35:03 | INFO | ✅ SUCCESS: 02_Samsung_Galaxy
-12:35:04 | INFO | ======================================================================
-12:35:04 | INFO | 02_Samsung_Galaxy_v2 - 12 scripts
-12:35:04 | INFO |    Products: Samsung Galaxy
-12:35:04 | INFO | ======================================================================
-12:35:05 | INFO | ✅ SUCCESS: 02_Samsung_Galaxy_v2
-```
-
-### JSON Report (`logs/report_*.json`)
-
-```json
-{
-  "timestamp": "2026-01-23T12:34:56.789Z",
-  "config": {
-    "grouping_strategy": "product_based",
-    "max_scripts_per_version": 10
-  },
-  "total": 4,
-  "successful": 4,
-  "failed": 0,
-  "versions": [
-    {
-      "version": "01_JBL_Endurance_Zone",
-      "product_number": "01",
-      "products": ["JBL Endurance Zone"],
-      "scripts": 8,
-      "success": true,
-      "error": null
-    },
-    {
-      "version": "02_Samsung_Galaxy",
-      "product_number": "02",
-      "products": ["Samsung Galaxy"],
-      "scripts": 10,
-      "success": true,
-      "error": null
-    },
-    {
-      "version": "02_Samsung_Galaxy_v2",
-      "product_number": "02",
-      "products": ["Samsung Galaxy"],
-      "scripts": 12,
-      "success": true,
-      "error": null
-    }
-  ]
-}
-```
-
-## Version Grouping Examples
-
-### Example 1: Single Product, <10 Scripts
-
-**CSV Input:**
-```
-No  | Product Name         | TH Script | Audio Code
-01  | JBL Endurance Zone   | Script 1  | Audio 1
-01  | JBL Endurance Zone   | Script 2  | Audio 2
-... (total 8 scripts)
-```
-
-**Result:**
-- 1 version created: `01_JBL_Endurance_Zone` (8 scripts)
-
-### Example 2: Single Product, >10 Scripts (Overflow)
-
-**CSV Input:**
-```
-No  | Product Name    | TH Script  | Audio Code
-02  | Samsung Galaxy  | Script 1   | Audio 1
-02  | Samsung Galaxy  | Script 2   | Audio 2
-... (total 23 scripts)
-```
-
-**Result:**
-- 3 versions created:
-  - `02_Samsung_Galaxy` (scripts 1-10)
-  - `02_Samsung_Galaxy_v2` (scripts 11-20)
-  - `02_Samsung_Galaxy_v3` (scripts 21-23)
-
-### Example 3: Multiple Products
-
-**CSV Input:**
-```
-No  | Product Name    | Scripts Count
-01  | JBL Speaker     | 8
-02  | Samsung TV      | 15
-03  | LG Monitor      | 3
-```
-
-**Result:**
-- 4 versions created:
-  - `01_JBL_Speaker` (8 scripts)
-  - `02_Samsung_TV` (10 scripts)
-  - `02_Samsung_TV_v2` (5 scripts)
-  - `03_LG_Monitor` (3 scripts)
-
-### Example 4: Flat Mode (Ignore Product Boundaries)
-
-Used when you want a fixed number of scripts per version regardless of which product they belong to.
-
-**Command:**
-```bash
-python auto_tts.py --flat --max-scripts 10
-```
-
-**CSV Input** (34 rows across many products):
-```
-No  | Product Name  | TH Script | Audio Code
-0.1 | ค่าขนส่ง       | Script 1  | GG1
-0.2 | AI หรือคน     | Script 2  | GG2
-... (34 rows total across 34 products)
-```
-
-**Result** (4 versions, ignoring product boundaries):
-- `batch_01` — scripts 1–10 (mixed products)
-- `batch_02` — scripts 11–20 (mixed products)
-- `batch_03` — scripts 21–30 (mixed products)
-- `batch_04` — scripts 31–34 (mixed products)
-
-## Configuration Reference
-
-### Client Config Fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `base_url` | string | required | AnyLive scripts page URL |
-| `version_template` | string | required | Template version to clone from |
-| `voice_name` | string | required | Voice clone name for TTS |
-| `max_scripts_per_version` | int | 10 | Maximum scripts per version (triggers split) |
-| `enable_voice_selection` | bool | false | Enable voice clone dropdown selection |
-| `enable_product_info` | bool | false | Enable product name/selling point fields |
-| `csv_columns` | object | required | CSV column mapping (see below) |
-
-### CSV Column Mapping
-
-```json
-{
-  "product_number": "No",
-  "product_name": "Product Name",
-  "script_content": "TH Script",
-  "audio_code": "Audio Code"
-}
-```
-
-Allows different clients to have different CSV structures.
-
-## Troubleshooting
-
-### Session Expired
-
-If you get authentication errors:
-
-```bash
-python auto_tts.py --setup
-```
-
-### Multiple CSV Files Found
-
-If you have multiple CSV files in the project folder:
-
-```bash
-python auto_tts.py --csv scripts.csv
-```
-
-### Config File Not Found
-
-Make sure you're using the correct client name:
-
-```bash
-# Check available configs
-ls configs/
-
-# Use correct client name
-python auto_tts.py --client mycompany
-```
-
-### Check Logs
-
-Detailed logs are saved to `logs/auto_tts_TIMESTAMP.log`
-
-### Screenshots on Error
-
-When errors occur, screenshots are automatically saved to `screenshots/error_VERSION_TIMESTAMP.png`
-
-## Menu Bar Application (macOS)
-
-A native macOS menu bar application is available for team-friendly usage:
-
-### Features
-- Native macOS menu bar integration
-- All CLI functionality accessible via GUI
-- Stores data in `~/Library/Application Support/AnyLiveTTS/`
-- Built with `rumps` for native experience
-- PyInstaller-ready for .app bundle distribution
-
-### Running Menu Bar App
-```bash
-# Run the menu bar app
-python menubar_gui.py
-```
-
-### Menu Bar App Data Location
-```
-~/Library/Application Support/AnyLiveTTS/
-├── configs/              # User-editable configurations
-├── logs/                 # Execution logs (menubar.log, auto_tts_*.log)
-├── screenshots/          # Error screenshots
-├── state/                # State and browser data (untracked)
-│   ├── browser_data/     # Playwright persistent context
-│   ├── session_state.json # Saved browser session
-│   └── faq_last_client.json # Last-used brand
-└── menubar_state.json    # GUI state
-```
-
-## App Compilation
-
-The project supports PyInstaller compilation for macOS .app bundles:
-
-```bash
-# Build menu bar app (requires menubar_app.spec)
-pyinstaller menubar_app.spec
-
-# Resulting .app bundle
-dist/AnyLiveTTS.app
-```
-
-**App structure:**
-```
-AnyLiveTTS.app/
-├── Contents/
-│   ├── MacOS/
-│   │   └── AnyLiveTTS (executable)
-│   └── Resources/
-│       └── configs/
-│           ├── template.json
-│           └── default.json
-```
-
-User data remains in `~/Library/Application Support/AnyLiveTTS/` for persistence.
-
-## Notes
-
-- Each product is grouped by product name (column B) regardless of how many rows it spans
-- Same product number (column A) across different products is allowed
-- Product names are sanitized for version naming (spaces → underscores, special chars removed)
-- Clicking "Generate Speech" triggers background AI processing - the script doesn't wait for completion
-- Voice selection and product info filling are disabled by default (can be enabled in config)
-- Session file (`state/session_state.json`) is excluded from git via `.gitignore`
-- Browser data (`state/browser_data/`) is excluded from git via `.gitignore`
-- The site auto-saves versions — there is no separate save step
-- Use `--dry-run` to test form filling without generating speech
-- Use `--download` to batch-download generated audio files after creation
-- Use `--download --versions 0,14-26` to cherry-pick specific versions by number
-- Use `--debug` to inspect the browser state after execution
-
-## Product FAQ Automation
-
-A separate script (`auto_faq.py`) automates filling Product Q&A on `live.app.anylive.jp`. After generating and downloading audio files with the TTS workflow, use this to upload questions and audio to each product.
-
-### FAQ Setup
-
-Each brand account needs a one-time login. Sessions are fully isolated per brand.
-
-```bash
-# One-time login per brand (separate site, separate session)
+# Setup login for a specific brand
 python auto_faq.py --setup --client mybrand
-python auto_faq.py --setup --client brandB
 
-# Run with explicit brand (also saves as last-used)
-python auto_faq.py --client mybrand --csv mybrand.csv
-python auto_faq.py --client brandB --csv brandB.csv
+# Upload FAQ data from CSV
+python auto_faq.py --client mybrand --csv faq.csv
 
-# Run without --client → uses last-used brand automatically
-python auto_faq.py --csv FAQ.csv
-
-# Dry run (fill questions, skip audio upload)
+# Dry run to verify form filling without uploading audio
 python auto_faq.py --dry-run
-
-# Debug mode
-python auto_faq.py --debug
-
-# Process subset of products
-python auto_faq.py --start-product 5 --limit 3
-
-# Override audio directory
-python auto_faq.py --audio-dir ./my_audio
 ```
 
-**Account resolution order:** `--client` > last-used (`state/faq_last_client.json`) > legacy default (`state/session_state_faq.json`)
-
-### FAQ Configuration
-
-```json
-{
-  "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
-  "audio_dir": "downloads",
-  "audio_extensions": [".mp3", ".wav"],
-  "csv_columns": {
-    "product_number": "No.",
-    "product_name": "Product Name",
-    "question": "Keywords",
-    "audio_code": "Audio Code"
-  }
-}
-```
-
-### Audio File Structure
-
-Audio files are resolved from `audio_dir` using the product number:
+**Audio File Structure**
+Audio files are resolved from the `downloads` directory using the product number:
 ```
 downloads/
   01_Product_A/SFD1.mp3, SFD2.mp3
   02_Product_B/SFD3.mp3, SFD4.mp3
 ```
 
-## Script Automation
-
-A separate script (`auto_script.py`) automates uploading audio scripts to the "Set Live Content" tab on `live.app.anylive.jp`. It also supports bulk deletion of all scripts from every product.
-
-### Script Setup
-
-```bash
-# One-time login per brand (shares session with auto_faq.py — same site)
-python auto_script.py --setup --client example
-```
-
-### Script Usage
+### `auto_script.py`: Set Live Content
+Uploads or deletes scripts on the "Set Live Content" tab of `live.app.anylive.jp`. This tool shares session data with `auto_faq.py` as they operate on the same site.
 
 ```bash
 # Upload scripts from CSV
 python auto_script.py --client example --csv scripts.csv
 
-# Delete all scripts from all products (CSV not required)
+# Delete all scripts from all products
 python auto_script.py --client example --delete-scripts
 
-# Dry run (preview without browser interaction)
-python auto_script.py --client example --dry-run --limit 2
-
-# Start from a specific product number
+# Start processing from product number 3
 python auto_script.py --client example --start-product 3
-
-# Debug mode (keep browser open after execution)
-python auto_script.py --client example --debug
 ```
 
-### Script Configuration
+### Menu Bar App (macOS)
+A native macOS menu bar application built with `rumps` that wraps the CLI functionality in a GUI. It stores user data in `~/Library/Application Support/AnyLiveTTS/`. Run it using `python menubar_gui.py`.
 
-Config file: `configs/{client}/live.json`
+## CLI Reference
 
+| Flag | Type | Tools | Description |
+|------|------|-------|-------------|
+| `--setup` | flag | all | One-time login setup |
+| `--csv` | path | all | CSV file path (auto-detects) |
+| `--client` | name | all | Client config name (loads configs/{NAME}/) |
+| `--config` | path | all | Custom config JSON file path |
+| `--start-version` | int | TTS | Start from version N |
+| `--start-product` | int | FAQ, Script | Start from product N |
+| `--limit` | int | all | Max items to process |
+| `--headless` | flag | all | Headless browser mode |
+| `--dry-run` | flag | all | Test without side effects |
+| `--debug` | flag | all | Keep browser open after execution |
+| `--download` | flag | TTS | Download audio files for all versions |
+| `--versions` | string | TTS | Filter versions (e.g., `15-18,24,30`) |
+| `--replace` | flag | TTS | Re-download existing files |
+| `--verify` | flag | TTS | Verify downloads against CSV |
+| `--flat` | flag | TTS | Ignore product boundaries, sequential packing |
+| `--delete-scripts` | flag | Script | Delete all scripts from all products |
+| `--base-url` | url | all | Override base URL |
+| `--voice` | name | TTS | Override voice name |
+| `--template` | name | TTS | Override template name |
+| `--max-scripts` | int | TTS | Override max scripts per version |
+| `--audio-dir` | path | FAQ, Script | Override audio directory |
+
+## Configuration
+
+### Multi-Client Setup
+To create a new client, copy the `configs/default/` directory to `configs/{client_name}/` and modify the JSON files. Run the tool with `--client {client_name}` to load those settings.
+
+**Example `tts.json`**
 ```json
 {
-  "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
-  "audio_dir": "downloads",
-  "audio_extensions": [".mp3", ".wav"],
+  "base_url": "https://app.anylive.jp/scripts/XXX",
+  "version_template": "Template_Name",
+  "voice_name": "Voice_Clone_Name",
+  "max_scripts_per_version": 10,
+  "enable_voice_selection": false, // Enable voice dropdown
+  "enable_product_info": false,    // Enable product name/selling point
   "csv_columns": {
     "product_number": "No.",
     "product_name": "Product Name",
@@ -623,45 +171,54 @@ Config file: `configs/{client}/live.json`
   }
 }
 ```
+The `live.json` file uses a similar structure for FAQ and Script automation, focusing on `audio_dir` and `audio_extensions`.
 
-### Script Audio File Structure
+### CSV Format
+The tools use flexible column mapping. The default mapping expects:
 
-Audio files are resolved from `audio_dir` using the product number:
+| Column | Description |
+|--------|-------------|
+| No. | Product number used for grouping and file resolution |
+| Product Name | Name used for versioning and grouping |
+| TH Script | The actual text content for the script or question |
+| Audio Code | Identifier used for the audio file name |
+
+## Project Structure
+
 ```
-downloads/
-  01_Product_A/SFD1.mp3, SFD2.mp3
-  02_Product_B/SFD3.mp3, SFD4.mp3
+anylive-tts-automation/
+├── auto_tts.py             # TTS automation
+├── auto_faq.py             # FAQ automation
+├── auto_script.py          # Script automation
+├── menubar_gui.py          # macOS menu bar app
+├── shared.py               # Shared utilities
+├── requirements.txt
+├── configs/
+│   ├── default/            # Default template and fallback
+│   │   ├── tts.json
+│   │   └── live.json
+│   └── {client}/           # Custom client configs
+├── state/                  # Runtime sessions and browser data
+├── logs/                   # Execution logs and JSON reports
+├── screenshots/            # Error captures
+└── downloads/              # Downloaded audio files
 ```
 
-## Recent Updates
+## Troubleshooting
 
-### Selective Version Download (`--versions`)
-Added `--versions` flag to cherry-pick specific versions by their leading number (e.g.,
-`--versions 0,14-26`). Supports individual numbers, ranges, and combinations. When active,
-`--start-version` is ignored. `--limit` still applies on top of the filter.
+### Session Expired
+If you encounter authentication errors, re-run the setup command: `python auto_tts.py --setup`.
 
-### Batch Download Mode (`--download`)
-Added `--download` flag to download generated audio files for all versions. Versions are sorted
-numerically and the template version is automatically skipped. Use `--replace` to re-download
-existing files. Supports `--start-version` to resume from a specific version.
+### Multiple CSV Files
+If the root directory contains multiple CSV files, specify the target file explicitly using the `--csv` flag.
 
-### Auto-Save (removed `--no-save`)
-The AnyLive site now auto-saves versions. The `--no-save` flag has been removed as there is
-no longer a separate save step.
+### Config Not Found
+Ensure the client name matches the folder name in the `configs/` directory. Use `ls configs/` to verify.
 
-`auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
-`state/session_state_faq_{client}.json` and `state/browser_data_faq_{client}/` directory. The last-used brand
-is saved automatically and selected when `--client` is omitted.
+### Element Not Found
+UI changes on AnyLive may break selectors. Run with `--debug` to inspect the browser state and check `screenshots/` for visual confirmation of the error.
 
-### Product FAQ Automation
-Added `auto_faq.py` for automating Product Q&A filling on `live.app.anylive.jp`. Extracted shared
-utilities into `shared.py` for code reuse between TTS and FAQ scripts. Added unit tests.
+### Audio Resolution Failure
+Verify that your audio files are in the correct subdirectory within `downloads/` and that the file names match the `Audio Code` in your CSV.
 
-### Flat Mode (`--flat`)
-Added `--flat` CLI flag to override the default product-based grouping. In flat mode, all
-scripts are packed sequentially into fixed-size batches (set with `--max-scripts`). Versions
-are named `batch_01`, `batch_02`, etc. instead of by product name.
 
-## Support
-
-For issues or questions, please check the logs for detailed error messages or review the configuration documentation above.
