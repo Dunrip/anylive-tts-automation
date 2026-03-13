@@ -35,7 +35,8 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 POST_AUTOSAVE_DELAY_SECONDS = 3.0
 PRE_FILL_START_DELAY_SECONDS = 0.5
-SESSION_FILE = "session_state.json"
+STATE_DIR = "state"
+SESSION_FILE = "state/session_state.json"
 
 
 # ---------------------------------------------------------------------------
@@ -81,16 +82,19 @@ def get_app_support_dir() -> Optional[str]:
 
 def get_session_file_path(session_filename: str = SESSION_FILE) -> str:
     if _app_support_dir:
-        return os.path.join(_app_support_dir, session_filename)
-    return session_filename
+        path = os.path.join(_app_support_dir, session_filename)
+    else:
+        path = session_filename
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    return path
 
 
-def get_browser_data_dir(subdir: str = "browser_data") -> str:
+def get_browser_data_dir(subdir: str = "state/browser_data") -> str:
     """Return the directory used for Playwright persistent context.
 
     IMPORTANT: In a packaged macOS .app, the current working directory can be
-    unexpected (often '/'), so using a relative path like './browser_data' can
-    break silently (no profile/session persisted; permission errors).
+    unexpected (often '/'), so using a relative path like './state/browser_data'
+    can break silently (no profile/session persisted; permission errors).
 
     When running in menubar GUI mode we set _app_support_dir, so we store browser
     data under ~/Library/Application Support/AnyLiveTTS/<subdir>.

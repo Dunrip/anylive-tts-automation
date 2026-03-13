@@ -34,10 +34,10 @@ from shared import (
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-FAQ_SESSION_FILE = "session_state_faq.json"
-FAQ_BROWSER_DATA = "browser_data_faq"
+FAQ_SESSION_FILE = "state/session_state_faq.json"
+FAQ_BROWSER_DATA = "state/browser_data_faq"
 FAQ_LOGIN_URL = "https://live.app.anylive.jp"
-FAQ_LAST_CLIENT_FILE = "faq_last_client.json"
+FAQ_LAST_CLIENT_FILE = "state/faq_last_client.json"
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ FAQ_LAST_CLIENT_FILE = "faq_last_client.json"
 def _get_faq_session_paths(client: Optional[str]) -> tuple[str, str]:
     """Return (session_filename, browser_data_subdir) for the given client name."""
     if client:
-        return f"session_state_faq_{client}.json", f"browser_data_faq_{client}"
+        return f"state/session_state_faq_{client}.json", f"state/browser_data_faq_{client}"
     return FAQ_SESSION_FILE, FAQ_BROWSER_DATA
 
 

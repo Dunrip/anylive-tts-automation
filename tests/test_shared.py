@@ -120,11 +120,13 @@ class TestSetupLogging:
 # ---------------------------------------------------------------------------
 class TestSessionHelpers:
     def test_is_session_valid_true(self, tmp_path: Path) -> None:
-        session = tmp_path / "session_state.json"
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        session = state_dir / "session_state.json"
         session.write_text("{}")
         set_app_support_dir(str(tmp_path))
         try:
-            assert is_session_valid("session_state.json") is True
+            assert is_session_valid("state/session_state.json") is True
         finally:
             set_app_support_dir(None)
 
@@ -137,13 +139,13 @@ class TestSessionHelpers:
 
     def test_get_browser_data_dir_default(self) -> None:
         set_app_support_dir(None)
-        assert get_browser_data_dir() == "./browser_data"
+        assert get_browser_data_dir() == "./state/browser_data"
 
     def test_get_browser_data_dir_custom_subdir(self, tmp_path: Path) -> None:
         set_app_support_dir(str(tmp_path))
         try:
-            result = get_browser_data_dir("browser_data_faq")
-            assert result == str(tmp_path / "browser_data_faq")
+            result = get_browser_data_dir("state/browser_data_faq")
+            assert result == str(tmp_path / "state" / "browser_data_faq")
         finally:
             set_app_support_dir(None)
 
