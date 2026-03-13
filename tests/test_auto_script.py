@@ -255,3 +255,31 @@ class TestParseScriptCsv:
         products = parse_script_csv(df, config, _make_logger())
 
         assert len(products) == 0
+
+    def test_parse_script_csv_custom_columns(self) -> None:
+        """Custom csv_columns mapping should be respected."""
+        df = self._make_df(
+            [
+                {
+                    "Num": "1",
+                    "Name": "Product A",
+                    "Script": "Script 1",
+                    "Code": "SFD1",
+                }
+            ]
+        )
+        config = ScriptConfig(
+            base_url="https://example.com",
+            csv_columns={
+                "product_number": "Num",
+                "product_name": "Name",
+                "script_content": "Script",
+                "audio_code": "Code",
+            },
+        )
+        products = parse_script_csv(df, config, _make_logger())
+
+        assert len(products) == 1
+        assert products[0].product_number == 1
+        assert products[0].rows[0].script_content == "Script 1"
+        assert products[0].rows[0].audio_code == "SFD1"
