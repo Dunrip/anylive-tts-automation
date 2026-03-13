@@ -8,6 +8,7 @@ import pytest
 from shared import (
     find_csv_file,
     load_csv,
+    load_jsonc,
     setup_logging,
     is_session_valid,
     get_browser_data_dir,
@@ -145,3 +146,20 @@ class TestSessionHelpers:
             assert result == str(tmp_path / "browser_data_faq")
         finally:
             set_app_support_dir(None)
+
+
+class TestLoadJsonc:
+    def test_plain_json(self, tmp_path: Path) -> None:
+        f = tmp_path / "plain.json"
+        f.write_text('{"key": "value"}')
+        assert load_jsonc(str(f)) == {"key": "value"}
+
+    def test_full_line_comments(self, tmp_path: Path) -> None:
+        f = tmp_path / "commented.json"
+        f.write_text('{\n  // this is a comment\n  "key": "value"\n}')
+        assert load_jsonc(str(f)) == {"key": "value"}
+
+    def test_trailing_comments(self, tmp_path: Path) -> None:
+        f = tmp_path / "trailing.json"
+        f.write_text('{\n  "key": "value"  // inline comment\n}')
+        assert load_jsonc(str(f)) == {"key": "value"}

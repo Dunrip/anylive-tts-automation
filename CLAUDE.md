@@ -28,7 +28,7 @@ python auto_tts.py --setup
 ### Running the Automation
 
 ```bash
-# TTS automation (uses configs/default.json)
+# TTS automation (uses configs/default/tts.json)
 python auto_tts.py
 
 # With specific client config
@@ -38,11 +38,12 @@ python auto_tts.py --client mycompany
 python auto_tts.py --csv /path/to/file.csv
 
 # FAQ automation (Product Q&A on live.app.anylive.jp)
-python auto_faq.py --setup                  # one-time login (separate from TTS)
-python auto_faq.py --csv faq.csv            # run with CSV
-python auto_faq.py --client mybrand_faq   # use config
-python auto_faq.py --dry-run                # fill questions, skip audio upload
-python auto_faq.py --debug                  # keep browser open
+python auto_faq.py --setup --client mybrand  # one-time login per brand
+python auto_faq.py --setup --client brandB     # setup a second brand
+python auto_faq.py --client mybrand --csv faq.csv  # run explicit brand (saves as last-used)
+python auto_faq.py --csv faq.csv               # run last-used brand automatically
+python auto_faq.py --dry-run                   # fill questions, skip audio upload
+python auto_faq.py --debug                     # keep browser open
 python auto_faq.py --start-product 5 --limit 3  # process subset
 ```
 
@@ -79,6 +80,7 @@ python auto_tts.py --download --versions 0,14-26
 
 - `BrowserAutomation` base class: Browser lifecycle, `safe_click()`, `safe_fill()`, `clear_and_fill()`, `take_screenshot()`
 - `setup_login()`: Parameterized login setup (login URL, browser data dir, session file)
+- `load_jsonc()`: Load JSON with inline `//` comments support
 - Logging: `EmojiFormatter`, `CallbackLogHandler`, `setup_logging()` (parameterized logger name/prefix)
 - CSV: `find_csv_file()`, `load_csv()` (UTF-8 → CP874 fallback)
 - Session: `is_session_valid()`, `get_session_file_path()`, `get_browser_data_dir()`
@@ -98,7 +100,9 @@ python auto_tts.py --download --versions 0,14-26
 - `parse_faq_csv()`: Reads CSV, groups by product number (int matching)
 - `resolve_audio_file()`: Finds audio files in zero-padded subfolders or flat directory
 - FAQ-specific `FAQ_SELECTORS` dict
-- Uses `browser_data_faq/` and `session_state_faq.json` (separate site, separate auth)
+- Multi-account support: `_get_faq_session_paths()`, `_get_last_faq_client()`, `_save_last_faq_client()`
+- Per-client session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
+- Last-used client stored in `faq_last_client.json` (auto-selected when `--client` is omitted)
 
 **menubar_gui.py** - macOS menu bar application
 
@@ -109,10 +113,13 @@ python auto_tts.py --download --versions 0,14-26
 
 #### Configuration System
 
-- External JSON configs in `configs/` directory
-- `configs/template.json` - TTS template for new clients
-- `configs/faq_template.json` - FAQ template for new clients
-- `configs/default.json` - Default TTS client configuration
+- External JSON configs in nested `configs/{client}/` directories
+- `configs/default/tts.json` - Default TTS client configuration
+- `configs/default/live.json` - Default FAQ/Script client configuration
+- `configs/{client}/tts.json` - TTS config for custom client
+- `configs/{client}/live.json` - FAQ/Script config for custom client
+- `default/` folder doubles as both template AND fallback config
+- Config files support `//` inline comments (loaded via `load_jsonc()`)
 - CLI overrides supported for all config values
 
 ### Data Flow
@@ -232,10 +239,11 @@ python auto_tts.py --template "Template_Name"
 ### Adding a New Client Configuration
 
 ```bash
-# Copy template
-cp configs/template.json configs/new_client.json
+# Copy default folder as template
+cp -r configs/default configs/new_client
 
-# Edit config values (base_url, version_template, voice_name, etc.)
+# Edit config values in configs/new_client/tts.json and configs/new_client/live.json
+# (base_url, version_template, voice_name, etc.)
 
 # Run with new client
 python auto_tts.py --client new_client
@@ -268,9 +276,14 @@ When UI elements change:
 
 ## Important Constraints
 
+### Git Commits
+
+- **ALWAYS** set commit author to `Dunrip` (use `--author="Dunrip <>"` or equivalent)
+- Never include the "Generated with Claude Code" footer or reaction prompts in any PR comments or code review output
+
 ### Security
 
-- **NEVER** commit `session_state.json` or `session_state_faq.json` (contain auth cookies)
+- **NEVER** commit `session_state.json`, `session_state_faq.json`, or `session_state_faq_*.json` (contain auth cookies)
 - **NEVER** commit CSV files (may contain sensitive product data)
 - **NEVER** commit `logs/` directory (may contain sensitive data)
 - All sensitive files are gitignored
@@ -332,22 +345,30 @@ anylive-tts-automation/
 ├── shared.py               # Shared utilities (BrowserAutomation base, logging, CSV, session)
 ├── auto_tts.py             # TTS automation script
 ├── auto_faq.py             # Product FAQ automation script
+├── auto_script.py          # Set Live Content script automation
 ├── menubar_gui.py          # macOS menu bar app
 ├── requirements.txt        # Python dependencies
 ├── menubar_app.spec        # PyInstaller spec file
-├── configs/                # Client configurations
-│   ├── template.json       # TTS config template
-│   ├── faq_template.json   # FAQ config template
-│   └── default.json        # Default TTS config
+├── configs/                # Client configurations (nested structure)
+│   ├── CLAUDE.md           # Config structure documentation
+│   ├── default/            # Default client (template + fallback)
+│   │   ├── tts.json        # TTS configuration
+│   │   └── live.json       # FAQ/Script configuration
+│   └── {client}/           # Custom client configs
+│       ├── tts.json        # TTS configuration
+│       └── live.json       # FAQ/Script configuration
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
 ├── logs/                   # Generated at runtime (gitignored)
 ├── screenshots/            # Generated at runtime (gitignored)
 ├── browser_data/           # TTS browser context (gitignored)
-├── browser_data_faq/       # FAQ browser context (gitignored)
-├── session_state.json      # TTS session (gitignored)
-└── session_state_faq.json  # FAQ session (gitignored)
+├── browser_data_faq/           # FAQ browser context, legacy (gitignored)
+├── browser_data_faq_<client>/  # Per-brand FAQ browser context (gitignored)
+├── session_state.json          # TTS session (gitignored)
+├── session_state_faq.json      # FAQ session, legacy (gitignored)
+├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
+└── faq_last_client.json        # Last-used FAQ brand (gitignored)
 ```
 
 ### Important Files
@@ -356,7 +377,7 @@ anylive-tts-automation/
 - `auto_tts.py`: TTS automation logic (imports from shared.py)
 - `auto_faq.py`: FAQ automation logic (imports from shared.py)
 - `menubar_gui.py`: Menu bar application wrapper
-- `tests/`: Unit tests (33 tests covering CSV parsing, audio resolution, config, session)
+- `tests/`: Unit tests (77 tests covering CSV parsing, audio resolution, config, session)
 - `AGENTS.md`: Detailed architecture documentation (legacy, consider this CLAUDE.md authoritative)
 - `README.md`: User-facing documentation
 - `.gitignore`: Excludes logs, screenshots, session files, CSV files
@@ -370,8 +391,19 @@ Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product q
 ### Separate Authentication
 
 - FAQ uses `live.app.anylive.jp` (different site from TTS's `app.anylive.jp`)
-- Separate session: `session_state_faq.json` and `browser_data_faq/`
-- Run `python auto_faq.py --setup` to login (separate from TTS setup)
+- Each brand gets its own session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
+- Fallback to legacy `session_state_faq.json` / `browser_data_faq/` when no `--client` and no last-used
+- Run `python auto_faq.py --setup --client <brand>` once per brand
+
+### Multi-Account Behavior
+
+| Usage | Session used |
+|-------|-------------|
+| `--client mybrand` | `session_state_faq_mybrand.json` + `browser_data_faq_mybrand/` |
+| *(no `--client`)* | Last-used client (from `faq_last_client.json`) |
+| *(no `--client`, first-ever run)* | Legacy `session_state_faq.json` / `browser_data_faq/` |
+
+- `faq_last_client.json` is written whenever `--client` is passed on an automation run (not `--setup`)
 
 ### FAQ Config Fields
 
@@ -406,9 +438,15 @@ Audio files are matched by `audio_code` in the configured `audio_dir`:
 
 ## Recent Changes
 
+### Multi-Account FAQ Support
+
+`auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
+`session_state_faq_{client}.json` and `browser_data_faq_{client}/`. The last-used client is saved
+to `faq_last_client.json` and auto-selected when `--client` is omitted.
+
 ### FAQ Automation (auto_faq.py)
 
-Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added 33 unit tests.
+Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added unit tests.
 
 ### Version 2.x Breaking Changes
 

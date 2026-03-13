@@ -24,6 +24,7 @@ from shared import (  # noqa: F401
     setup_logging,
     find_csv_file,
     load_csv,
+    load_jsonc,
     is_session_valid,
     setup_login,
 )
@@ -132,16 +133,15 @@ def load_config(config_path: str, cli_overrides: Optional[dict] = None) -> Clien
     """Load client config JSON.
 
     Note: We allow an optional top-level `csv` field (path to CSV) so users can
-    pin the default input file in configs/default.json.
+    pin the default input file in configs/default/tts.json.
     """
     if not os.path.exists(config_path):
         raise FileNotFoundError(
             f"Config file not found: {config_path}\n"
-            f"Please create a config file or use the template at configs/template.json"
+            f"Please create a config file by copying configs/default/"
         )
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    config_data = load_jsonc(config_path)
 
     if cli_overrides:
         config_data.update(cli_overrides)
@@ -477,7 +477,6 @@ def parse_csv_data(
     logger.info(f"Found {len(product_groups)} unique products")
 
     def sanitize_product_name(name: str) -> str:
-
         # Include Thai Unicode range (U+0E00-U+0E7F) to preserve combining
         # characters such as tone marks (่ ้ ๊ ๋) and vowel marks (ิ ี ึ ื ุ ู ั)
         sanitized = re.sub(r"[^\w\s\u0E00-\u0E7F-]", "", name)
@@ -1475,12 +1474,12 @@ class TTSAutomation:
 
         for i, script in enumerate(scripts):
             if i < len(textareas):
-                self.logger.info(f"Filling script slot {i+1}/{len(scripts)}...")
+                self.logger.info(f"Filling script slot {i + 1}/{len(scripts)}...")
                 if await self.clear_and_fill(textareas[i], script):
                     filled += 1
-                    self.logger.info(f"Successfully filled script slot {i+1}")
+                    self.logger.info(f"Successfully filled script slot {i + 1}")
                 else:
-                    self.logger.error(f"Failed to fill script slot {i+1}")
+                    self.logger.error(f"Failed to fill script slot {i + 1}")
                 await asyncio.sleep(0.1)
 
         self.logger.info(f"Filled {filled}/{len(scripts)} script slots")
@@ -1514,13 +1513,13 @@ class TTSAutomation:
         for i, audio_code in enumerate(audio_codes):
             if i < len(template_inputs) and audio_code:
                 self.logger.info(
-                    f"Filling template field {i+1}/{len(audio_codes)} with: {audio_code}"
+                    f"Filling template field {i + 1}/{len(audio_codes)} with: {audio_code}"
                 )
                 if await self.clear_and_fill(template_inputs[i], audio_code):
                     filled += 1
-                    self.logger.info(f"Successfully filled template field {i+1}")
+                    self.logger.info(f"Successfully filled template field {i + 1}")
                 else:
-                    self.logger.error(f"Failed to fill template field {i+1}")
+                    self.logger.error(f"Failed to fill template field {i + 1}")
                 await asyncio.sleep(0.1)
 
         self.logger.info(f"Filled {filled}/{len(audio_codes)} template fields")
@@ -1555,7 +1554,7 @@ class TTSAutomation:
                 triggered += 1
                 await asyncio.sleep(0.2)
             except Exception as e:
-                self.logger.debug(f"Failed to click Generate Speech {i+1}: {e}")
+                self.logger.debug(f"Failed to click Generate Speech {i + 1}: {e}")
 
         self.logger.info(f"Triggered {triggered} generations")
         return triggered
@@ -1948,7 +1947,6 @@ class TTSAutomation:
             return False, error_msg
 
     async def save_version(self, expected_slots: int) -> bool:
-
         self.logger.debug("Waiting for form state to stabilize...")
         await asyncio.sleep(0.1)
 
@@ -2316,7 +2314,7 @@ class TTSAutomation:
                             }}"""
                             )
                         download = await dl_info.value
-                        filename = download.suggested_filename or f"audio_{idx+1}.mp3"
+                        filename = download.suggested_filename or f"audio_{idx + 1}.mp3"
                         save_path = os.path.join(version_dl_dir, filename)
                         if os.path.exists(save_path) and not replace:
                             self.logger.info(
@@ -2328,7 +2326,9 @@ class TTSAutomation:
                         self.logger.info(f"  ⬇️  Saved: {filename}")
                         version_dl_count += 1
                     except Exception as e:
-                        self.logger.warning(f"  Failed to download button {idx+1}: {e}")
+                        self.logger.warning(
+                            f"  Failed to download button {idx + 1}: {e}"
+                        )
 
                 total_downloaded += version_dl_count
 
@@ -2638,7 +2638,7 @@ async def main():
 
     parser.add_argument("--config", type=str, help="Path to client config JSON file")
     parser.add_argument(
-        "--client", type=str, help="Client name (loads configs/{NAME}.json)"
+        "--client", type=str, help="Client name (loads configs/{NAME}/tts.json)"
     )
     parser.add_argument("--base-url", type=str, help="Override base URL")
     parser.add_argument("--voice", type=str, help="Override voice clone name")
@@ -2673,11 +2673,11 @@ async def main():
 
         config_path = None
         if args.client:
-            config_path = f"configs/{args.client}.json"
+            config_path = f"configs/{args.client}/tts.json"
         elif args.config:
             config_path = args.config
         else:
-            config_path = "configs/default.json"
+            config_path = "configs/default/tts.json"
 
         cli_overrides = {}
         if args.base_url:
@@ -2691,8 +2691,7 @@ async def main():
 
         csv_from_config = None
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                csv_from_config = json.load(f).get("csv")
+            csv_from_config = load_jsonc(config_path).get("csv")
         except Exception:
             pass
 
@@ -2731,11 +2730,11 @@ async def main():
 
         config_path = None
         if args.client:
-            config_path = f"configs/{args.client}.json"
+            config_path = f"configs/{args.client}/tts.json"
         elif args.config:
             config_path = args.config
         else:
-            config_path = "configs/default.json"
+            config_path = "configs/default/tts.json"
 
         cli_overrides = {}
         if args.base_url:
@@ -2766,8 +2765,7 @@ async def main():
                 )
                 csv_from_config = None
                 try:
-                    with open(config_path, "r", encoding="utf-8") as f:
-                        csv_from_config = json.load(f).get("csv")
+                    csv_from_config = load_jsonc(config_path).get("csv")
                 except Exception:
                     pass
                 try:
@@ -2789,11 +2787,11 @@ async def main():
 
     config_path = None
     if args.client:
-        config_path = f"configs/{args.client}.json"
+        config_path = f"configs/{args.client}/tts.json"
     elif args.config:
         config_path = args.config
     else:
-        config_path = "configs/default.json"
+        config_path = "configs/default/tts.json"
 
     cli_overrides = {}
     if args.base_url:

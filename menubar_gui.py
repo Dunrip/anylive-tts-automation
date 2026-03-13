@@ -82,11 +82,10 @@ def setup_app_support():
 
     # Copy bundled configs if they don't exist
     bundled_configs = Path(__file__).parent / "configs"
-    for config_file in ["default.json", "template.json"]:
-        bundled = bundled_configs / config_file
-        target = CONFIGS_DIR / config_file
-        if bundled.exists() and not target.exists():
-            shutil.copy(bundled, target)
+    bundled_default = bundled_configs / "default"
+    target_default = CONFIGS_DIR / "default"
+    if bundled_default.is_dir() and not target_default.exists():
+        shutil.copytree(bundled_default, target_default)
 
     # Set app support dir for auto_tts module
     set_app_support_dir(str(APP_SUPPORT_DIR))
@@ -160,7 +159,11 @@ def list_configs() -> list:
     """List available config files in App Support."""
     if not CONFIGS_DIR.exists():
         return []
-    configs = [f.stem for f in CONFIGS_DIR.glob("*.json") if f.stem != "template"]
+    configs = [
+        d.name
+        for d in CONFIGS_DIR.iterdir()
+        if d.is_dir() and (d / "tts.json").exists()
+    ]
     return sorted(configs)
 
 
@@ -484,10 +487,10 @@ class AnyLiveTTSApp(rumps.App):
         except Exception as e:
             print(f"Failed to load state: {e}")
 
-        # Default config: if nothing selected yet, use configs/default.json.
+        # Default config: if nothing selected yet, use configs/default/tts.json.
         # (The app copies bundled configs into App Support on first run.)
         if not self.selected_config:
-            default_path = CONFIGS_DIR / "default.json"
+            default_path = CONFIGS_DIR / "default" / "tts.json"
             if default_path.exists():
                 self.selected_config = "default"
                 # Persist so state JSON isn't stuck with null.
@@ -508,7 +511,7 @@ class AnyLiveTTSApp(rumps.App):
             rumps.alert("No Config Selected", "Please select a config first.")
             return
 
-        config_path = CONFIGS_DIR / f"{self.selected_config}.json"
+        config_path = CONFIGS_DIR / self.selected_config / "tts.json"
         if config_path.exists():
             subprocess.call(["open", str(config_path)])
         else:
@@ -530,21 +533,21 @@ class AnyLiveTTSApp(rumps.App):
                 rumps.alert("Invalid Name", "Config name cannot be empty.")
                 return
 
-            template_path = CONFIGS_DIR / "template.json"
-            new_config_path = CONFIGS_DIR / f"{config_name}.json"
+            template_path = CONFIGS_DIR / "default"
+            new_config_path = CONFIGS_DIR / config_name
 
             if new_config_path.exists():
                 rumps.alert("Config Exists", f"Config '{config_name}' already exists.")
                 return
 
-            if not template_path.exists():
-                rumps.alert("Template Not Found", "Template config not found.")
+            if not template_path.is_dir():
+                rumps.alert("Template Not Found", "Default config directory not found.")
                 return
 
             try:
-                shutil.copy(template_path, new_config_path)
+                shutil.copytree(template_path, new_config_path)
                 self.rebuild_config_menu()
-                subprocess.call(["open", str(new_config_path)])
+                subprocess.call(["open", str(new_config_path / "tts.json")])
                 rumps.notification(
                     "Config Created", "", f"Created config: {config_name}"
                 )
@@ -828,7 +831,7 @@ class AnyLiveTTSApp(rumps.App):
 
                 # Run job
                 logger = logging.getLogger("menubar")
-                config_path = str(CONFIGS_DIR / f"{self.selected_config}.json")
+                config_path = str(CONFIGS_DIR / self.selected_config / "tts.json")
                 logger.info(
                     f"Starting run_job with config_path={config_path} csv_path={self.csv_path} headless={self.options['headless']}"
                 )
@@ -1026,7 +1029,7 @@ def _self_test() -> int:
         print(f"WARN: failed to load state: {e}")
 
     # Default config if nothing selected.
-    if not selected_config and (CONFIGS_DIR / "default.json").exists():
+    if not selected_config and (CONFIGS_DIR / "default" / "tts.json").exists():
         selected_config = "default"
 
     chromium_installed = check_chromium_installed()

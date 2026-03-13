@@ -58,19 +58,23 @@ Place your CSV file in the project root directory. The script will auto-detect i
 ### Quick Start (Using Default Config)
 
 ```bash
-# Uses configs/default.json by default
+# Uses configs/default/tts.json by default
 python auto_tts.py --setup
 python auto_tts.py
 ```
 
 ### Creating a New Client Configuration
 
-1. **Copy the template**:
+1. **Copy the default folder**:
    ```bash
-   cp configs/template.json configs/new_client.json
+   cp -r configs/default configs/new_client
    ```
 
-2. **Edit the config**:
+2. **Edit the configs**:
+   - `configs/new_client/tts.json` for TTS settings
+   - `configs/new_client/live.json` for FAQ/Script settings
+
+   Example `tts.json`:
    ```json
    {
      "base_url": "https://app.anylive.jp/scripts/XXX",
@@ -95,10 +99,10 @@ python auto_tts.py
 
 ### Available Configurations
 
-- `configs/default.json` - Default TTS client configuration
-- `configs/default_faq.json` - Default FAQ client configuration
-- `configs/template.json` - Template for creating new TTS client configs
-- `configs/faq_template.json` - Template for FAQ automation configs
+- `configs/default/tts.json` - Default TTS client configuration
+- `configs/default/live.json` - Default FAQ/Script client configuration
+- `configs/{client}/tts.json` - Custom TTS client configs
+- `configs/{client}/live.json` - Custom FAQ/Script client configs
 
 ## Usage
 
@@ -117,7 +121,7 @@ This will:
 ### Normal Run
 
 ```bash
-# Default (uses configs/default.json)
+# Default (uses configs/default/tts.json)
 python auto_tts.py
 
 # Specify client config
@@ -191,7 +195,7 @@ python auto_tts.py --download --replace
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `--client` | name | Load config from `configs/{NAME}.json` |
+| `--client` | name | Load config from `configs/{NAME}/tts.json` (TTS) or `configs/{NAME}/live.json` (FAQ/Script) |
 | `--config` | path | Path to custom config JSON file |
 | `--base-url` | url | Override base URL from config |
 | `--voice` | name | Override voice clone name from config |
@@ -205,23 +209,30 @@ anylive-tts-automation/
 ├── shared.py               # Shared utilities (browser base class, logging, CSV, session)
 ├── auto_tts.py             # TTS automation script (CLI)
 ├── auto_faq.py             # Product FAQ automation script (CLI)
+├── auto_script.py          # Set Live Content script automation (CLI)
 ├── menubar_gui.py          # macOS menu bar application
 ├── menubar_app.spec        # PyInstaller specification
 ├── requirements.txt        # Dependencies
 ├── .gitignore              # Ignore logs, screenshots, session, csv
-├── configs/                # Client configurations
-│   ├── template.json       # TTS config template
-│   ├── faq_template.json   # FAQ config template
-│   ├── default.json        # Default TTS config
-│   └── default_faq.json    # Default FAQ config
+├── configs/                # Client configurations (nested structure)
+│   ├── CLAUDE.md           # Config structure documentation
+│   ├── default/            # Default client (template + fallback)
+│   │   ├── tts.json        # TTS configuration
+│   │   └── live.json       # FAQ/Script configuration
+│   └── {client}/           # Custom client configs
+│       ├── tts.json        # TTS configuration
+│       └── live.json       # FAQ/Script configuration
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
-├── session_state.json      # TTS login session (gitignored)
-├── session_state_faq.json  # FAQ login session (gitignored)
-├── *.csv                   # Input CSV files
-├── browser_data/           # TTS browser context (gitignored)
-├── browser_data_faq/       # FAQ browser context (gitignored)
+├── session_state.json           # TTS login session (gitignored)
+├── session_state_faq.json       # FAQ login session, legacy (gitignored)
+├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
+├── faq_last_client.json         # Last-used FAQ brand (gitignored)
+├── *.csv                        # Input CSV files
+├── browser_data/                # TTS browser context (gitignored)
+├── browser_data_faq/            # FAQ browser context, legacy (gitignored)
+├── browser_data_faq_<client>/   # Per-brand FAQ browser context (gitignored)
 ├── logs/                   # Created at runtime (gitignored)
 │   ├── auto_tts_*.log
 │   ├── auto_faq_*.log
@@ -238,7 +249,7 @@ anylive-tts-automation/
 ```
 12:34:56 | INFO | 🚀 ANYLIVE TTS AUTOMATION
 12:34:56 | INFO | ======================================================================
-12:34:57 | INFO | 📋 Loaded config: configs/default.json
+12:34:57 | INFO | 📋 Loaded config: configs/default/tts.json
 12:34:57 | INFO | 📂 Loading CSV: scripts.csv
 12:34:57 | INFO | Valid rows: 45
 12:34:57 | INFO | Total script rows: 45
@@ -513,15 +524,19 @@ A separate script (`auto_faq.py`) automates filling Product Q&A on `live.app.any
 
 ### FAQ Setup
 
+Each brand account needs a one-time login. Sessions are fully isolated per brand.
+
 ```bash
-# One-time login (separate site, separate session)
-python auto_faq.py --setup
+# One-time login per brand (separate site, separate session)
+python auto_faq.py --setup --client mybrand
+python auto_faq.py --setup --client brandB
 
-# Run with CSV
+# Run with explicit brand (also saves as last-used)
+python auto_faq.py --client mybrand --csv mybrand.csv
+python auto_faq.py --client brandB --csv brandB.csv
+
+# Run without --client → uses last-used brand automatically
 python auto_faq.py --csv FAQ.csv
-
-# Use a client config
-python auto_faq.py --client mybrand_faq
 
 # Dry run (fill questions, skip audio upload)
 python auto_faq.py --dry-run
@@ -535,6 +550,8 @@ python auto_faq.py --start-product 5 --limit 3
 # Override audio directory
 python auto_faq.py --audio-dir ./my_audio
 ```
+
+**Account resolution order:** `--client` > last-used (`faq_last_client.json`) > legacy default (`session_state_faq.json`)
 
 ### FAQ Configuration
 
@@ -561,6 +578,63 @@ downloads/
   02_Product_B/SFD3.mp3, SFD4.mp3
 ```
 
+## Script Automation
+
+A separate script (`auto_script.py`) automates uploading audio scripts to the "Set Live Content" tab on `live.app.anylive.jp`. It also supports bulk deletion of all scripts from every product.
+
+### Script Setup
+
+```bash
+# One-time login per brand (shares session with auto_faq.py — same site)
+python auto_script.py --setup --client example
+```
+
+### Script Usage
+
+```bash
+# Upload scripts from CSV
+python auto_script.py --client example --csv scripts.csv
+
+# Delete all scripts from all products (CSV not required)
+python auto_script.py --client example --delete-scripts
+
+# Dry run (preview without browser interaction)
+python auto_script.py --client example --dry-run --limit 2
+
+# Start from a specific product number
+python auto_script.py --client example --start-product 3
+
+# Debug mode (keep browser open after execution)
+python auto_script.py --client example --debug
+```
+
+### Script Configuration
+
+Config file: `configs/{client}/live.json`
+
+```json
+{
+  "base_url": "https://live.app.anylive.jp/live/SESSION_ID",
+  "audio_dir": "downloads",
+  "audio_extensions": [".mp3", ".wav"],
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "script_content": "TH Script",
+    "audio_code": "Audio Code"
+  }
+}
+```
+
+### Script Audio File Structure
+
+Audio files are resolved from `audio_dir` using the product number:
+```
+downloads/
+  01_Product_A/SFD1.mp3, SFD2.mp3
+  02_Product_B/SFD3.mp3, SFD4.mp3
+```
+
 ## Recent Updates
 
 ### Selective Version Download (`--versions`)
@@ -576,6 +650,11 @@ existing files. Supports `--start-version` to resume from a specific version.
 ### Auto-Save (removed `--no-save`)
 The AnyLive site now auto-saves versions. The `--no-save` flag has been removed as there is
 no longer a separate save step.
+
+### Multi-Account FAQ Support
+`auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
+`session_state_faq_{client}.json` and `browser_data_faq_{client}/` directory. The last-used brand
+is saved automatically and selected when `--client` is omitted.
 
 ### Product FAQ Automation
 Added `auto_faq.py` for automating Product Q&A filling on `live.app.anylive.jp`. Extracted shared
