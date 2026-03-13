@@ -431,6 +431,159 @@ class ScriptAutomation(BrowserAutomation):
 
         return results
 
+    async def _wait_for_upload_confirmation_by_count(
+        self, expected_count: int, timeout_s: float = 20.0
+    ) -> bool:
+        """Poll until script count increments to expected_count."""
+        interval = 0.5
+        elapsed = 0.0
+        while elapsed < timeout_s:
+            current = await self.get_script_count()
+            if current == expected_count:
+                return True
+            await asyncio.sleep(interval)
+            elapsed += interval
+        return False
+
+    async def _upload_audio_file(self, audio_path: str) -> bool:
+        """Upload a single audio file via the 'Add Audio' button.
+
+        Uses Playwright's expect_file_chooser() to handle the native file dialog.
+        Polls for script count to increment as upload confirmation.
+        """
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        count_before = await self.get_script_count()
+
+        try:
+            add_btn = self.page.get_by_role("button", name="Add Audio")
+            if await add_btn.count() == 0:
+                add_btn = self.page.locator('button:has-text("Add Audio")')
+
+            if await add_btn.count() == 0:
+                self.logger.error("Could not find 'Add Audio' button")
+                return False
+
+            async with self.page.expect_file_chooser(timeout=CLICK_TIMEOUT) as fc_info:
+                await add_btn.first.click()
+            file_chooser = await fc_info.value
+            await file_chooser.set_files(audio_path)
+
+            audio_filename = os.path.basename(audio_path)
+            self.logger.debug(
+                f"File set: {audio_filename}, waiting for OSS upload confirmation..."
+            )
+
+            confirmed = await self._wait_for_upload_confirmation_by_count(
+                count_before + 1, timeout_s=20.0
+            )
+            if confirmed:
+                self.logger.info(f"Uploaded: {audio_filename}")
+            else:
+                self.logger.warning(
+                    f"Upload confirmation timeout for {audio_filename} "
+                    f"(expected count: {count_before + 1})"
+                )
+            return confirmed
+
+        except Exception as e:
+            self.logger.error(f"Error uploading {os.path.basename(audio_path)}: {e}")
+            return False
+
+    async def upload_product_scripts(
+        self, product: ProductScript, dry_run: bool = False
+    ) -> bool:
+        """Upload audio files for all rows in a product."""
+        if not await self.select_product(product.product_number):
+            product.error = f"Could not select product #{product.product_number}"
+            return False
+
+        current_count = await self.get_script_count()
+        rows_to_upload = len(product.rows)
+
+        if current_count + rows_to_upload > 20:
+            product.error = (
+                f"Upload would exceed 20 scripts for product #{product.product_number} "
+                f"(current: {current_count}, adding: {rows_to_upload})"
+            )
+            self.logger.error(product.error)
+            return False
+
+        if dry_run:
+            for row in product.rows:
+                audio_path = resolve_audio_file(
+                    row.audio_code,
+                    row.product_number,
+                    self.config.audio_dir,
+                    self.config.audio_extensions,
+                    self.logger,
+                )
+                if audio_path:
+                    self.logger.info(
+                        f"DRY RUN: Would upload {os.path.basename(audio_path)} "
+                        f"for product #{product.product_number}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"DRY RUN: Audio not found for code '{row.audio_code}' "
+                        f"(product #{product.product_number})"
+                    )
+            product.success = True
+            return True
+
+        uploaded = 0
+        for i, row in enumerate(product.rows):
+            audio_path = resolve_audio_file(
+                row.audio_code,
+                row.product_number,
+                self.config.audio_dir,
+                self.config.audio_extensions,
+                self.logger,
+            )
+            if not audio_path:
+                self.logger.warning(
+                    f"Skipping row {i + 1}: audio not found for code '{row.audio_code}'"
+                )
+                continue
+
+            ok = await self._upload_audio_file(audio_path)
+            if ok:
+                uploaded += 1
+                self.logger.info(
+                    f"Uploaded {uploaded}/{rows_to_upload} audio for "
+                    f"product #{product.product_number}: {os.path.basename(audio_path)}"
+                )
+            else:
+                self.logger.warning(
+                    f"Failed to upload row {i + 1} for product #{product.product_number}"
+                )
+
+        product.success = uploaded == rows_to_upload
+        if not product.success:
+            product.error = (
+                f"{rows_to_upload - uploaded}/{rows_to_upload} uploads failed"
+            )
+        return product.success
+
+    async def upload_all_scripts(
+        self, products: List[ProductScript], dry_run: bool = False
+    ) -> None:
+        """Upload audio scripts for all products."""
+        for product in products:
+            try:
+                await self.upload_product_scripts(product, dry_run=dry_run)
+            except Exception as e:
+                product.error = str(e)
+                product.success = False
+                self.logger.error(
+                    f"Error processing product #{product.product_number}: {e}"
+                )
+                try:
+                    await self.take_screenshot(f"product_{product.product_number}")
+                except Exception as screenshot_err:
+                    self.logger.debug(f"Screenshot failed: {screenshot_err}")
+
 
 # ---------------------------------------------------------------------------
 # Config loading
