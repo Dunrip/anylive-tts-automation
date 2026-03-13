@@ -44,6 +44,24 @@ python auto_tts.py --config /path/to/config.json
 python auto_tts.py --csv /path/to/file.csv
 ```
 
+### Script Automation (Set Live Content)
+```bash
+# One-time login setup (shares session with auto_faq.py)
+python auto_script.py --setup --client example
+
+# Upload scripts from CSV
+python auto_script.py --client example --csv scripts.csv
+
+# Delete all scripts from all products (CSV not required)
+python auto_script.py --client example --delete-scripts
+
+# Dry run (preview without browser interaction)
+python auto_script.py --client example --dry-run --limit 2
+
+# Start from a specific product number
+python auto_script.py --client example --start-product 3
+```
+
 ### Testing & Debugging
 ```bash
 # Dry run (fill forms without generating speech)
@@ -76,7 +94,7 @@ python auto_tts.py --template "Template_Name"
 ## Architecture
 
 ### High-Level Overview
-Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces.
+Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces. Also includes `auto_faq.py` for Product Q&A automation and `auto_script.py` for Set Live Content script upload/deletion.
 
 ### Core Components
 
@@ -153,9 +171,11 @@ Generate JSON report
 
 ### Key Files
 - `auto_tts.py`: Main automation script (single-file design for app compilation)
+- `auto_faq.py`: Product FAQ automation script (CLI)
+- `auto_script.py`: Set Live Content script automation (CLI) — upload/delete audio scripts
 - `menubar_gui.py`: macOS menu bar application
 - `menubar_app.spec`: PyInstaller specification file
-- `configs/*.json`: Client configurations
+- `configs/*.json`: Client configurations (`{client}.json` for FAQ, `{client}_script.json` for script)
 - `session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
 - `screenshots/`: Error screenshots (gitignored)
