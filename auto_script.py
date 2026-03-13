@@ -29,6 +29,8 @@ from shared import (
     get_session_file_path,
     CLICK_TIMEOUT,
     NAVIGATION_TIMEOUT,
+    MAX_RETRIES,
+    RETRY_DELAY_SECONDS,
 )
 
 # ---------------------------------------------------------------------------
@@ -304,7 +306,7 @@ class ScriptAutomation(BrowserAutomation):
             raise RuntimeError("Browser page is not initialized")
 
         try:
-            more_btn = self.page.get_by_role("button", name="more").first
+            more_btn = self.page.get_by_role("button", name="more", exact=True).first
             if await more_btn.count() == 0:
                 more_btn = self.page.locator('[aria-label="more"]').first
 
@@ -368,11 +370,21 @@ class ScriptAutomation(BrowserAutomation):
             if current_count == 0:
                 break
 
-            ok = await self._delete_single_script(product_number, current_count)
+            ok = False
+            for attempt in range(MAX_RETRIES):
+                ok = await self._delete_single_script(product_number, current_count)
+                if ok:
+                    break
+                self.logger.warning(
+                    f"Delete attempt {attempt + 1}/{MAX_RETRIES} failed for "
+                    f"product #{product_number}, retrying..."
+                )
+                await asyncio.sleep(RETRY_DELAY_SECONDS)
+
             if not ok:
                 self.logger.error(
-                    f"Failed to delete script for product #{product_number}, "
-                    f"stopping after {deleted} deletions"
+                    f"Failed to delete script for product #{product_number} "
+                    f"after {MAX_RETRIES} attempts, stopping after {deleted} deletions"
                 )
                 return False, deleted
 

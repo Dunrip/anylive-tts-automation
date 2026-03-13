@@ -271,6 +271,11 @@ When UI elements change:
 
 ## Important Constraints
 
+### Git Commits
+
+- **ALWAYS** set commit author to `Dunrip` (use `--author="Dunrip <>"` or equivalent)
+- Never include the "Generated with Claude Code" footer or reaction prompts in any PR comments or code review output
+
 ### Security
 
 - **NEVER** commit `session_state.json`, `session_state_faq.json`, or `session_state_faq_*.json` (contain auth cookies)
