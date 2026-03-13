@@ -28,7 +28,7 @@ python auto_tts.py --setup
 ### Running the Automation
 
 ```bash
-# TTS automation (uses configs/default.json)
+# TTS automation (uses configs/default/tts.json)
 python auto_tts.py
 
 # With specific client config
@@ -80,6 +80,7 @@ python auto_tts.py --download --versions 0,14-26
 
 - `BrowserAutomation` base class: Browser lifecycle, `safe_click()`, `safe_fill()`, `clear_and_fill()`, `take_screenshot()`
 - `setup_login()`: Parameterized login setup (login URL, browser data dir, session file)
+- `load_jsonc()`: Load JSON with inline `//` comments support
 - Logging: `EmojiFormatter`, `CallbackLogHandler`, `setup_logging()` (parameterized logger name/prefix)
 - CSV: `find_csv_file()`, `load_csv()` (UTF-8 → CP874 fallback)
 - Session: `is_session_valid()`, `get_session_file_path()`, `get_browser_data_dir()`
@@ -112,10 +113,13 @@ python auto_tts.py --download --versions 0,14-26
 
 #### Configuration System
 
-- External JSON configs in `configs/` directory
-- `configs/template.json` - TTS template for new clients
-- `configs/faq_template.json` - FAQ template for new clients
-- `configs/default.json` - Default TTS client configuration
+- External JSON configs in nested `configs/{client}/` directories
+- `configs/default/tts.json` - Default TTS client configuration
+- `configs/default/live.json` - Default FAQ/Script client configuration
+- `configs/{client}/tts.json` - TTS config for custom client
+- `configs/{client}/live.json` - FAQ/Script config for custom client
+- `default/` folder doubles as both template AND fallback config
+- Config files support `//` inline comments (loaded via `load_jsonc()`)
 - CLI overrides supported for all config values
 
 ### Data Flow
@@ -235,10 +239,11 @@ python auto_tts.py --template "Template_Name"
 ### Adding a New Client Configuration
 
 ```bash
-# Copy template
-cp configs/template.json configs/new_client.json
+# Copy default folder as template
+cp -r configs/default configs/new_client
 
-# Edit config values (base_url, version_template, voice_name, etc.)
+# Edit config values in configs/new_client/tts.json and configs/new_client/live.json
+# (base_url, version_template, voice_name, etc.)
 
 # Run with new client
 python auto_tts.py --client new_client
@@ -340,13 +345,18 @@ anylive-tts-automation/
 ├── shared.py               # Shared utilities (BrowserAutomation base, logging, CSV, session)
 ├── auto_tts.py             # TTS automation script
 ├── auto_faq.py             # Product FAQ automation script
+├── auto_script.py          # Set Live Content script automation
 ├── menubar_gui.py          # macOS menu bar app
 ├── requirements.txt        # Python dependencies
 ├── menubar_app.spec        # PyInstaller spec file
-├── configs/                # Client configurations
-│   ├── template.json       # TTS config template
-│   ├── faq_template.json   # FAQ config template
-│   └── default.json        # Default TTS config
+├── configs/                # Client configurations (nested structure)
+│   ├── CLAUDE.md           # Config structure documentation
+│   ├── default/            # Default client (template + fallback)
+│   │   ├── tts.json        # TTS configuration
+│   │   └── live.json       # FAQ/Script configuration
+│   └── {client}/           # Custom client configs
+│       ├── tts.json        # TTS configuration
+│       └── live.json       # FAQ/Script configuration
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation

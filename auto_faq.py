@@ -5,6 +5,7 @@ Reads a CSV with product questions and audio codes, navigates to the
 Product Q&A page on live.app.anylive.jp, and fills question fields +
 uploads audio files for each product.
 """
+
 import argparse
 import asyncio
 import json
@@ -23,6 +24,7 @@ from shared import (
     setup_logging,
     find_csv_file,
     load_csv,
+    load_jsonc,
     is_session_valid,
     get_session_file_path,
     CLICK_TIMEOUT,
@@ -113,11 +115,10 @@ def load_faq_config(
     if not os.path.exists(config_path):
         raise FileNotFoundError(
             f"Config file not found: {config_path}\n"
-            f"Please create a config file or use the template at configs/faq_template.json"
+            f"Please create a config file by copying configs/default/"
         )
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config_data = json.load(f)
+    config_data = load_jsonc(config_path)
 
     if cli_overrides:
         config_data.update(cli_overrides)
@@ -758,8 +759,7 @@ class FAQAutomation(BrowserAutomation):
             )
             if not audio_path:
                 self.logger.warning(
-                    f"No audio file for row {row_idx + 1} "
-                    f"(code: {faq_row.audio_code})"
+                    f"No audio file for row {row_idx + 1} (code: {faq_row.audio_code})"
                 )
                 continue
             # Skip if audio filename already visible (already uploaded)
@@ -1020,7 +1020,7 @@ async def main() -> None:
     parser.add_argument(
         "--client",
         type=str,
-        help="Client name (loads configs/{NAME}.json)",
+        help="Client name (loads configs/{NAME}/live.json)",
     )
     parser.add_argument("--base-url", type=str, help="Override base URL")
 
@@ -1063,11 +1063,11 @@ async def main() -> None:
     # Resolve config path
     config_path: str
     if args.client:
-        config_path = f"configs/{args.client}.json"
+        config_path = f"configs/{args.client}/live.json"
     elif args.config:
         config_path = args.config
     else:
-        config_path = "configs/default_faq.json"
+        config_path = "configs/default/live.json"
 
     cli_overrides: dict = {}
     if args.base_url:
@@ -1089,9 +1089,8 @@ async def main() -> None:
     try:
         csv_from_config = None
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                _cfg_raw = json.load(f)
-                csv_from_config = _cfg_raw.get("csv")
+            _cfg_raw = load_jsonc(config_path)
+            csv_from_config = _cfg_raw.get("csv")
         except Exception:
             csv_from_config = None
 

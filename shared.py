@@ -3,6 +3,7 @@
 
 Extracted from auto_tts.py to enable reuse across auto_tts.py and auto_faq.py.
 """
+
 import asyncio
 import glob
 import json
@@ -11,7 +12,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -35,6 +36,33 @@ RETRY_DELAY_SECONDS = 2
 POST_AUTOSAVE_DELAY_SECONDS = 3.0
 PRE_FILL_START_DELAY_SECONDS = 0.5
 SESSION_FILE = "session_state.json"
+
+
+# ---------------------------------------------------------------------------
+# JSONC loader (JSON with // comments)
+# ---------------------------------------------------------------------------
+def _strip_jsonc_comments(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        idx = line.find("//")
+        while idx != -1:
+            prefix = line[:idx]
+            if prefix.count('"') % 2 == 0:
+                line = prefix.rstrip()
+                break
+            idx = line.find("//", idx + 2)
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def load_jsonc(path: str) -> dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    return json.loads(_strip_jsonc_comments(raw))
+
 
 # ---------------------------------------------------------------------------
 # App support directory management

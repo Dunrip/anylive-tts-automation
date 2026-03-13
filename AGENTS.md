@@ -99,9 +99,11 @@ Playwright-based web automation tool for TTS script creation on AnyLive. Include
 ### Core Components
 
 #### 1. **Configuration System** (`ClientConfig`)
-- External JSON-based multi-client configuration
-- Default config: `configs/default.json`
-- Template: `configs/template.json`
+- External JSON-based multi-client configuration in nested directories
+- Default config: `configs/default/tts.json` (TTS) and `configs/default/live.json` (FAQ/Script)
+- Custom client: `configs/{client}/tts.json` and `configs/{client}/live.json`
+- `default/` folder doubles as both template AND fallback config
+- Config files support `//` inline comments (loaded via `load_jsonc()`)
 - CLI override support for all config values
 
 #### 2. **CSV Parser** (`parse_csv_data`)
@@ -175,7 +177,8 @@ Generate JSON report
 - `auto_script.py`: Set Live Content script automation (CLI) — upload/delete audio scripts
 - `menubar_gui.py`: macOS menu bar application
 - `menubar_app.spec`: PyInstaller specification file
-- `configs/*.json`: Client configurations (`{client}.json` for FAQ, `{client}_script.json` for script)
+- `configs/{client}/tts.json`: TTS client configuration
+- `configs/{client}/live.json`: FAQ/Script client configuration
 - `session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
 - `screenshots/`: Error screenshots (gitignored)
@@ -291,8 +294,8 @@ graph TD
 ## Development Hints
 
 ### Adding a New Client Configuration
-1. Copy template: `cp configs/template.json configs/new_client.json`
-2. Edit config values:
+1. Copy default folder: `cp -r configs/default configs/new_client`
+2. Edit config values in `configs/new_client/tts.json` and `configs/new_client/live.json`:
    - `base_url`: Target scripts page URL
    - `version_template`: Template version name
    - `voice_name`: Voice clone name

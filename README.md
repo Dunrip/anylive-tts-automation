@@ -58,19 +58,23 @@ Place your CSV file in the project root directory. The script will auto-detect i
 ### Quick Start (Using Default Config)
 
 ```bash
-# Uses configs/default.json by default
+# Uses configs/default/tts.json by default
 python auto_tts.py --setup
 python auto_tts.py
 ```
 
 ### Creating a New Client Configuration
 
-1. **Copy the template**:
+1. **Copy the default folder**:
    ```bash
-   cp configs/template.json configs/new_client.json
+   cp -r configs/default configs/new_client
    ```
 
-2. **Edit the config**:
+2. **Edit the configs**:
+   - `configs/new_client/tts.json` for TTS settings
+   - `configs/new_client/live.json` for FAQ/Script settings
+
+   Example `tts.json`:
    ```json
    {
      "base_url": "https://app.anylive.jp/scripts/XXX",
@@ -95,10 +99,10 @@ python auto_tts.py
 
 ### Available Configurations
 
-- `configs/default.json` - Default TTS client configuration
-- `configs/default_faq.json` - Default FAQ client configuration
-- `configs/template.json` - Template for creating new TTS client configs
-- `configs/faq_template.json` - Template for FAQ automation configs
+- `configs/default/tts.json` - Default TTS client configuration
+- `configs/default/live.json` - Default FAQ/Script client configuration
+- `configs/{client}/tts.json` - Custom TTS client configs
+- `configs/{client}/live.json` - Custom FAQ/Script client configs
 
 ## Usage
 
@@ -117,7 +121,7 @@ This will:
 ### Normal Run
 
 ```bash
-# Default (uses configs/default.json)
+# Default (uses configs/default/tts.json)
 python auto_tts.py
 
 # Specify client config
@@ -191,7 +195,7 @@ python auto_tts.py --download --replace
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `--client` | name | Load config from `configs/{NAME}.json` |
+| `--client` | name | Load config from `configs/{NAME}/tts.json` (TTS) or `configs/{NAME}/live.json` (FAQ/Script) |
 | `--config` | path | Path to custom config JSON file |
 | `--base-url` | url | Override base URL from config |
 | `--voice` | name | Override voice clone name from config |
@@ -205,15 +209,19 @@ anylive-tts-automation/
 ├── shared.py               # Shared utilities (browser base class, logging, CSV, session)
 ├── auto_tts.py             # TTS automation script (CLI)
 ├── auto_faq.py             # Product FAQ automation script (CLI)
+├── auto_script.py          # Set Live Content script automation (CLI)
 ├── menubar_gui.py          # macOS menu bar application
 ├── menubar_app.spec        # PyInstaller specification
 ├── requirements.txt        # Dependencies
 ├── .gitignore              # Ignore logs, screenshots, session, csv
-├── configs/                # Client configurations
-│   ├── template.json       # TTS config template
-│   ├── faq_template.json   # FAQ config template
-│   ├── default.json        # Default TTS config
-│   └── default_faq.json    # Default FAQ config
+├── configs/                # Client configurations (nested structure)
+│   ├── CLAUDE.md           # Config structure documentation
+│   ├── default/            # Default client (template + fallback)
+│   │   ├── tts.json        # TTS configuration
+│   │   └── live.json       # FAQ/Script configuration
+│   └── {client}/           # Custom client configs
+│       ├── tts.json        # TTS configuration
+│       └── live.json       # FAQ/Script configuration
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
@@ -241,7 +249,7 @@ anylive-tts-automation/
 ```
 12:34:56 | INFO | 🚀 ANYLIVE TTS AUTOMATION
 12:34:56 | INFO | ======================================================================
-12:34:57 | INFO | 📋 Loaded config: configs/default.json
+12:34:57 | INFO | 📋 Loaded config: configs/default/tts.json
 12:34:57 | INFO | 📂 Loading CSV: scripts.csv
 12:34:57 | INFO | Valid rows: 45
 12:34:57 | INFO | Total script rows: 45
@@ -602,7 +610,7 @@ python auto_script.py --client mahajak --debug
 
 ### Script Configuration
 
-Config file: `configs/{client}_script.json`
+Config file: `configs/{client}/live.json`
 
 ```json
 {

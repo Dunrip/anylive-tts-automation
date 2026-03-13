@@ -1,0 +1,14 @@
+{
+  // Live config template — shared by FAQ (auto_faq.py) and Script (auto_script.py)
+  // Site: live.app.anylive.jp
+  "base_url": "https://live.app.anylive.jp/live/SESSION_ID_HERE",
+  "audio_dir": "downloads",              // directory containing audio files
+  "audio_extensions": [".mp3", ".wav"],   // supported audio formats
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "question": "Keywords",              // FAQ: question/keyword column
+    "script_content": "TH Script",       // Script: Thai script column
+    "audio_code": "Audio Code"
+  }
+}

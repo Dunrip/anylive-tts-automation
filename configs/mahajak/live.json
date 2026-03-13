@@ -5,6 +5,7 @@
   "csv_columns": {
     "product_number": "No.",
     "product_name": "Product Name",
+    "question": "Keywords",
     "script_content": "TH Script",
     "audio_code": "Audio Code"
   }
