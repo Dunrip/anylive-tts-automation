@@ -38,11 +38,12 @@ python auto_tts.py --client mycompany
 python auto_tts.py --csv /path/to/file.csv
 
 # FAQ automation (Product Q&A on live.app.anylive.jp)
-python auto_faq.py --setup                  # one-time login (separate from TTS)
-python auto_faq.py --csv faq.csv            # run with CSV
-python auto_faq.py --client dutchmill_faq   # use config
-python auto_faq.py --dry-run                # fill questions, skip audio upload
-python auto_faq.py --debug                  # keep browser open
+python auto_faq.py --setup --client dutchmill  # one-time login per brand
+python auto_faq.py --setup --client brandB     # setup a second brand
+python auto_faq.py --client dutchmill --csv faq.csv  # run explicit brand (saves as last-used)
+python auto_faq.py --csv faq.csv               # run last-used brand automatically
+python auto_faq.py --dry-run                   # fill questions, skip audio upload
+python auto_faq.py --debug                     # keep browser open
 python auto_faq.py --start-product 5 --limit 3  # process subset
 ```
 
@@ -98,7 +99,9 @@ python auto_tts.py --download --versions 0,14-26
 - `parse_faq_csv()`: Reads CSV, groups by product number (int matching)
 - `resolve_audio_file()`: Finds audio files in zero-padded subfolders or flat directory
 - FAQ-specific `FAQ_SELECTORS` dict
-- Uses `browser_data_faq/` and `session_state_faq.json` (separate site, separate auth)
+- Multi-account support: `_get_faq_session_paths()`, `_get_last_faq_client()`, `_save_last_faq_client()`
+- Per-client session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
+- Last-used client stored in `faq_last_client.json` (auto-selected when `--client` is omitted)
 
 **menubar_gui.py** - macOS menu bar application
 
@@ -270,7 +273,7 @@ When UI elements change:
 
 ### Security
 
-- **NEVER** commit `session_state.json` or `session_state_faq.json` (contain auth cookies)
+- **NEVER** commit `session_state.json`, `session_state_faq.json`, or `session_state_faq_*.json` (contain auth cookies)
 - **NEVER** commit CSV files (may contain sensitive product data)
 - **NEVER** commit `logs/` directory (may contain sensitive data)
 - All sensitive files are gitignored
@@ -345,9 +348,12 @@ anylive-tts-automation/
 ├── logs/                   # Generated at runtime (gitignored)
 ├── screenshots/            # Generated at runtime (gitignored)
 ├── browser_data/           # TTS browser context (gitignored)
-├── browser_data_faq/       # FAQ browser context (gitignored)
-├── session_state.json      # TTS session (gitignored)
-└── session_state_faq.json  # FAQ session (gitignored)
+├── browser_data_faq/           # FAQ browser context, legacy (gitignored)
+├── browser_data_faq_<client>/  # Per-brand FAQ browser context (gitignored)
+├── session_state.json          # TTS session (gitignored)
+├── session_state_faq.json      # FAQ session, legacy (gitignored)
+├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
+└── faq_last_client.json        # Last-used FAQ brand (gitignored)
 ```
 
 ### Important Files
@@ -356,7 +362,7 @@ anylive-tts-automation/
 - `auto_tts.py`: TTS automation logic (imports from shared.py)
 - `auto_faq.py`: FAQ automation logic (imports from shared.py)
 - `menubar_gui.py`: Menu bar application wrapper
-- `tests/`: Unit tests (33 tests covering CSV parsing, audio resolution, config, session)
+- `tests/`: Unit tests (77 tests covering CSV parsing, audio resolution, config, session)
 - `AGENTS.md`: Detailed architecture documentation (legacy, consider this CLAUDE.md authoritative)
 - `README.md`: User-facing documentation
 - `.gitignore`: Excludes logs, screenshots, session files, CSV files
@@ -370,8 +376,19 @@ Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product q
 ### Separate Authentication
 
 - FAQ uses `live.app.anylive.jp` (different site from TTS's `app.anylive.jp`)
-- Separate session: `session_state_faq.json` and `browser_data_faq/`
-- Run `python auto_faq.py --setup` to login (separate from TTS setup)
+- Each brand gets its own session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
+- Fallback to legacy `session_state_faq.json` / `browser_data_faq/` when no `--client` and no last-used
+- Run `python auto_faq.py --setup --client <brand>` once per brand
+
+### Multi-Account Behavior
+
+| Usage | Session used |
+|-------|-------------|
+| `--client dutchmill` | `session_state_faq_dutchmill.json` + `browser_data_faq_dutchmill/` |
+| *(no `--client`)* | Last-used client (from `faq_last_client.json`) |
+| *(no `--client`, first-ever run)* | Legacy `session_state_faq.json` / `browser_data_faq/` |
+
+- `faq_last_client.json` is written whenever `--client` is passed on an automation run (not `--setup`)
 
 ### FAQ Config Fields
 
@@ -406,9 +423,15 @@ Audio files are matched by `audio_code` in the configured `audio_dir`:
 
 ## Recent Changes
 
+### Multi-Account FAQ Support
+
+`auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
+`session_state_faq_{client}.json` and `browser_data_faq_{client}/`. The last-used client is saved
+to `faq_last_client.json` and auto-selected when `--client` is omitted.
+
 ### FAQ Automation (auto_faq.py)
 
-Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added 33 unit tests.
+Added `auto_faq.py` for Product Q&A automation on `live.app.anylive.jp`. Extracted shared utilities into `shared.py` (`BrowserAutomation` base class, logging, CSV, session management). Added unit tests.
 
 ### Version 2.x Breaking Changes
 

@@ -217,11 +217,14 @@ anylive-tts-automation/
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
-├── session_state.json      # TTS login session (gitignored)
-├── session_state_faq.json  # FAQ login session (gitignored)
-├── *.csv                   # Input CSV files
-├── browser_data/           # TTS browser context (gitignored)
-├── browser_data_faq/       # FAQ browser context (gitignored)
+├── session_state.json           # TTS login session (gitignored)
+├── session_state_faq.json       # FAQ login session, legacy (gitignored)
+├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
+├── faq_last_client.json         # Last-used FAQ brand (gitignored)
+├── *.csv                        # Input CSV files
+├── browser_data/                # TTS browser context (gitignored)
+├── browser_data_faq/            # FAQ browser context, legacy (gitignored)
+├── browser_data_faq_<client>/   # Per-brand FAQ browser context (gitignored)
 ├── logs/                   # Created at runtime (gitignored)
 │   ├── auto_tts_*.log
 │   ├── auto_faq_*.log
@@ -513,15 +516,19 @@ A separate script (`auto_faq.py`) automates filling Product Q&A on `live.app.any
 
 ### FAQ Setup
 
+Each brand account needs a one-time login. Sessions are fully isolated per brand.
+
 ```bash
-# One-time login (separate site, separate session)
-python auto_faq.py --setup
+# One-time login per brand (separate site, separate session)
+python auto_faq.py --setup --client dutchmill
+python auto_faq.py --setup --client brandB
 
-# Run with CSV
+# Run with explicit brand (also saves as last-used)
+python auto_faq.py --client dutchmill --csv dutchmill.csv
+python auto_faq.py --client brandB --csv brandB.csv
+
+# Run without --client → uses last-used brand automatically
 python auto_faq.py --csv FAQ.csv
-
-# Use a client config
-python auto_faq.py --client dutchmill_faq
 
 # Dry run (fill questions, skip audio upload)
 python auto_faq.py --dry-run
@@ -535,6 +542,8 @@ python auto_faq.py --start-product 5 --limit 3
 # Override audio directory
 python auto_faq.py --audio-dir ./my_audio
 ```
+
+**Account resolution order:** `--client` > last-used (`faq_last_client.json`) > legacy default (`session_state_faq.json`)
 
 ### FAQ Configuration
 
@@ -576,6 +585,11 @@ existing files. Supports `--start-version` to resume from a specific version.
 ### Auto-Save (removed `--no-save`)
 The AnyLive site now auto-saves versions. The `--no-save` flag has been removed as there is
 no longer a separate save step.
+
+### Multi-Account FAQ Support
+`auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
+`session_state_faq_{client}.json` and `browser_data_faq_{client}/` directory. The last-used brand
+is saved automatically and selected when `--client` is omitted.
 
 ### Product FAQ Automation
 Added `auto_faq.py` for automating Product Q&A filling on `live.app.anylive.jp`. Extracted shared
