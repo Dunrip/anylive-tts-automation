@@ -61,14 +61,6 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
     ],
 }
 
-_SHARED_SCRIPT_HELPERS = (
-    setup_login,
-    setup_logging,
-    find_csv_file,
-    load_csv,
-    is_session_valid,
-)
-
 
 # ---------------------------------------------------------------------------
 # Multi-account session helpers
