@@ -125,7 +125,7 @@ Playwright-based web automation tool for TTS script creation on AnyLive. Include
 - Naming: `{ProductNo}_{ProductName}` or `{ProductNo}_{ProductName}_v2` for overflow
 
 #### 4. **Session Management**
-- Browser session persistence via `session_state.json`
+- Browser session persistence via `state/session_state.json`
 - One-time login with `--setup`
 - Session validation before execution
 - Auto-saves cookies and auth state
@@ -179,10 +179,10 @@ Generate JSON report
 - `menubar_app.spec`: PyInstaller specification file
 - `configs/{client}/tts.json`: TTS client configuration
 - `configs/{client}/live.json`: FAQ/Script client configuration
-- `session_state.json`: Saved browser session (gitignored)
+- `state/session_state.json`: Saved browser session (gitignored)
 - `logs/`: Execution logs and JSON reports (gitignored)
 - `screenshots/`: Error screenshots (gitignored)
-- `browser_data/`: Playwright persistent context (gitignored)
+- `state/browser_data/`: Playwright persistent context (gitignored)
 
 ### System Diagram
 
@@ -236,7 +236,7 @@ graph TD
 
 ### Session Management
 - **MUST** run `--setup` before first use to save session
-- Session file (`session_state.json`) is **NEVER** committed to git
+- Session file (`state/session_state.json`) is **NEVER** committed to git
 - Session validation happens on every run; if expired, user must re-run `--setup`
 
 ### CSV Processing Rules
@@ -289,7 +289,7 @@ graph TD
 - Session file contains authentication cookies → gitignored
 - CSV files may contain sensitive product data → gitignored
 - Logs may contain sensitive data → gitignored
-- **NEVER** commit `session_state.json`, `*.csv`, or `logs/` to version control
+- **NEVER** commit `state/session_state.json`, `*.csv`, or `logs/` to version control
 
 ## Development Hints
 
@@ -331,7 +331,7 @@ Current logic: Product-based grouping
 5. Use `--no-save` to test without saving (inspect filled forms manually)
 
 ### Testing Session Handling
-- Delete `session_state.json` to test fresh login flow
+- Delete `state/session_state.json` to test fresh login flow
 - Run `--setup` multiple times to verify session reuse logic
 - Check session validation with expired/invalid session files
 

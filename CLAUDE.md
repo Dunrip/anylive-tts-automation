@@ -92,7 +92,7 @@ python auto_tts.py --download --versions 0,14-26
 - `parse_csv_data()`: Reads CSV and groups scripts by product
 - Imports shared utilities from `shared.py` (re-exports for backward compat with menubar_gui.py)
 - TTS-specific `SELECTORS` dict
-- Uses `browser_data/` and `session_state.json` for `app.anylive.jp`
+- Uses `state/browser_data/` and `state/session_state.json` for `app.anylive.jp`
 
 **auto_faq.py** - Product FAQ automation script
 
@@ -101,8 +101,8 @@ python auto_tts.py --download --versions 0,14-26
 - `resolve_audio_file()`: Finds audio files in zero-padded subfolders or flat directory
 - FAQ-specific `FAQ_SELECTORS` dict
 - Multi-account support: `_get_faq_session_paths()`, `_get_last_faq_client()`, `_save_last_faq_client()`
-- Per-client session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
-- Last-used client stored in `faq_last_client.json` (auto-selected when `--client` is omitted)
+- Per-client session: `state/session_state_faq_{client}.json` + `state/browser_data_faq_{client}/`
+- Last-used client stored in `state/faq_last_client.json` (auto-selected when `--client` is omitted)
 
 **menubar_gui.py** - macOS menu bar application
 
@@ -157,7 +157,7 @@ The script expects CSV files with these columns (column names configurable via c
 
 ### Session Management
 
-- Browser session persists via `session_state.json`
+- Browser session persists via `state/session_state.json`
 - One-time login with `--setup` flag
 - Session validation before each run
 - Session file excluded from git (contains auth cookies)
@@ -283,7 +283,7 @@ When UI elements change:
 
 ### Security
 
-- **NEVER** commit `session_state.json`, `session_state_faq.json`, or `session_state_faq_*.json` (contain auth cookies)
+- **NEVER** commit session files (`state/session_state.json`, `state/session_state_faq.json`, etc.)
 - **NEVER** commit CSV files (may contain sensitive product data)
 - **NEVER** commit `logs/` directory (may contain sensitive data)
 - All sensitive files are gitignored
@@ -316,8 +316,10 @@ When UI elements change:
 ├── configs/              # User-editable configurations
 ├── logs/                 # Execution logs and reports
 ├── screenshots/          # Error screenshots
-├── browser_data/         # Playwright persistent context
-├── session_state.json    # Saved browser session
+├── state/                # State and browser data (untracked)
+│   ├── browser_data/     # Playwright persistent context
+│   ├── session_state.json # Saved browser session
+│   └── faq_last_client.json # Last-used brand
 └── menubar_state.json    # GUI state
 ```
 
@@ -357,18 +359,16 @@ anylive-tts-automation/
 │   └── {client}/           # Custom client configs
 │       ├── tts.json        # TTS configuration
 │       └── live.json       # FAQ/Script configuration
+├── state/                  # Runtime state (gitignored)
+│   ├── browser_data*/      # Playwright browser contexts
+│   ├── session_state*.json # Saved login sessions
+│   └── faq_last_client.json # Last-used FAQ brand
 ├── tests/                  # Unit tests
 │   ├── test_shared.py      # Tests for shared utilities
 │   └── test_auto_faq.py    # Tests for FAQ automation
 ├── logs/                   # Generated at runtime (gitignored)
 ├── screenshots/            # Generated at runtime (gitignored)
-├── browser_data/           # TTS browser context (gitignored)
-├── browser_data_faq/           # FAQ browser context, legacy (gitignored)
-├── browser_data_faq_<client>/  # Per-brand FAQ browser context (gitignored)
-├── session_state.json          # TTS session (gitignored)
-├── session_state_faq.json      # FAQ session, legacy (gitignored)
-├── session_state_faq_<client>.json  # Per-brand FAQ session (gitignored)
-└── faq_last_client.json        # Last-used FAQ brand (gitignored)
+└── README.md               # User-facing documentation
 ```
 
 ### Important Files
@@ -391,19 +391,19 @@ Automates Product Q&A filling on `live.app.anylive.jp`. Reads CSV with product q
 ### Separate Authentication
 
 - FAQ uses `live.app.anylive.jp` (different site from TTS's `app.anylive.jp`)
-- Each brand gets its own session: `session_state_faq_{client}.json` + `browser_data_faq_{client}/`
-- Fallback to legacy `session_state_faq.json` / `browser_data_faq/` when no `--client` and no last-used
+- Each brand gets its own session: `state/session_state_faq_{client}.json` + `state/browser_data_faq_{client}/`
+- Fallback to legacy `state/session_state_faq.json` / `state/browser_data_faq/` when no `--client` and no last-used
 - Run `python auto_faq.py --setup --client <brand>` once per brand
 
 ### Multi-Account Behavior
 
 | Usage | Session used |
 |-------|-------------|
-| `--client mybrand` | `session_state_faq_mybrand.json` + `browser_data_faq_mybrand/` |
-| *(no `--client`)* | Last-used client (from `faq_last_client.json`) |
-| *(no `--client`, first-ever run)* | Legacy `session_state_faq.json` / `browser_data_faq/` |
+| `--client mybrand` | `state/session_state_faq_mybrand.json` + `state/browser_data_faq_mybrand/` |
+| *(no `--client`)* | Last-used client (from `state/faq_last_client.json`) |
+| *(no `--client`, first-ever run)* | Legacy `state/session_state_faq.json` / `state/browser_data_faq/` |
 
-- `faq_last_client.json` is written whenever `--client` is passed on an automation run (not `--setup`)
+- `state/faq_last_client.json` is written whenever `--client` is passed on an automation run (not `--setup`)
 
 ### FAQ Config Fields
 
@@ -441,8 +441,8 @@ Audio files are matched by `audio_code` in the configured `audio_dir`:
 ### Multi-Account FAQ Support
 
 `auto_faq.py` now supports multiple brand accounts with isolated sessions. Each brand gets its own
-`session_state_faq_{client}.json` and `browser_data_faq_{client}/`. The last-used client is saved
-to `faq_last_client.json` and auto-selected when `--client` is omitted.
+`state/session_state_faq_{client}.json` and `state/browser_data_faq_{client}/` directory. The last-used brand
+is saved automatically and selected when `--client` is omitted.
 
 ### FAQ Automation (auto_faq.py)
 
