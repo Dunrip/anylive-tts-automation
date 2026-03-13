@@ -1,0 +1,11 @@
+{
+  "base_url": "https://live.app.anylive.jp/live/70f6c6166b15406a91dc841d85db9761",
+  "audio_dir": "downloads",
+  "audio_extensions": [".mp3", ".wav"],
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "script_content": "TH Script",
+    "audio_code": "Audio Code"
+  }
+}
