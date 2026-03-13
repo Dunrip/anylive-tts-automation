@@ -10,14 +10,23 @@ audio files from CSV.
 import json
 import logging
 import os
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import pandas as pd
 
 from shared import (
+    BrowserAutomation,
+    setup_login,
+    setup_logging,
+    find_csv_file,
+    load_csv,
+    is_session_valid,
     get_session_file_path,
+    CLICK_TIMEOUT,
+    NAVIGATION_TIMEOUT,
 )
 
 # ---------------------------------------------------------------------------
@@ -29,6 +38,32 @@ SCRIPT_SESSION_FILE = "session_state_faq.json"
 SCRIPT_BROWSER_DATA = "browser_data_faq"
 SCRIPT_LOGIN_URL = "https://live.app.anylive.jp"
 SCRIPT_LAST_CLIENT_FILE = "script_last_client.json"
+
+SCRIPT_SELECTORS: dict[str, list[str]] = {
+    "add_audio_button": [
+        'button:has-text("Add Audio")',
+        ':text("Add Audio")',
+    ],
+    "script_count": [
+        "text=/\\d+\\/20/",
+    ],
+    "more_button": [
+        'button[aria-label="more"]',
+        'button:has([aria-label="more"])',
+    ],
+    "delete_menuitem": [
+        '[role="menuitem"]:has-text("Delete")',
+        'li:has-text("Delete")',
+    ],
+}
+
+_SHARED_SCRIPT_HELPERS = (
+    setup_login,
+    setup_logging,
+    find_csv_file,
+    load_csv,
+    is_session_valid,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +133,150 @@ class ScriptConfig:
     csv: str = ""
 
 
+class ScriptAutomation(BrowserAutomation):
+    """Automates Set Live Content script management on live.app.anylive.jp."""
+
+    SELECTORS = SCRIPT_SELECTORS
+
+    def __init__(
+        self,
+        config: ScriptConfig,
+        *,
+        headless: bool = False,
+        logger: logging.Logger,
+        dry_run: bool = False,
+        screenshots_dir: Optional[str] = None,
+        browser_data_subdir: str = SCRIPT_BROWSER_DATA,
+        session_filename: str = SCRIPT_SESSION_FILE,
+    ) -> None:
+        super().__init__(
+            headless=headless,
+            logger=logger,
+            dry_run=dry_run,
+            screenshots_dir=screenshots_dir,
+            browser_data_subdir=browser_data_subdir,
+            session_filename=session_filename,
+            login_url=SCRIPT_LOGIN_URL,
+            base_url=config.base_url,
+        )
+        self.config = config
+
+    async def navigate_to_set_live_content(self) -> bool:
+        """Navigate to the Set Live Content tab (default active tab)."""
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        self.logger.info(f"Navigating to {self.config.base_url}")
+        await self.page.goto(
+            self.config.base_url,
+            wait_until="domcontentloaded",
+            timeout=NAVIGATION_TIMEOUT,
+        )
+        await asyncio.sleep(1.5)
+        try:
+            await self.page.wait_for_selector(
+                ':text("Script Configuration"), :text("Live Products")',
+                timeout=CLICK_TIMEOUT,
+            )
+            self.logger.info("On Set Live Content page")
+            return True
+        except Exception as e:
+            self.logger.warning(f"Could not verify Set Live Content page: {e}")
+            return True
+
+    async def select_product(self, product_number: int) -> bool:
+        """Click a product card in the left sidebar by its index number."""
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        num_str = str(product_number)
+        self.logger.debug(f"Selecting product #{product_number}")
+        await self.page.evaluate(
+            """() => {
+                document.querySelectorAll('[data-script-product]').forEach(
+                    el => el.removeAttribute('data-script-product')
+                );
+            }"""
+        )
+
+        found = await self.page.evaluate(
+            """(targetNum) => {
+                // Find sidebar product cards — each card has a number text element
+                // The sidebar contains numbered cards (1-60), each with a clickable area
+                const allDivs = document.querySelectorAll('div');
+                for (const div of allDivs) {
+                    // Look for elements that contain ONLY the target number as text
+                    const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                        const text = walker.currentNode.textContent.trim();
+                        if (text !== targetNum) continue;
+                        // Walk up to find a card-like container (has sibling with image)
+                        let el = walker.currentNode.parentElement;
+                        for (let i = 0; i < 5; i++) {
+                            if (!el) break;
+                            // Check if this element or its parent contains a product image
+                            const hasImg = el.querySelector('img');
+                            if (hasImg) {
+                                el.setAttribute('data-script-product', targetNum);
+                                return true;
+                            }
+                            el = el.parentElement;
+                        }
+                    }
+                }
+                return false;
+            }""",
+            num_str,
+        )
+
+        if not found:
+            self.logger.warning(
+                f"Could not find sidebar card for product #{product_number}"
+            )
+            return False
+
+        locator = self.page.locator(f'[data-script-product="{num_str}"]')
+        if await locator.count() == 0:
+            self.logger.warning(f"Tagged element disappeared for #{product_number}")
+            return False
+
+        await locator.first.scroll_into_view_if_needed()
+        await locator.first.click()
+        await asyncio.sleep(1.5)
+        self.logger.debug(f"Selected product #{product_number}")
+        return True
+
+    async def get_script_count(self) -> int:
+        """Read the current script count from the 'N/20' text in center pane."""
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        try:
+            count_el = self.page.locator("text=/^\\d+\\/20$/")
+            if await count_el.count() > 0:
+                text = await count_el.first.text_content()
+                if text:
+                    return int(text.split("/")[0])
+        except Exception as e:
+            self.logger.debug(f"Could not read script count: {e}")
+        return 0
+
+    async def get_product_count(self) -> int:
+        """Read total product count from sidebar header (e.g., '60/60' -> 60)."""
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        try:
+            count_el = self.page.locator("text=/^\\d+\\/\\d+$/")
+            if await count_el.count() > 0:
+                text = await count_el.first.text_content()
+                if text:
+                    return int(text.split("/")[0])
+        except Exception as e:
+            self.logger.debug(f"Could not read product count: {e}")
+        return 60
+
+
 # ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
@@ -139,6 +318,16 @@ def parse_script_csv(
     col_script = config.csv_columns.get("script_content", "TH Script")
     col_audio = config.csv_columns.get("audio_code", "Audio Code")
 
+    def _get_cell_value(row: pd.Series, key: str) -> Any:
+        value = row.get(key, "")
+        if isinstance(value, pd.Series):
+            return value.iloc[0] if not value.empty else ""
+        return value
+
+    def _get_cell_text(row: pd.Series, key: str) -> str:
+        value = _get_cell_value(row, key)
+        return "" if pd.isna(value) else str(value).strip()
+
     # Handle empty DataFrame
     if len(df) == 0:
         logger.info("Valid script rows: 0")
@@ -163,7 +352,7 @@ def parse_script_csv(
 
         if header_in_first_row:
             new_header = list(df.iloc[0])
-            df = df[1:].reset_index(drop=True)
+            df = pd.DataFrame(df.iloc[1:].reset_index(drop=True))
             df.columns = [
                 str(v).strip() if pd.notna(v) else f"col_{i}"
                 for i, v in enumerate(new_header)
@@ -178,7 +367,7 @@ def parse_script_csv(
             )
 
     # Filter header-like rows
-    df = df[df[col_product_name] != col_product_name]
+    df = pd.DataFrame(df[df[col_product_name] != col_product_name])
 
     # Forward-fill product_number and product_name
     df[col_product_name] = df[col_product_name].replace("", pd.NA)
@@ -187,28 +376,20 @@ def parse_script_csv(
     df[col_product_no] = df[col_product_no].ffill()
 
     # Filter rows that have either script_content or audio_code
-    valid_rows = df[df[col_script].notna() | df[col_audio].notna()]
+    valid_rows = pd.DataFrame(df[df[col_script].notna() | df[col_audio].notna()])
     logger.info(f"Valid script rows: {len(valid_rows)}")
 
     script_rows: List[ScriptRow] = []
-    for idx, row in valid_rows.iterrows():
-        raw_number = (
-            str(row[col_product_no]).strip() if pd.notna(row[col_product_no]) else "0"
-        )
+    for row_number, (_, row) in enumerate(valid_rows.iterrows(), start=2):
+        raw_number = _get_cell_text(row, col_product_no) or "0"
         try:
             product_number = int(float(raw_number))
         except ValueError:
             product_number = 0
 
-        product_name = (
-            str(row[col_product_name]).strip()
-            if pd.notna(row[col_product_name])
-            else ""
-        )
-        script_content = (
-            str(row[col_script]).strip() if pd.notna(row[col_script]) else ""
-        )
-        audio_code = str(row[col_audio]).strip() if pd.notna(row[col_audio]) else ""
+        product_name = _get_cell_text(row, col_product_name)
+        script_content = _get_cell_text(row, col_script)
+        audio_code = _get_cell_text(row, col_audio)
 
         script_rows.append(
             ScriptRow(
@@ -216,7 +397,7 @@ def parse_script_csv(
                 product_name=product_name,
                 script_content=script_content,
                 audio_code=audio_code,
-                row_number=int(idx) + 2,
+                row_number=row_number,
             )
         )
 
