@@ -52,7 +52,7 @@ def setup_app_support():
     CONFIGS_DIR.mkdir(exist_ok=True)
     LOGS_DIR.mkdir(exist_ok=True)
     SCREENSHOTS_DIR.mkdir(exist_ok=True)
-    (APP_SUPPORT_DIR / "browser_data").mkdir(exist_ok=True)
+    (APP_SUPPORT_DIR / "state" / "browser_data").mkdir(parents=True, exist_ok=True)
 
     # Configure logging early so button clicks / exceptions are recorded even
     # when running as a packaged .app (no console output).
@@ -905,8 +905,7 @@ class AnyLiveTTSApp(rumps.App):
 
         msg = (
             "This will delete local AnyLiveTTS app data on this Mac:\n\n"
-            f"- {APP_SUPPORT_DIR / 'browser_data'}\n"
-            f"- {APP_SUPPORT_DIR / 'session_state.json'}\n"
+            f"- {APP_SUPPORT_DIR / 'state'}\n"
             f"- {LOGS_DIR}\n"
             f"- {SCREENSHOTS_DIR}\n\n"
             "Configs will NOT be deleted.\n\nProceed?"
@@ -920,18 +919,15 @@ class AnyLiveTTSApp(rumps.App):
         try:
             # Close any remaining Playwright profile by killing stray Chromium for this app.
             # (Best effort; ignore errors.)
-            subprocess.call(["pkill", "-f", str(APP_SUPPORT_DIR / "browser_data")])
+            subprocess.call(["pkill", "-f", str(APP_SUPPORT_DIR / "state" / "browser_data")])
         except Exception:
             pass
 
         try:
             # Delete folders/files
-            for p in [APP_SUPPORT_DIR / "browser_data", LOGS_DIR, SCREENSHOTS_DIR]:
+            for p in [APP_SUPPORT_DIR / "state", LOGS_DIR, SCREENSHOTS_DIR]:
                 if p.exists():
                     shutil.rmtree(p, ignore_errors=True)
-            session_marker = APP_SUPPORT_DIR / "session_state.json"
-            if session_marker.exists():
-                session_marker.unlink()
 
             # Reset in-memory state
             self.session_valid = False

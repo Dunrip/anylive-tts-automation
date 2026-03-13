@@ -1223,9 +1223,18 @@ class TTSAutomation:
 
         target = f"{base}?page=1"
 
-        # If already on the list page for this asset, do nothing.
+        # SPA can update URL before DOM renders; verify content, not just URL.
         if current_url.startswith(base) and ("/edit/" not in current_url):
-            return
+            try:
+                await self.page.get_by_role("button", name="Add Version").wait_for(
+                    state="visible", timeout=5000
+                )
+                return
+            except Exception:
+                self.logger.debug(
+                    "URL shows list page but Add Version button not visible; "
+                    "forcing navigation."
+                )
 
         await self.page.goto(
             target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
@@ -1286,7 +1295,12 @@ class TTSAutomation:
                 except Exception:
                     pass
                 try:
-                    await self.page.reload(wait_until="domcontentloaded")
+                    base = self.config.base_url.split("?")[0].rstrip("/")
+                    await self.page.goto(
+                        f"{base}?page=1",
+                        wait_until="domcontentloaded",
+                        timeout=NAVIGATION_TIMEOUT,
+                    )
                 except Exception:
                     pass
                 await asyncio.sleep(0.8)
@@ -2055,6 +2069,13 @@ class TTSAutomation:
                     await self.page.locator("main button").first.click(timeout=800)
                 except Exception:
                     pass
+
+            try:
+                await self.page.get_by_role("button", name="Add Version").wait_for(
+                    state="visible", timeout=8000
+                )
+            except Exception:
+                pass
 
             if failed_slots:
                 self.logger.warning(
