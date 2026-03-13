@@ -276,6 +276,161 @@ class ScriptAutomation(BrowserAutomation):
             self.logger.debug(f"Could not read product count: {e}")
         return 60
 
+    async def _wait_for_delete_confirmation(
+        self, expected_count: int, timeout_s: float = 10.0
+    ) -> bool:
+        """Poll until script count drops to expected_count."""
+        interval = 0.5
+        elapsed = 0.0
+        while elapsed < timeout_s:
+            current = await self.get_script_count()
+            if current == expected_count:
+                return True
+            await asyncio.sleep(interval)
+            elapsed += interval
+        return False
+
+    async def _delete_single_script(
+        self, product_number: int, current_count: int
+    ) -> bool:
+        """Delete the FIRST script row in the center pane.
+
+        Always targets the first row because rows shift up after each deletion.
+        Flow: click 'more' button -> wait for dropdown -> click 'Delete' menuitem.
+        """
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        try:
+            more_btn = self.page.get_by_role("button", name="more").first
+            if await more_btn.count() == 0:
+                more_btn = self.page.locator('[aria-label="more"]').first
+
+            if await more_btn.count() == 0:
+                self.logger.error(
+                    f"Could not find 'more' button for product #{product_number}"
+                )
+                return False
+
+            await more_btn.scroll_into_view_if_needed()
+            await more_btn.click()
+            await asyncio.sleep(0.3)
+
+            delete_item = self.page.get_by_role("menuitem", name="Delete").first
+            try:
+                await delete_item.wait_for(state="visible", timeout=CLICK_TIMEOUT)
+            except Exception:
+                delete_item = self.page.locator(
+                    '[role="menuitem"]:has-text("Delete")'
+                ).first
+
+            await delete_item.click()
+            await asyncio.sleep(0.5)
+
+            confirmed = await self._wait_for_delete_confirmation(current_count - 1)
+            if not confirmed:
+                self.logger.warning(
+                    f"Delete confirmation timeout for product #{product_number} "
+                    f"(expected count: {current_count - 1})"
+                )
+            return confirmed
+
+        except Exception as e:
+            self.logger.error(
+                f"Error deleting script for product #{product_number}: {e}"
+            )
+            return False
+
+    async def delete_product_scripts(
+        self, product_number: int, dry_run: bool = False
+    ) -> tuple[bool, int]:
+        """Delete all scripts from a product. Returns (success, scripts_deleted)."""
+        if not await self.select_product(product_number):
+            return False, 0
+
+        count = await self.get_script_count()
+
+        if count == 0:
+            self.logger.info(f"Product #{product_number} has no scripts to delete")
+            return True, 0
+
+        if dry_run:
+            self.logger.info(
+                f"DRY RUN: Would delete {count} scripts from product #{product_number}"
+            )
+            return True, 0
+
+        deleted = 0
+        while True:
+            current_count = await self.get_script_count()
+            if current_count == 0:
+                break
+
+            ok = await self._delete_single_script(product_number, current_count)
+            if not ok:
+                self.logger.error(
+                    f"Failed to delete script for product #{product_number}, "
+                    f"stopping after {deleted} deletions"
+                )
+                return False, deleted
+
+            deleted += 1
+            self.logger.debug(
+                f"Deleted script {deleted} for product #{product_number} "
+                f"({current_count - 1} remaining)"
+            )
+
+        self.logger.info(f"Product #{product_number}: deleted {deleted} scripts")
+        return True, deleted
+
+    async def delete_all_scripts(
+        self,
+        start_product: int = 1,
+        limit: Optional[int] = None,
+        dry_run: bool = False,
+    ) -> list[dict]:
+        """Delete all scripts from all products in the sidebar.
+
+        Does NOT require CSV - iterates products from sidebar UI.
+        Returns list of result dicts for report generation.
+        """
+        total = await self.get_product_count()
+        end_product = min(start_product + limit, total + 1) if limit else total + 1
+
+        results: list[dict] = []
+        for product_number in range(start_product, end_product):
+            try:
+                success, deleted = await self.delete_product_scripts(
+                    product_number, dry_run=dry_run
+                )
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "scripts_deleted": deleted,
+                        "success": success,
+                        "error": None,
+                    }
+                )
+            except Exception as e:
+                error_msg = str(e)
+                self.logger.error(
+                    f"Error processing product #{product_number}: {error_msg}"
+                )
+                try:
+                    await self.take_screenshot(f"product_{product_number}")
+                except Exception as screenshot_err:
+                    self.logger.debug(f"Screenshot failed: {screenshot_err}")
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "scripts_deleted": 0,
+                        "success": False,
+                        "error": error_msg,
+                    }
+                )
+
+        return results
+
 
 # ---------------------------------------------------------------------------
 # Config loading
