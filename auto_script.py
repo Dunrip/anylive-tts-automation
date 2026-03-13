@@ -405,12 +405,17 @@ class ScriptAutomation(BrowserAutomation):
                 success, deleted = await self.delete_product_scripts(
                     product_number, dry_run=dry_run
                 )
+                if not success:
+                    try:
+                        await self.take_screenshot(f"product_{product_number}")
+                    except Exception as screenshot_err:
+                        self.logger.debug(f"Screenshot failed: {screenshot_err}")
                 results.append(
                     {
                         "product_number": product_number,
                         "scripts_deleted": deleted,
                         "success": success,
-                        "error": None,
+                        "error": None if success else "Failed to delete all scripts",
                     }
                 )
             except Exception as e:
@@ -575,6 +580,11 @@ class ScriptAutomation(BrowserAutomation):
         for product in products:
             try:
                 await self.upload_product_scripts(product, dry_run=dry_run)
+                if not product.success:
+                    try:
+                        await self.take_screenshot(f"product_{product.product_number}")
+                    except Exception as screenshot_err:
+                        self.logger.debug(f"Screenshot failed: {screenshot_err}")
             except Exception as e:
                 product.error = str(e)
                 product.success = False
