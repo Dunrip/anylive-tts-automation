@@ -21,6 +21,7 @@ import pandas as pd
 
 from shared import (
     BrowserAutomation,
+    async_debug_pause,
     setup_login,
     setup_logging,
     find_csv_file,
@@ -70,7 +71,10 @@ def _get_script_session_paths(client: Optional[str]) -> tuple[str, str]:
     """Return (session_filename, browser_data_subdir) for the given client."""
     # Share session/browser_data with auto_faq.py — same site, same auth
     if client:
-        return f"state/session_state_faq_{client}.json", f"state/browser_data_faq_{client}"
+        return (
+            f"state/session_state_faq_{client}.json",
+            f"state/browser_data_faq_{client}",
+        )
     return SCRIPT_SESSION_FILE, SCRIPT_BROWSER_DATA
 
 
@@ -142,6 +146,7 @@ class ScriptAutomation(BrowserAutomation):
         headless: bool = False,
         logger: logging.Logger,
         dry_run: bool = False,
+        debug: bool = False,
         screenshots_dir: Optional[str] = None,
         browser_data_subdir: str = SCRIPT_BROWSER_DATA,
         session_filename: str = SCRIPT_SESSION_FILE,
@@ -150,6 +155,7 @@ class ScriptAutomation(BrowserAutomation):
             headless=headless,
             logger=logger,
             dry_run=dry_run,
+            debug=debug,
             screenshots_dir=screenshots_dir,
             browser_data_subdir=browser_data_subdir,
             session_filename=session_filename,
@@ -951,6 +957,9 @@ async def main() -> None:
 
     args = parser.parse_args()
 
+    if args.debug and args.headless:
+        args.debug = False
+
     # Resolve client and session paths
     _client: Optional[str] = args.client
     _session_filename, _browser_data_subdir = _get_script_session_paths(_client)
@@ -1021,11 +1030,15 @@ async def main() -> None:
             logger.error(f"Failed to load config: {e}")
             return
 
+    if args.debug:
+        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+
     automation = ScriptAutomation(
         config=config,
         headless=args.headless,
         logger=logger,
         dry_run=args.dry_run,
+        debug=args.debug,
         browser_data_subdir=_browser_data_subdir,
         session_filename=_session_filename,
     )
@@ -1038,7 +1051,6 @@ async def main() -> None:
             return
 
         if args.delete_scripts:
-            # Delete mode: CSV not required, iterate products from sidebar
             logger.info(
                 f"DELETE MODE: Deleting scripts from products "
                 f"starting at #{args.start_product}"
@@ -1061,7 +1073,6 @@ async def main() -> None:
             )
 
         else:
-            # Upload mode: CSV required
             if args.dry_run:
                 logger.info("DRY RUN MODE: No audio will be uploaded")
 
@@ -1079,7 +1090,6 @@ async def main() -> None:
                 logger.error("No products to process")
                 return
 
-            # Apply start-product filter
             if args.start_product > 1:
                 products = [
                     p for p in products if p.product_number >= args.start_product
@@ -1104,10 +1114,9 @@ async def main() -> None:
         if args.debug:
             logger.info("")
             logger.info("=" * 70)
-            logger.info("DEBUG MODE: Browser is open for inspection.")
-            logger.info("   Press Enter to close the browser and exit.")
+            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+            await async_debug_pause("   Press Enter to close the browser and exit...")
             logger.info("=" * 70)
-            input()
         await automation.close()
 
 

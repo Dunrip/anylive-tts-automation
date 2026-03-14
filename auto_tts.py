@@ -31,9 +31,11 @@ from shared import (  # noqa: F401
 from shared import (
     DEFAULT_TIMEOUT,
     CLICK_TIMEOUT,
+    DEBUG_SLOW_MO,
     NAVIGATION_TIMEOUT,
     POST_AUTOSAVE_DELAY_SECONDS,
     PRE_FILL_START_DELAY_SECONDS,
+    async_debug_pause,
 )
 
 SELECTORS = {
@@ -562,12 +564,14 @@ class TTSAutomation:
         headless: bool,
         logger: logging.Logger,
         dry_run: bool = False,
+        debug: bool = False,
         screenshots_dir: Optional[str] = None,
     ):
         self.config = config
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
+        self.debug = debug
         self.screenshots_dir = screenshots_dir if screenshots_dir else "screenshots"
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -587,6 +591,7 @@ class TTSAutomation:
             user_data_dir=user_data_dir,
             headless=self.headless,
             accept_downloads=True,
+            slow_mo=DEBUG_SLOW_MO if self.debug else 0,
             # Some macOS environments crash Chromium at launch (SIGTRAP / NotificationCenter).
             # These flags are known to improve stability for this app.
             args=[
@@ -2513,6 +2518,7 @@ async def run_job(
                 config=config,
                 headless=headless,
                 logger=logger,
+                debug=debug and not headless,
                 screenshots_dir=screenshots_dir,
             )
             try:
@@ -2524,12 +2530,13 @@ async def run_job(
                     version_filter=version_filter,
                 )
             finally:
-                if debug:
+                if debug and not headless:
                     logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
                     if debug_callback:
                         debug_callback()
-                else:
-                    await automation.close()
+                    else:
+                        await async_debug_pause("   Press Enter to close browser...")
+                await automation.close()
             return {"success": True, "report": None, "error": None, "downloaded": count}
 
         # Load and parse CSV
@@ -2557,10 +2564,10 @@ async def run_job(
         if dry_run:
             logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
-        if debug:
-            logger.info(
-                "🐛 DEBUG MODE: Browser will stay open after execution (non-blocking)"
-            )
+        _effective_debug = debug and not headless
+
+        if _effective_debug:
+            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
 
         # Run automation
         automation = TTSAutomation(
@@ -2568,6 +2575,7 @@ async def run_job(
             headless=headless,
             logger=logger,
             dry_run=dry_run,
+            debug=_effective_debug,
             screenshots_dir=screenshots_dir,
         )
 
@@ -2576,23 +2584,37 @@ async def run_job(
 
             for version in versions:
                 print_version_info(version, logger)
-                await automation.process_version(version)
+                result = await automation.process_version(version)
+                if not result and _effective_debug:
+                    logger.info(f"🐛 DEBUG: '{version.name}' failed. Browser paused.")
+                    if debug_callback:
+                        debug_callback()
+                    else:
+                        await async_debug_pause(
+                            "   Press Enter to continue to next version..."
+                        )
 
         finally:
-            if debug:
+            if _effective_debug:
+                succeeded = sum(1 for v in versions if v.success)
+                failed = [v.name for v in versions if v.error]
+                partial = [v.name for v in versions if v.failed_slots]
                 logger.info("")
                 logger.info("=" * 70)
-                logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
-                logger.info(
-                    "   (Automation will not auto-close the browser in debug mode)"
-                )
+                logger.info(f"📊 Results: {succeeded}/{len(versions)} succeeded")
+                if failed:
+                    logger.info(f"   ❌ Failed: {', '.join(failed)}")
+                if partial:
+                    logger.info(f"   ⚠️  Partial: {', '.join(partial)}")
+                logger.info("🐛 DEBUG MODE: Browser open for inspection")
                 if debug_callback:
                     debug_callback()
                 else:
-                    logger.info("   Close the browser manually when you're done.")
+                    await async_debug_pause(
+                        "   Press Enter to close the browser and exit..."
+                    )
                 logger.info("=" * 70)
-            else:
-                await automation.close()
+            await automation.close()
 
         # Generate report
         report = generate_report(versions, config, timestamp, logger, logs_dir=logs_dir)
@@ -2669,6 +2691,9 @@ async def main():
     )
 
     args = parser.parse_args()
+
+    if args.debug and args.headless:
+        args.debug = False
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger = setup_logging(timestamp)
@@ -2801,8 +2826,9 @@ async def main():
         finally:
             if args.debug:
                 logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
-                logger.info("   Press Enter to close the browser and exit.")
-                input()
+                await async_debug_pause(
+                    "   Press Enter to close the browser and exit..."
+                )
             await automation.close()
         return
 
@@ -2874,10 +2900,14 @@ async def main():
         logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
 
     if args.debug:
-        logger.info("🐛 DEBUG MODE: Browser will stay open after execution")
+        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
 
     automation = TTSAutomation(
-        config=config, headless=args.headless, logger=logger, dry_run=args.dry_run
+        config=config,
+        headless=args.headless,
+        logger=logger,
+        dry_run=args.dry_run,
+        debug=args.debug,
     )
 
     try:
@@ -2885,16 +2915,28 @@ async def main():
 
         for version in versions:
             print_version_info(version, logger)
-            await automation.process_version(version)
+            result = await automation.process_version(version)
+            if not result and args.debug:
+                logger.info(
+                    f"🐛 DEBUG: '{version.name}' failed. Browser paused for inspection."
+                )
+                await async_debug_pause("   Press Enter to continue to next version...")
 
     finally:
         if args.debug:
+            succeeded = sum(1 for v in versions if v.success)
+            failed = [v.name for v in versions if v.error]
+            partial = [v.name for v in versions if v.failed_slots]
             logger.info("")
             logger.info("=" * 70)
+            logger.info(f"📊 Results: {succeeded}/{len(versions)} succeeded")
+            if failed:
+                logger.info(f"   ❌ Failed: {', '.join(failed)}")
+            if partial:
+                logger.info(f"   ⚠️  Partial: {', '.join(partial)}")
             logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
-            logger.info("   Press Enter to close the browser and exit.")
+            await async_debug_pause("   Press Enter to close the browser and exit...")
             logger.info("=" * 70)
-            input()
         await automation.close()
 
     generate_report(versions, config, timestamp, logger)

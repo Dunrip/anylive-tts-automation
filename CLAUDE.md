@@ -43,7 +43,7 @@ python auto_faq.py --setup --client brandB     # setup a second brand
 python auto_faq.py --client mybrand --csv faq.csv  # run explicit brand (saves as last-used)
 python auto_faq.py --csv faq.csv               # run last-used brand automatically
 python auto_faq.py --dry-run                   # fill questions, skip audio upload
-python auto_faq.py --debug                     # keep browser open
+python auto_faq.py --debug                     # slow motion + pause-on-error
 python auto_faq.py --start-product 5 --limit 3  # process subset
 ```
 
@@ -62,7 +62,7 @@ python auto_tts.py --dry-run
 # No-save mode - generate but don't save
 python auto_tts.py --no-save
 
-# Debug mode - keep browser open after execution
+# Debug mode - slow motion (250ms), pause-on-error, keep browser open
 python auto_tts.py --debug
 
 # Process subset of versions
@@ -251,11 +251,12 @@ python auto_tts.py --client new_client
 
 ### Debugging Form Filling Issues
 
-1. Use `--debug` to keep browser open
+1. Use `--debug`: enables slow motion (250ms), pauses on each failure for inspection, prints progress summary
 2. Check `logs/auto_tts_*.log` for DEBUG-level details
 3. Screenshots saved automatically on errors
 4. Use `--dry-run` to test without generating speech
 5. Use `--no-save` to inspect filled forms manually
+6. `--headless --debug` silently disables debug (browser is invisible)
 
 ### Modifying Version Grouping Logic
 
@@ -269,7 +270,7 @@ Current logic groups by product name. To change:
 
 When UI elements change:
 
-1. Run with `--debug` flag
+1. Run with `--debug` flag (slow motion lets you watch the automation interact with elements)
 2. Use browser DevTools to find new selectors
 3. Add to `SELECTORS` dict (most specific selectors first)
 4. Test with `--dry-run` to verify

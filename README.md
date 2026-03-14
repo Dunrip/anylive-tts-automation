@@ -40,7 +40,8 @@ Automate the creation of Text-to-Speech script versions on the AnyLive platform 
 - Retry logic with automatic screenshot capture on failures.
 - Detailed logging to both console and timestamped files.
 - Execution reports in JSON format for tracking success and failure.
-- Dry run and debug modes for safe testing and inspection.
+- Debug mode with slow motion playback, pause-on-error, and progress summaries.
+- Dry run mode for safe testing without side effects.
 
 ## Quick Start
 
@@ -136,7 +137,7 @@ A native macOS menu bar application built with `rumps` that wraps the CLI functi
 | `--limit` | int | all | Max items to process |
 | `--headless` | flag | all | Headless browser mode |
 | `--dry-run` | flag | all | Test without side effects |
-| `--debug` | flag | all | Keep browser open after execution |
+| `--debug` | flag | all | Slow motion, pause-on-error, keep browser open |
 | `--download` | flag | TTS | Download audio files for all versions |
 | `--versions` | string | TTS | Filter versions (e.g., `15-18,24,30`) |
 | `--replace` | flag | TTS | Re-download existing files |
@@ -217,6 +218,15 @@ Ensure the client name matches the folder name in the `configs/` directory. Use 
 
 ### Element Not Found
 UI changes on AnyLive may break selectors. Run with `--debug` to inspect the browser state and check `screenshots/` for visual confirmation of the error.
+
+### Debug Mode
+The `--debug` flag enables several debugging features:
+- **Slow motion** (250ms between actions) so you can visually follow what the automation does.
+- **Pause-on-error**: the browser pauses immediately after each failed version/product, letting you inspect the exact failure state before continuing.
+- **Progress summary**: when execution ends, a summary of succeeded, failed, and partial results is printed before the final pause.
+- **Ignored in headless mode**: `--headless --debug` silently disables debug since the browser is invisible.
+
+Combine with `--dry-run` for safe inspection: `python auto_tts.py --dry-run --debug`.
 
 ### Audio Resolution Failure
 Verify that your audio files are in the correct subdirectory within `downloads/` and that the file names match the `Audio Code` in your CSV.
