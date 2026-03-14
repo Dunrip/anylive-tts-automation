@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -22,27 +23,27 @@ import pandas as pd
 from shared import (
     BrowserAutomation,
     async_debug_pause,
+    ensure_client_config,
+    get_live_session_paths,
+    save_last_client,
     setup_login,
     setup_logging,
     find_csv_file,
     load_csv,
     load_jsonc,
     is_session_valid,
-    get_session_file_path,
     CLICK_TIMEOUT,
-    NAVIGATION_TIMEOUT,
+    LIVE_BROWSER_DATA,
+    LIVE_LOGIN_URL,
+    LIVE_SESSION_FILE,
     MAX_RETRIES,
+    NAVIGATION_TIMEOUT,
     RETRY_DELAY_SECONDS,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-# Session/browser data are SHARED with auto_faq.py (same site: live.app.anylive.jp).
-# Only the last-client tracking file is separate.
-SCRIPT_SESSION_FILE = "state/session_state_faq.json"
-SCRIPT_BROWSER_DATA = "state/browser_data_faq"
-SCRIPT_LOGIN_URL = "https://live.app.anylive.jp"
 SCRIPT_LAST_CLIENT_FILE = "state/script_last_client.json"
 
 SCRIPT_SELECTORS: dict[str, list[str]] = {
@@ -62,37 +63,6 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
         'li:has-text("Delete")',
     ],
 }
-
-
-# ---------------------------------------------------------------------------
-# Multi-account session helpers
-# ---------------------------------------------------------------------------
-def _get_script_session_paths(client: Optional[str]) -> tuple[str, str]:
-    """Return (session_filename, browser_data_subdir) for the given client."""
-    # Share session/browser_data with auto_faq.py — same site, same auth
-    if client:
-        return (
-            f"state/session_state_faq_{client}.json",
-            f"state/browser_data_faq_{client}",
-        )
-    return SCRIPT_SESSION_FILE, SCRIPT_BROWSER_DATA
-
-
-def _get_last_script_client() -> Optional[str]:
-    path = get_session_file_path(SCRIPT_LAST_CLIENT_FILE)
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f).get("last_client")
-        except Exception:
-            return None
-    return None
-
-
-def _save_last_script_client(client: str) -> None:
-    path = get_session_file_path(SCRIPT_LAST_CLIENT_FILE)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"last_client": client}, f)
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +118,8 @@ class ScriptAutomation(BrowserAutomation):
         dry_run: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
-        browser_data_subdir: str = SCRIPT_BROWSER_DATA,
-        session_filename: str = SCRIPT_SESSION_FILE,
+        browser_data_subdir: str = LIVE_BROWSER_DATA,
+        session_filename: str = LIVE_SESSION_FILE,
     ) -> None:
         super().__init__(
             headless=headless,
@@ -159,7 +129,7 @@ class ScriptAutomation(BrowserAutomation):
             screenshots_dir=screenshots_dir,
             browser_data_subdir=browser_data_subdir,
             session_filename=session_filename,
-            login_url=SCRIPT_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             base_url=config.base_url,
         )
         self.config = config
@@ -169,13 +139,19 @@ class ScriptAutomation(BrowserAutomation):
         if self.page is None:
             raise RuntimeError("Browser page is not initialized")
 
-        self.logger.info(f"Navigating to {self.config.base_url}")
-        await self.page.goto(
-            self.config.base_url,
-            wait_until="domcontentloaded",
-            timeout=NAVIGATION_TIMEOUT,
-        )
-        await asyncio.sleep(1.5)
+        current = self.page.url
+        target = self.config.base_url.rstrip("/")
+        if not current.rstrip("/").startswith(target):
+            self.logger.info(f"Navigating to {self.config.base_url}")
+            await self.page.goto(
+                self.config.base_url,
+                wait_until="domcontentloaded",
+                timeout=NAVIGATION_TIMEOUT,
+            )
+            await asyncio.sleep(1.5)
+        else:
+            self.logger.info("Already on Set Live Content page, skipping reload")
+
         try:
             await self.page.wait_for_selector(
                 ':text("Script Configuration"), :text("Live Products")',
@@ -204,20 +180,29 @@ class ScriptAutomation(BrowserAutomation):
 
         found = await self.page.evaluate(
             """(targetNum) => {
-                // Find sidebar product cards — each card has a number text element
-                // The sidebar contains numbered cards (1-60), each with a clickable area
                 const allDivs = document.querySelectorAll('div');
                 for (const div of allDivs) {
-                    // Look for elements that contain ONLY the target number as text
                     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
                     while (walker.nextNode()) {
                         const text = walker.currentNode.textContent.trim();
                         if (text !== targetNum) continue;
-                        // Walk up to find a card-like container (has sibling with image)
+
+                        // Skip counter-like elements (e.g. "60/60", "5/20")
+                        // whose ancestor text matches N/M pattern
+                        let isCounter = false;
+                        let check = walker.currentNode.parentElement;
+                        for (let c = 0; c < 3 && check; c++) {
+                            if (/^\\d+\\s*\\/\\s*\\d+$/.test(check.textContent.trim())) {
+                                isCounter = true;
+                                break;
+                            }
+                            check = check.parentElement;
+                        }
+                        if (isCounter) continue;
+
                         let el = walker.currentNode.parentElement;
                         for (let i = 0; i < 5; i++) {
                             if (!el) break;
-                            // Check if this element or its parent contains a product image
                             const hasImg = el.querySelector('img');
                             if (hasImg) {
                                 el.setAttribute('data-script-product', targetNum);
@@ -245,7 +230,14 @@ class ScriptAutomation(BrowserAutomation):
 
         await locator.first.scroll_into_view_if_needed()
         await locator.first.click()
-        await asyncio.sleep(1.5)
+
+        # networkidle waits for SPA data fetch to complete before reading script count
+        try:
+            await self.page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            await asyncio.sleep(1.5)
+        await asyncio.sleep(0.5)
+
         self.logger.debug(f"Selected product #{product_number}")
         return True
 
@@ -256,10 +248,14 @@ class ScriptAutomation(BrowserAutomation):
 
         try:
             count_el = self.page.locator("text=/^\\d+\\/20$/")
-            if await count_el.count() > 0:
+            matches = await count_el.count()
+            if matches > 0:
                 text = await count_el.first.text_content()
                 if text:
-                    return int(text.split("/")[0])
+                    value = int(text.split("/")[0])
+                    self.logger.debug(f"Script count: {text} ({matches} matches)")
+                    return value
+            self.logger.debug("Script count selector matched 0 elements")
         except Exception as e:
             self.logger.debug(f"Could not read script count: {e}")
         return 0
@@ -358,6 +354,12 @@ class ScriptAutomation(BrowserAutomation):
             return False, 0
 
         count = await self.get_script_count()
+
+        if count == 0:
+            # Re-verify after a pause to rule out stale page state from
+            # the previous product (center pane may still be transitioning)
+            await asyncio.sleep(2.0)
+            count = await self.get_script_count()
 
         if count == 0:
             self.logger.info(f"Product #{product_number} has no scripts to delete")
@@ -835,17 +837,22 @@ def generate_script_report(
     mode: str = "upload",
     delete_results: Optional[list] = None,
     logs_dir: Optional[str] = None,
+    elapsed_seconds: float = 0.0,
 ) -> dict:
     """Generate and save a JSON execution report."""
+    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
     if mode == "delete" and delete_results is not None:
         successful = sum(1 for r in delete_results if r["success"])
         failed = len(delete_results) - successful
+        total_scripts_deleted = sum(r.get("scripts_deleted", 0) for r in delete_results)
         report = {
             "timestamp": datetime.now().isoformat(),
             "mode": "delete",
             "total_products": len(delete_results),
             "successful": successful,
             "failed": failed,
+            "total_scripts_deleted": total_scripts_deleted,
+            "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
         logger.info("")
@@ -855,6 +862,8 @@ def generate_script_report(
         logger.info(
             f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed}"
         )
+        logger.info(f"Scripts deleted: {total_scripts_deleted} total")
+        logger.info(f"Time: {elapsed_str}")
         for r in delete_results:
             status = "OK" if r["success"] else "FAILED"
             logger.info(
@@ -866,12 +875,15 @@ def generate_script_report(
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
+        total_scripts = sum(len(p.rows) for p in products)
         report = {
             "timestamp": datetime.now().isoformat(),
             "mode": "upload",
             "total_products": len(products),
             "successful": successful,
             "failed": failed,
+            "total_scripts": total_scripts,
+            "elapsed_seconds": elapsed_seconds,
             "products": [
                 {
                     "product_number": p.product_number,
@@ -890,6 +902,8 @@ def generate_script_report(
         logger.info(
             f"Total: {len(products)} | Success: {successful} | Failed: {failed}"
         )
+        logger.info(f"Scripts: {total_scripts} total")
+        logger.info(f"Time: {elapsed_str}")
         for p in products:
             status = "OK" if p.success else "FAILED"
             logger.info(
@@ -960,11 +974,11 @@ async def main() -> None:
     if args.debug and args.headless:
         args.debug = False
 
-    # Resolve client and session paths
     _client: Optional[str] = args.client
-    _session_filename, _browser_data_subdir = _get_script_session_paths(_client)
+    _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
     logger = setup_logging(
         timestamp, logger_name="auto_script", log_prefix="auto_script"
     )
@@ -976,9 +990,11 @@ async def main() -> None:
         logger.info(f"Using account: {_client}")
 
     if args.setup:
+        if _client:
+            ensure_client_config(_client, config_type="live", logger=logger)
         await setup_login(
             logger,
-            login_url=SCRIPT_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             browser_data_subdir=_browser_data_subdir,
             session_filename=_session_filename,
         )
@@ -992,12 +1008,13 @@ async def main() -> None:
         return
 
     if _client:
-        _save_last_script_client(_client)
+        save_last_client(SCRIPT_LAST_CLIENT_FILE, _client)
 
-    # Resolve config path
     config_path: Optional[str] = None
     if args.client:
-        config_path = f"configs/{args.client}/live.json"
+        config_path = ensure_client_config(
+            args.client, config_type="live", logger=logger
+        )
     elif args.config:
         config_path = args.config
 
@@ -1070,6 +1087,7 @@ async def main() -> None:
                 logger=logger,
                 mode="delete",
                 delete_results=delete_results,
+                elapsed_seconds=time.time() - start_time,
             )
 
         else:
@@ -1108,6 +1126,7 @@ async def main() -> None:
                 timestamp=timestamp,
                 logger=logger,
                 mode="upload",
+                elapsed_seconds=time.time() - start_time,
             )
 
     finally:
