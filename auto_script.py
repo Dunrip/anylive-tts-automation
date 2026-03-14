@@ -48,8 +48,8 @@ SCRIPT_LAST_CLIENT_FILE = "state/script_last_client.json"
 
 SCRIPT_SELECTORS: dict[str, list[str]] = {
     "add_audio_button": [
+        'button:has-text("Upload Audio Script")',
         'button:has-text("Add Audio")',
-        ':text("Add Audio")',
     ],
     "script_count": [
         "text=/\\d+\\/20/",
@@ -483,12 +483,18 @@ class ScriptAutomation(BrowserAutomation):
         count_before = await self.get_script_count()
 
         try:
-            add_btn = self.page.get_by_role("button", name="Add Audio")
+            add_btn = self.page.get_by_role("button", name="Upload Audio Script")
+            if await add_btn.count() == 0:
+                add_btn = self.page.get_by_role("button", name="Add Audio")
+            if await add_btn.count() == 0:
+                add_btn = self.page.locator('button:has-text("Upload Audio Script")')
             if await add_btn.count() == 0:
                 add_btn = self.page.locator('button:has-text("Add Audio")')
 
             if await add_btn.count() == 0:
-                self.logger.error("Could not find 'Add Audio' button")
+                self.logger.error(
+                    "Could not find upload button ('Upload Audio Script' or 'Add Audio')"
+                )
                 return False
 
             async with self.page.expect_file_chooser(timeout=CLICK_TIMEOUT) as fc_info:
