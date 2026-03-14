@@ -793,32 +793,39 @@ def resolve_audio_file(
     Search order:
     1. Subfolder matching ``{zero_padded_number}_*`` (e.g. ``01_Dna_...``)
     2. Flat search in audio_dir root
+    3. Recursive search from repo root (fallback)
     """
     if not audio_code:
         return None
 
     audio_dir_path = Path(audio_dir)
-    if not audio_dir_path.exists():
-        logger.warning(f"Audio directory not found: {audio_dir}")
-        return None
-
     zero_padded = f"{product_number:02d}"
 
-    # Strategy 1: find subfolder matching product number prefix
-    for entry in sorted(audio_dir_path.iterdir()):
-        if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
-            for ext in extensions:
-                candidate = entry / f"{audio_code}{ext}"
-                if candidate.exists():
-                    logger.debug(f"Found audio: {candidate}")
-                    return str(candidate.resolve())
+    if audio_dir_path.exists():
+        # Strategy 1: find subfolder matching product number prefix
+        for entry in sorted(audio_dir_path.iterdir()):
+            if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
+                for ext in extensions:
+                    candidate = entry / f"{audio_code}{ext}"
+                    if candidate.exists():
+                        logger.debug(f"Found audio: {candidate}")
+                        return str(candidate.resolve())
 
-    # Strategy 2: flat search in audio_dir root
+        # Strategy 2: flat search in audio_dir root
+        for ext in extensions:
+            candidate = audio_dir_path / f"{audio_code}{ext}"
+            if candidate.exists():
+                logger.debug(f"Found audio (flat): {candidate}")
+                return str(candidate.resolve())
+    else:
+        logger.warning(f"Audio directory not found: {audio_dir}")
+
+    # Strategy 3: recursive search from repo root (fallback)
+    repo_root = Path(__file__).parent
     for ext in extensions:
-        candidate = audio_dir_path / f"{audio_code}{ext}"
-        if candidate.exists():
-            logger.debug(f"Found audio (flat): {candidate}")
-            return str(candidate.resolve())
+        for candidate_path in repo_root.rglob(f"{audio_code}{ext}"):
+            logger.debug(f"Found audio (repo search): {candidate_path}")
+            return str(candidate_path.resolve())
 
     logger.warning(
         f"Audio file not found for code '{audio_code}' (product {product_number})"
