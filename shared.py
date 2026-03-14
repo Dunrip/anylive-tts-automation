@@ -301,9 +301,10 @@ class BrowserAutomation:
             self.logger.debug("Validating session...")
             await self.page.goto(
                 self.base_url or self.login_url,
-                wait_until="networkidle",
-                timeout=30000,
+                wait_until="domcontentloaded",
+                timeout=NAVIGATION_TIMEOUT,
             )
+            await asyncio.sleep(2)
             current_url = self.page.url
             if "login" in current_url.lower():
                 self.logger.error("Session expired - redirected to login page")
