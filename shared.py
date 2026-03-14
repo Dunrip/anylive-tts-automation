@@ -37,6 +37,12 @@ POST_AUTOSAVE_DELAY_SECONDS = 3.0
 PRE_FILL_START_DELAY_SECONDS = 0.5
 STATE_DIR = "state"
 SESSION_FILE = "state/session_state.json"
+DEBUG_SLOW_MO = 250  # ms between Playwright actions in debug mode
+
+
+async def async_debug_pause(prompt: str = "Press Enter to continue...") -> None:
+    """Async-safe ``input()`` that doesn't block the event loop."""
+    await asyncio.to_thread(input, prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +228,7 @@ class BrowserAutomation:
         headless: bool = False,
         logger: logging.Logger,
         dry_run: bool = False,
+        debug: bool = False,
         screenshots_dir: Optional[str] = None,
         browser_data_subdir: str = "browser_data",
         session_filename: str = SESSION_FILE,
@@ -231,6 +238,7 @@ class BrowserAutomation:
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
+        self.debug = debug
         self.screenshots_dir = screenshots_dir or "screenshots"
         self.browser_data_subdir = browser_data_subdir
         self.session_filename = session_filename
@@ -253,6 +261,7 @@ class BrowserAutomation:
             user_data_dir=user_data_dir,
             headless=self.headless,
             accept_downloads=True,
+            slow_mo=250 if self.debug else 0,
             args=[
                 "--start-maximized",
                 "--disable-web-security",

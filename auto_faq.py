@@ -20,6 +20,7 @@ import pandas as pd
 
 from shared import (
     BrowserAutomation,
+    async_debug_pause,
     setup_login,
     setup_logging,
     find_csv_file,
@@ -46,7 +47,10 @@ FAQ_LAST_CLIENT_FILE = "state/faq_last_client.json"
 def _get_faq_session_paths(client: Optional[str]) -> tuple[str, str]:
     """Return (session_filename, browser_data_subdir) for the given client name."""
     if client:
-        return f"state/session_state_faq_{client}.json", f"state/browser_data_faq_{client}"
+        return (
+            f"state/session_state_faq_{client}.json",
+            f"state/browser_data_faq_{client}",
+        )
     return FAQ_SESSION_FILE, FAQ_BROWSER_DATA
 
 
@@ -315,6 +319,7 @@ class FAQAutomation(BrowserAutomation):
         headless: bool = False,
         logger: logging.Logger,
         dry_run: bool = False,
+        debug: bool = False,
         screenshots_dir: Optional[str] = None,
         browser_data_subdir: str = FAQ_BROWSER_DATA,
         session_filename: str = FAQ_SESSION_FILE,
@@ -323,6 +328,7 @@ class FAQAutomation(BrowserAutomation):
             headless=headless,
             logger=logger,
             dry_run=dry_run,
+            debug=debug,
             screenshots_dir=screenshots_dir,
             browser_data_subdir=browser_data_subdir,
             session_filename=session_filename,
@@ -1026,6 +1032,9 @@ async def main() -> None:
 
     args = parser.parse_args()
 
+    if args.debug and args.headless:
+        args.debug = False
+
     # Resolve effective client: explicit > last-used > None (falls back to legacy defaults)
     _explicit_client: Optional[str] = args.client
     _client: Optional[str] = _explicit_client or _get_last_faq_client()
@@ -1119,13 +1128,14 @@ async def main() -> None:
         logger.info("DRY RUN MODE: Audio upload will be skipped")
 
     if args.debug:
-        logger.info("DEBUG MODE: Browser will stay open after execution")
+        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
 
     automation = FAQAutomation(
         config=config,
         headless=args.headless,
         logger=logger,
         dry_run=args.dry_run,
+        debug=args.debug,
         browser_data_subdir=_browser_data_subdir,
         session_filename=_session_filename,
     )
@@ -1133,7 +1143,6 @@ async def main() -> None:
     try:
         await automation.start_browser()
 
-        # Navigate to Product Q&A page once
         if not await automation.navigate_to_product_qa():
             logger.error("Failed to navigate to Product Q&A page")
             return
@@ -1146,16 +1155,26 @@ async def main() -> None:
                 f"({len(product.rows)} questions)"
             )
             logger.info("=" * 70)
-            await automation.process_product(product)
+            result = await automation.process_product(product)
+            if not result and args.debug:
+                logger.info(
+                    f"🐛 DEBUG: Product #{product.product_number} failed. "
+                    f"Browser paused for inspection."
+                )
+                await async_debug_pause("   Press Enter to continue to next product...")
 
     finally:
         if args.debug:
+            succeeded = sum(1 for p in products if p.success)
+            failed = [f"#{p.product_number}" for p in products if p.error]
             logger.info("")
             logger.info("=" * 70)
-            logger.info("DEBUG MODE: Browser is open for inspection.")
-            logger.info("   Press Enter to close the browser and exit.")
+            logger.info(f"📊 Results: {succeeded}/{len(products)} succeeded")
+            if failed:
+                logger.info(f"   ❌ Failed: {', '.join(failed)}")
+            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+            await async_debug_pause("   Press Enter to close the browser and exit...")
             logger.info("=" * 70)
-            input()
         await automation.close()
 
     generate_faq_report(products, config, timestamp, logger)

@@ -70,7 +70,7 @@ python auto_tts.py --dry-run
 # No-save mode (generate but don't save)
 python auto_tts.py --no-save
 
-# Debug mode (keep browser open)
+# Debug mode (slow motion + pause-on-error + keep browser open)
 python auto_tts.py --debug
 
 # Headless mode
@@ -324,11 +324,12 @@ Current logic: Product-based grouping
 3. For new functionality: Pass argument to `TTSAutomation` or relevant function
 
 ### Debugging Form Filling Issues
-1. Use `--debug` flag to keep browser open after execution
+1. Use `--debug` flag: enables slow motion (250ms between actions), pauses the browser immediately after each failed version/product, and prints a progress summary before the final pause
 2. Check `logs/auto_tts_*.log` for detailed DEBUG-level logs
 3. Screenshots saved automatically on errors
 4. Use `--dry-run` to test form filling without generating speech
 5. Use `--no-save` to test without saving (inspect filled forms manually)
+6. `--headless --debug` silently disables debug (browser is invisible)
 
 ### Testing Session Handling
 - Delete `state/session_state.json` to test fresh login flow
