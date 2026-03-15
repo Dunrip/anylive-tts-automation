@@ -2,6 +2,9 @@ import React, { useCallback, useState } from "react";
 import { PanelType } from "../../lib/navigation";
 import type { WSMessage } from "../../lib/types";
 import { TTSPanel } from "../tts/TTSPanel";
+import { FAQPanel } from "../faq/FAQPanel";
+import { ScriptsPanel } from "../scripts/ScriptsPanel";
+import { HistoryPanel } from "../history/HistoryPanel";
 import { LogViewer } from "./LogViewer";
 
 interface MainContentProps {
@@ -53,11 +56,21 @@ export function MainContent({ activePanel, client, sidecarUrl }: MainContentProp
           />
         );
       case "faq":
-        return <PlaceholderPanel name="FAQ" />;
+        return (
+          <FAQPanel
+            client={client}
+            sidecarUrl={sidecarUrl}
+          />
+        );
       case "scripts":
-        return <PlaceholderPanel name="Scripts" />;
+        return (
+          <ScriptsPanel
+            client={client}
+            sidecarUrl={sidecarUrl}
+          />
+        );
       case "history":
-        return <PlaceholderPanel name="History" />;
+        return <HistoryPanel sidecarUrl={sidecarUrl} />;
       case "settings":
         return <PlaceholderPanel name="Settings" />;
       default:
