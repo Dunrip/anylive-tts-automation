@@ -861,12 +861,22 @@ class ScriptAutomation(BrowserAutomation):
                 f"to upload ({skipped_count} already present)"
             )
 
-        if rows_to_upload == 0 and skipped_count > 0:
+        if missing_audio:
+            for row in missing_audio:
+                self.logger.warning(f"  Audio not found for code '{row.audio_code}'")
+
+        if rows_to_upload == 0 and len(missing_audio) == 0:
             self.logger.info(
                 f"  All {total_rows} scripts already present on product #{product.product_number}"
             )
             product.success = True
             return True
+
+        if rows_to_upload == 0 and len(missing_audio) > 0:
+            product.error = (
+                f"{len(missing_audio)} audio file(s) not found, nothing to upload"
+            )
+            return False
 
         # Overflow check with FILTERED count
         if current_count + rows_to_upload > 20:
@@ -880,10 +890,10 @@ class ScriptAutomation(BrowserAutomation):
         if dry_run:
             for _row, audio_path in rows_with_paths:
                 self.logger.info(f"  Would upload {os.path.basename(audio_path)}")
-            for row in missing_audio:
-                self.logger.warning(f"  Audio not found for code '{row.audio_code}'")
-            product.success = True
-            return True
+            product.success = len(missing_audio) == 0
+            if not product.success:
+                product.error = f"{len(missing_audio)} audio file(s) not found"
+            return product.success
 
         # Upload only filtered rows
         uploaded = 0
@@ -921,11 +931,16 @@ class ScriptAutomation(BrowserAutomation):
                 )
                 uploaded += recovered
 
-        product.success = uploaded == rows_to_upload
+        product.success = uploaded == rows_to_upload and len(missing_audio) == 0
         if not product.success:
-            product.error = (
-                f"{rows_to_upload - uploaded}/{rows_to_upload} uploads failed"
-            )
+            parts = []
+            if uploaded < rows_to_upload:
+                parts.append(
+                    f"{rows_to_upload - uploaded}/{rows_to_upload} uploads failed"
+                )
+            if missing_audio:
+                parts.append(f"{len(missing_audio)} audio file(s) not found")
+            product.error = "; ".join(parts)
         return product.success
 
     def _is_page_alive(self) -> bool:
@@ -1234,7 +1249,7 @@ def resolve_audio_file(
     Search order:
     1. Subfolder matching ``{zero_padded_number}_*`` (e.g. ``01_Dna_...``)
     2. Flat search in audio_dir root
-    3. Recursive search from repo root (fallback)
+    3. Recursive search in downloads/ folder (fallback)
     """
     if not audio_code:
         return None
@@ -1261,12 +1276,13 @@ def resolve_audio_file(
     else:
         logger.warning(f"Audio directory not found: {audio_dir}")
 
-    # Strategy 3: recursive search from repo root (fallback)
-    repo_root = Path(__file__).parent
-    for ext in extensions:
-        for candidate_path in repo_root.rglob(f"{audio_code}{ext}"):
-            logger.debug(f"Found audio (repo search): {candidate_path}")
-            return str(candidate_path.resolve())
+    # Strategy 3: recursive search in downloads/ folder (fallback)
+    downloads_dir = Path(__file__).parent / "downloads"
+    if downloads_dir.exists():
+        for ext in extensions:
+            for candidate_path in downloads_dir.rglob(f"{audio_code}{ext}"):
+                logger.debug(f"Found audio (downloads search): {candidate_path}")
+                return str(candidate_path.resolve())
 
     logger.warning(
         f"Audio file not found for code '{audio_code}' (product {product_number})"
