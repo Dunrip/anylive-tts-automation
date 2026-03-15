@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========== Raycast-inspired dark theme ========== */
+/* Always dark — no light mode toggle */
+:root {
+  /* Surfaces */
+  --bg-base: #1C1C1E;
+  --bg-surface: #242424;
+  --bg-elevated: #2C2C2E;
+  --bg-hover: #363638;
+
+  /* Borders */
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(255, 255, 255, 0.16);
+
+  /* Text */
+  --text-primary: #FFFFFF;
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-muted: rgba(255, 255, 255, 0.35);
+
+  /* Accent / Status */
+  --accent: #3B82F6;
+  --success: #22C55E;
+  --error: #EF4444;
+  --warning: #F59E0B;
+  --running: #3B82F6;
+
+  /* ======= shadcn/ui overrides ======= */
+  --background: 0 0% 11%;           /* #1C1C1E */
+  --foreground: 0 0% 100%;          /* #FFFFFF */
+  --card: 0 0% 14%;                 /* #242424 */
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 14%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 217 91% 60%;           /* #3B82F6 */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 17%;            /* #2C2C2E */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 17%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;         /* #EF4444 */
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 17%;
+  --ring: 217 91% 60%;
+  --radius: 0.5rem;
+}
+
+/* Force dark class on html */
+html {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-active);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Monospace metadata */
+.mono {
+  font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+  font-size: 0.75rem;
+}
