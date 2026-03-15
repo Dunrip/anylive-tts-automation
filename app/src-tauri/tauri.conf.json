@@ -18,6 +18,11 @@
         "visible": false
       }
     ],
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
     "security": {
       "csp": null
     }
@@ -36,6 +41,7 @@
   "plugins": {
     "shell": {
       "open": true
-    }
+    },
+    "single-instance": {}
   }
 }
