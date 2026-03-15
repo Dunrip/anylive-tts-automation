@@ -1,0 +1,12 @@
+{
+  "base_url": "https://app.anylive.jp/scripts/TEST",
+  "version_template": "Test_Template",
+  "voice_name": "Test_Voice",
+  "max_scripts_per_version": 10,
+  "csv_columns": {
+    "product_number": "No.",
+    "product_name": "Product Name",
+    "script_content": "Script for live streaming (local language the AI will speak)",
+    "audio_code": "Audio Code"
+  }
+}
