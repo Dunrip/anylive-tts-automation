@@ -1,50 +1,36 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import React, { useState } from "react";
+import { Sidebar } from "./components/layout/Sidebar";
+import { MainContent } from "./components/layout/MainContent";
+import { PanelType } from "./lib/navigation";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+function App(): React.ReactElement {
+  const [activePanel, setActivePanel] = useState<PanelType>("tts");
+  const [selectedClient, setSelectedClient] = useState<string>("default");
+  const [sessionValid] = useState<boolean>(false); // Will be fetched from sidecar in Task 11
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  // Mock client list — will be fetched from sidecar in Task 11
+  const clients = ["default"];
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        width: "100vw",
+        overflow: "hidden",
+        backgroundColor: "var(--bg-base)",
+      }}
+    >
+      <Sidebar
+        activePanel={activePanel}
+        onPanelChange={setActivePanel}
+        clients={clients}
+        selectedClient={selectedClient}
+        onClientChange={setSelectedClient}
+        sessionValid={sessionValid}
+      />
+      <MainContent activePanel={activePanel} />
+    </div>
   );
 }
 
