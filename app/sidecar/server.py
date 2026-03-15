@@ -12,6 +12,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.config import router as config_router
+from routes.csv_preview import router as csv_router
+from routes.jobs import router as jobs_router
 from routes.session import router as session_router
 
 _SIDECAR_DIR = Path(__file__).resolve().parent
@@ -47,6 +49,8 @@ app.add_middleware(
 
 app.include_router(config_router, prefix="/api")
 app.include_router(session_router, prefix="/api")
+app.include_router(csv_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
 
 
 @app.get("/health")
