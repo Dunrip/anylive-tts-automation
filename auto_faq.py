@@ -6,16 +6,19 @@ Product Q&A page on live.app.anylive.jp, and fills question fields +
 uploads audio files for each product.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import pandas as pd
 
@@ -989,6 +992,189 @@ def generate_faq_report(
 
 
 # ---------------------------------------------------------------------------
+# Job wrapper
+# ---------------------------------------------------------------------------
+async def run_job(
+    config_path: str,
+    csv_path: str,
+    *,
+    headless: bool = False,
+    dry_run: bool = False,
+    debug: bool = False,
+    start_product: int | None = None,
+    limit: int | None = None,
+    audio_dir: str | None = None,
+    app_support_dir: str | None = None,
+    log_callback: Callable[[str], None] | None = None,
+) -> dict:
+    """Run FAQ automation as a job.
+
+    Args:
+        config_path: Path to FAQ config JSON file
+        csv_path: Path to CSV file with product questions
+        headless: Run browser in headless mode
+        dry_run: Fill questions only, skip audio upload
+        debug: Keep browser open after execution for debugging
+        start_product: Starting product number (1-indexed)
+        limit: Limit number of products to process
+        audio_dir: Override audio directory path
+        app_support_dir: Directory for logs and browser data (default: current dir)
+        log_callback: Optional callback for streaming logs to GUI
+
+    Returns:
+        dict with keys: success (bool), report (dict), error (str or None)
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
+    logger = setup_logging(
+        timestamp,
+        logger_name="auto_faq",
+        log_prefix="auto_faq",
+        log_callback=log_callback,
+    )
+
+    logger.info("ANYLIVE FAQ AUTOMATION")
+    logger.info("=" * 70)
+
+    try:
+        # Load configuration
+        if not os.path.exists(config_path):
+            error_msg = f"Config file not found: {config_path}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+
+        cli_overrides: dict = {}
+        if audio_dir:
+            cli_overrides["audio_dir"] = audio_dir
+
+        try:
+            config = load_faq_config(
+                config_path, cli_overrides if cli_overrides else None
+            )
+            logger.info(f"Loaded config: {config_path}")
+        except FileNotFoundError as e:
+            error_msg = str(e)
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+        except Exception as e:
+            error_msg = f"Failed to load config: {e}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+
+        # Load CSV
+        if not os.path.exists(csv_path):
+            error_msg = f"CSV file not found: {csv_path}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+
+        try:
+            df = load_csv(csv_path, logger)
+            products = parse_faq_csv(df, config, logger)
+        except Exception as e:
+            error_msg = f"Failed to parse CSV: {e}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+
+        if not products:
+            error_msg = "No products to process"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": None, "error": error_msg}
+
+        # Apply start-product filter (by product number, not index)
+        if start_product is None:
+            start_product = 1
+        if start_product > 1:
+            products = [p for p in products if p.product_number >= start_product]
+            logger.info(f"Starting from product #{start_product}")
+
+        if limit:
+            products = products[:limit]
+            logger.info(f"Limited to {limit} products")
+
+        if dry_run:
+            logger.info("DRY RUN MODE: Audio upload will be skipped")
+
+        if debug:
+            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+
+        # Determine browser data directory
+        _browser_data_subdir = None
+        _session_filename = LIVE_SESSION_FILE
+        if app_support_dir:
+            _browser_data_subdir = os.path.join(app_support_dir, LIVE_BROWSER_DATA)
+            _session_filename = os.path.join(app_support_dir, LIVE_SESSION_FILE)
+
+        # Run automation
+        automation = FAQAutomation(
+            config=config,
+            headless=headless,
+            logger=logger,
+            dry_run=dry_run,
+            debug=debug,
+            browser_data_subdir=_browser_data_subdir,
+            session_filename=_session_filename,
+        )
+
+        try:
+            await automation.start_browser()
+
+            if not await automation.navigate_to_product_qa():
+                error_msg = "Failed to navigate to Product Q&A page"
+                logger.error(f"❌ {error_msg}")
+                return {"success": False, "report": None, "error": error_msg}
+
+            for product in products:
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info(
+                    f"Product #{product.product_number}: {product.product_name} "
+                    f"({len(product.rows)} questions)"
+                )
+                logger.info("=" * 70)
+                result = await automation.process_product(product)
+                if not result and debug:
+                    logger.info(
+                        f"🐛 DEBUG: Product #{product.product_number} failed. "
+                        f"Browser paused for inspection."
+                    )
+                    await async_debug_pause(
+                        "   Press Enter to continue to next product..."
+                    )
+
+        finally:
+            if debug:
+                succeeded = sum(1 for p in products if p.success)
+                failed = [f"#{p.product_number}" for p in products if p.error]
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info(f"📊 Results: {succeeded}/{len(products)} succeeded")
+                if failed:
+                    logger.info(f"   ❌ Failed: {', '.join(failed)}")
+                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                await async_debug_pause(
+                    "   Press Enter to close the browser and exit..."
+                )
+                logger.info("=" * 70)
+            await automation.close()
+
+        # Generate report
+        report = generate_faq_report(
+            products,
+            config,
+            timestamp,
+            logger,
+            elapsed_seconds=time.time() - start_time,
+        )
+
+        return {"success": True, "report": report, "error": None}
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Job failed: {error_msg}")
+        return {"success": False, "report": None, "error": error_msg}
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 async def main() -> None:
@@ -1033,7 +1219,6 @@ async def main() -> None:
     _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    start_time = time.time()
     logger = setup_logging(timestamp, logger_name="auto_faq", log_prefix="auto_faq")
 
     logger.info("ANYLIVE FAQ AUTOMATION")
@@ -1073,22 +1258,6 @@ async def main() -> None:
     else:
         config_path = "configs/default/live.json"
 
-    cli_overrides: dict = {}
-    if args.base_url:
-        cli_overrides["base_url"] = args.base_url
-    if args.audio_dir:
-        cli_overrides["audio_dir"] = args.audio_dir
-
-    try:
-        config = load_faq_config(config_path, cli_overrides if cli_overrides else None)
-        logger.info(f"Loaded config: {config_path}")
-    except FileNotFoundError as e:
-        logger.error(f"{e}")
-        return
-    except Exception as e:
-        logger.error(f"Failed to load config: {e}")
-        return
-
     # CSV selection: CLI flag > config.csv > autodetect
     try:
         csv_from_config = None
@@ -1103,78 +1272,21 @@ async def main() -> None:
         logger.error(f"{e}")
         return
 
-    df = load_csv(csv_path, logger)
-    products = parse_faq_csv(df, config, logger)
-
-    if not products:
-        logger.error("No products to process")
-        return
-
-    # Apply start-product filter (by product number, not index)
-    if args.start_product > 1:
-        products = [p for p in products if p.product_number >= args.start_product]
-        logger.info(f"Starting from product #{args.start_product}")
-
-    if args.limit:
-        products = products[: args.limit]
-        logger.info(f"Limited to {args.limit} products")
-
-    if args.dry_run:
-        logger.info("DRY RUN MODE: Audio upload will be skipped")
-
-    if args.debug:
-        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
-
-    automation = FAQAutomation(
-        config=config,
+    result = await run_job(
+        config_path=config_path,
+        csv_path=csv_path,
         headless=args.headless,
-        logger=logger,
         dry_run=args.dry_run,
         debug=args.debug,
-        browser_data_subdir=_browser_data_subdir,
-        session_filename=_session_filename,
+        start_product=args.start_product if args.start_product > 1 else None,
+        limit=args.limit,
+        audio_dir=args.audio_dir,
+        app_support_dir=None,
+        log_callback=None,
     )
 
-    try:
-        await automation.start_browser()
-
-        if not await automation.navigate_to_product_qa():
-            logger.error("Failed to navigate to Product Q&A page")
-            return
-
-        for product in products:
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info(
-                f"Product #{product.product_number}: {product.product_name} "
-                f"({len(product.rows)} questions)"
-            )
-            logger.info("=" * 70)
-            result = await automation.process_product(product)
-            if not result and args.debug:
-                logger.info(
-                    f"🐛 DEBUG: Product #{product.product_number} failed. "
-                    f"Browser paused for inspection."
-                )
-                await async_debug_pause("   Press Enter to continue to next product...")
-
-    finally:
-        if args.debug:
-            succeeded = sum(1 for p in products if p.success)
-            failed = [f"#{p.product_number}" for p in products if p.error]
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info(f"📊 Results: {succeeded}/{len(products)} succeeded")
-            if failed:
-                logger.info(f"   ❌ Failed: {', '.join(failed)}")
-            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
-            await async_debug_pause("   Press Enter to close the browser and exit...")
-            logger.info("=" * 70)
-        await automation.close()
-
-    generate_faq_report(
-        products, config, timestamp, logger, elapsed_seconds=time.time() - start_time
-    )
+    if not result["success"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
