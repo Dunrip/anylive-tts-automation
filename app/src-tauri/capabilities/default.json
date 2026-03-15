@@ -7,6 +7,7 @@
     "core:default",
     "shell:default",
     "shell:allow-execute",
-    "core:tray:default"
+    "core:tray:default",
+    "notification:default"
   ]
 }

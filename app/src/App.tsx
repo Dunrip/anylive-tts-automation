@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { MainContent } from "./components/layout/MainContent";
 import { useSidecar } from "./hooks/useSidecar";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { PanelType } from "./lib/navigation";
 
 function App(): React.ReactElement {
@@ -9,6 +10,10 @@ function App(): React.ReactElement {
   const [selectedClient, setSelectedClient] = useState<string>("default");
   const sidecar = useSidecar();
   const sessionValid = sidecar.isReady;
+
+  useKeyboardShortcuts({
+    onPanelChange: setActivePanel,
+  });
 
   // Mock client list — will be fetched from sidecar in Task 11
   const clients = ["default"];
