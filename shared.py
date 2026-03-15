@@ -18,17 +18,40 @@ from typing import Any, Callable, Optional
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+
+def get_playwright_cache_dir() -> Path:
+    """Return the platform-specific Playwright browser cache directory.
+
+    Returns:
+        Path: The cache directory for Playwright browsers:
+            - macOS: ~/Library/Caches/ms-playwright
+            - Windows: %LOCALAPPDATA%/ms-playwright
+            - Linux/Unix: ~/.cache/ms-playwright
+    """
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform == "win32":
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        return Path(localappdata) / "ms-playwright"
+    else:
+        # Linux and other Unix-like systems
+        return Path.home() / ".cache" / "ms-playwright"
+
+
 # In packaged apps Playwright may default to looking for browsers inside the
-# application bundle. Force use of the standard macOS cache directory where
+# application bundle. Force use of the standard cache directory where
 # `python -m playwright install chromium` downloads browsers.
 os.environ.setdefault(
     "PLAYWRIGHT_BROWSERS_PATH",
-    os.path.join(str(Path.home()), "Library", "Caches", "ms-playwright"),
+    str(get_playwright_cache_dir()),
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+# Platform-aware keyboard modifier
+MODIFIER_KEY = "Meta" if sys.platform == "darwin" else "Control"
+
 DEFAULT_TIMEOUT = 30000
 CLICK_TIMEOUT = 8000
 NAVIGATION_TIMEOUT = 45000
@@ -385,9 +408,9 @@ class BrowserAutomation:
                 await el.scroll_into_view_if_needed()
                 await el.click(force=True)
                 await asyncio.sleep(0.03)
-                await el.press("Meta+A")
+                await el.press(f"{MODIFIER_KEY}+A")
                 await el.press("Backspace")
-                await self.page.keyboard.press("Meta+V")
+                await self.page.keyboard.press(f"{MODIFIER_KEY}+V")
                 await asyncio.sleep(0.03)
                 try:
                     await el.press("Tab")
@@ -410,7 +433,7 @@ class BrowserAutomation:
                 await asyncio.sleep(0.03)
 
                 try:
-                    await element.press("Meta+A")
+                    await element.press(f"{MODIFIER_KEY}+A")
                     await element.press("Backspace")
                 except Exception:
                     try:
