@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -12,6 +13,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+_logger = logging.getLogger(__name__)
+
 
 class CSVPreviewRequest(BaseModel):
     csv_path: str
@@ -22,6 +25,7 @@ class CSVPreviewRequest(BaseModel):
 async def preview_csv(request: CSVPreviewRequest) -> dict:
     try:
         from auto_tts import ClientConfig, parse_csv_data
+        from shared import load_csv, load_jsonc
 
         config_path = Path(request.config_path)
         if not config_path.is_absolute():
@@ -30,8 +34,6 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
             raise HTTPException(
                 status_code=404, detail=f"Config not found: {request.config_path}"
             )
-
-        from shared import load_jsonc
 
         config_data = load_jsonc(str(config_path))
         config = ClientConfig(**config_data)
@@ -44,7 +46,8 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
                 status_code=404, detail=f"CSV not found: {request.csv_path}"
             )
 
-        versions = parse_csv_data(str(csv_path), config)
+        df = load_csv(str(csv_path), _logger)
+        versions = parse_csv_data(df, config, _logger)
 
         preview_rows: list[dict[str, str]] = []
         for version in versions[:5]:

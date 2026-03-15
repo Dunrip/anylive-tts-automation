@@ -3,6 +3,8 @@
   "version_template": "Test_Template",
   "voice_name": "Test_Voice",
   "max_scripts_per_version": 10,
+  "enable_voice_selection": false,
+  "enable_product_info": false,
   "csv_columns": {
     "product_number": "No.",
     "product_name": "Product Name",
