@@ -1,0 +1,109 @@
+name: Release
+
+# TODO: Add code signing for macOS (.p12 cert) and Windows (EV cert) before production release
+# TODO: Add macOS Intel (x86_64-apple-darwin) build when needed
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-sidecar:
+    name: Build Sidecar (${{ matrix.platform }})
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            target-triple: aarch64-apple-darwin
+            python-version: "3.11"
+          - platform: windows-latest
+            target-triple: x86_64-pc-windows-msvc
+            python-version: "3.11"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install sidecar dependencies
+        run: |
+          pip install -r app/sidecar/requirements.txt
+          pip install pyinstaller
+
+      - name: Build sidecar with PyInstaller
+        run: |
+          cd app/sidecar
+          pyinstaller sidecar.spec --clean
+
+      - name: Rename binary with target-triple
+        shell: bash
+        run: |
+          cd app/sidecar
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            cp dist/sidecar-server/sidecar-server.exe dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}.exe
+          else
+            cp dist/sidecar-server/sidecar-server dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}
+          fi
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target-triple }}
+          path: |
+            app/sidecar/dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}*
+          retention-days: 1
+
+  build-tauri:
+    name: Build Tauri App (${{ matrix.platform }})
+    needs: build-sidecar
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            target-triple: aarch64-apple-darwin
+            artifact-ext: ""
+          - platform: windows-latest
+            target-triple: x86_64-pc-windows-msvc
+            artifact-ext: ".exe"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: |
+          cd app
+          npm install
+
+      - name: Download sidecar artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target-triple }}
+          path: app/src-tauri/binaries/
+
+      - name: Make sidecar executable (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: chmod +x app/src-tauri/binaries/sidecar-server-${{ matrix.target-triple }}
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "AnyLive TTS ${{ github.ref_name }}"
+          releaseBody: "See the assets to download this version and install."
+          releaseDraft: true
+          prerelease: false
