@@ -13,7 +13,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.config import router as config_router
 from routes.csv_preview import router as csv_router
+from routes.faq import router as faq_router
+from routes.history import router as history_router
 from routes.jobs import router as jobs_router
+from routes.scripts import router as scripts_router
 from routes.session import router as session_router
 from routes.tts import router as tts_router
 
@@ -53,6 +56,9 @@ app.include_router(session_router, prefix="/api")
 app.include_router(csv_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
 app.include_router(tts_router, prefix="/api")
+app.include_router(faq_router, prefix="/api")
+app.include_router(scripts_router, prefix="/api")
+app.include_router(history_router, prefix="/api")
 
 
 @app.get("/health")

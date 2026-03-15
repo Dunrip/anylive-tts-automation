@@ -138,6 +138,12 @@ class JobManager:
             job.finished_at = _now()
             job.emit_status()
             self._current_job = None
+            try:
+                from services.history_store import save_run
+
+                save_run(job)
+            except Exception:
+                pass
 
 
 job_manager = JobManager()
