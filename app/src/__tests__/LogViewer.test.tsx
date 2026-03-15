@@ -1,0 +1,81 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { LogViewer } from "../components/layout/LogViewer";
+import type { WSMessage } from "../lib/types";
+
+const mockMessages: WSMessage[] = [
+  { type: "log", level: "INFO", message: "Starting automation", timestamp: "2026-01-01T00:00:00Z" },
+  { type: "log", level: "WARN", message: "Slow response", timestamp: "2026-01-01T00:00:01Z" },
+  { type: "log", level: "ERROR", message: "Failed to click", timestamp: "2026-01-01T00:00:02Z" },
+  { type: "log", level: "DEBUG", message: "Debug info", timestamp: "2026-01-01T00:00:03Z" },
+];
+
+describe("LogViewer", () => {
+  it("renders log viewer", () => {
+    render(<LogViewer messages={[]} isConnected={false} />);
+    expect(screen.getByTestId("log-viewer")).toBeInTheDocument();
+  });
+
+  it("shows waiting message when no logs", () => {
+    render(<LogViewer messages={[]} isConnected={false} />);
+    expect(screen.getByText("Waiting for logs...")).toBeInTheDocument();
+  });
+
+  it("renders log messages and count", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    expect(screen.getByText("Starting automation")).toBeInTheDocument();
+    expect(screen.getByText("Slow response")).toBeInTheDocument();
+    expect(screen.getByText("Failed to click")).toBeInTheDocument();
+    expect(screen.getByText("4 messages")).toBeInTheDocument();
+  });
+
+  it("applies color mapping by log level", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    expect(screen.getByTestId("log-line-0")).toHaveStyle({ color: "var(--text-primary)" });
+    expect(screen.getByTestId("log-line-1")).toHaveStyle({ color: "var(--warning)" });
+    expect(screen.getByTestId("log-line-2")).toHaveStyle({ color: "var(--error)" });
+    expect(screen.getByTestId("log-line-3")).toHaveStyle({ color: "var(--text-muted)" });
+  });
+
+  it("filters messages by search input", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    fireEvent.change(screen.getByTestId("log-filter"), { target: { value: "slow" } });
+
+    expect(screen.getByText("Slow response")).toBeInTheDocument();
+    expect(screen.queryByText("Starting automation")).not.toBeInTheDocument();
+    expect(screen.getByText("1 messages")).toBeInTheDocument();
+  });
+
+  it("pauses auto-scroll when user scrolls up and can resume", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    const content = screen.getByTestId("log-content");
+    Object.defineProperty(content, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(content, "clientHeight", { configurable: true, value: 200 });
+    Object.defineProperty(content, "scrollTop", { configurable: true, value: 0, writable: true });
+
+    fireEvent.scroll(content);
+    expect(screen.getByTestId("resume-scroll-button")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("resume-scroll-button"));
+    expect(screen.queryByTestId("resume-scroll-button")).not.toBeInTheDocument();
+  });
+
+  it("copies filtered logs", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.change(screen.getByTestId("log-filter"), { target: { value: "failed" } });
+    fireEvent.click(screen.getByTestId("copy-logs-button"));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith("[ERROR] Failed to click");
+  });
+});
