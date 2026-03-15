@@ -24,3 +24,5 @@ app/dist/
 app/src-tauri/target/
 app/sidecar/__pycache__/
 app/sidecar/.pytest_cache/
+app/sidecar/build/
+app/sidecar/dist/
