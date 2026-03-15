@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 import sys
 from pathlib import Path
 
@@ -33,9 +31,9 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
                 status_code=404, detail=f"Config not found: {request.config_path}"
             )
 
-        config_text = config_path.read_text(encoding="utf-8")
-        config_text = re.sub(r"//[^\n]*", "", config_text)
-        config_data = json.loads(config_text)
+        from shared import load_jsonc
+
+        config_data = load_jsonc(str(config_path))
         config = ClientConfig(**config_data)
 
         csv_path = Path(request.csv_path)

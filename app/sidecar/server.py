@@ -15,6 +15,7 @@ from routes.config import router as config_router
 from routes.csv_preview import router as csv_router
 from routes.jobs import router as jobs_router
 from routes.session import router as session_router
+from routes.tts import router as tts_router
 
 _SIDECAR_DIR = Path(__file__).resolve().parent
 _APP_DIR = _SIDECAR_DIR.parent
@@ -51,6 +52,7 @@ app.include_router(config_router, prefix="/api")
 app.include_router(session_router, prefix="/api")
 app.include_router(csv_router, prefix="/api")
 app.include_router(jobs_router, prefix="/api")
+app.include_router(tts_router, prefix="/api")
 
 
 @app.get("/health")

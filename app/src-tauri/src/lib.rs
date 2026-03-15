@@ -37,6 +37,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             let sidecar_command = app.shell().command("python3").args(["app/sidecar/server.py"]);
