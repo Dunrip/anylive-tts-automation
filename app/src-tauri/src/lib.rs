@@ -39,12 +39,23 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
-            let sidecar_command = app.shell().command("python3").args(["app/sidecar/server.py"]);
+            let is_dev = cfg!(debug_assertions);
 
-            let (mut rx, child) = sidecar_command
-                .spawn()
-                .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
+            let (mut rx, child) = if is_dev {
+                app.shell()
+                    .command("python3")
+                    .args(["app/sidecar/server.py"])
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
+            } else {
+                app.shell()
+                    .sidecar("sidecar-server")
+                    .map_err(|e| format!("Failed to find sidecar: {e}"))?
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
+            };
 
             {
                 let state = app.state::<SidecarProcess>();
