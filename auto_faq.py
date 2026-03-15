@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -21,54 +22,27 @@ import pandas as pd
 from shared import (
     BrowserAutomation,
     async_debug_pause,
+    ensure_client_config,
+    get_last_client,
+    get_live_session_paths,
+    save_last_client,
     setup_login,
     setup_logging,
     find_csv_file,
     load_csv,
     load_jsonc,
     is_session_valid,
-    get_session_file_path,
     CLICK_TIMEOUT,
+    LIVE_BROWSER_DATA,
+    LIVE_LOGIN_URL,
+    LIVE_SESSION_FILE,
     NAVIGATION_TIMEOUT,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-FAQ_SESSION_FILE = "state/session_state_faq.json"
-FAQ_BROWSER_DATA = "state/browser_data_faq"
-FAQ_LOGIN_URL = "https://live.app.anylive.jp"
 FAQ_LAST_CLIENT_FILE = "state/faq_last_client.json"
-
-
-# ---------------------------------------------------------------------------
-# Multi-account helpers
-# ---------------------------------------------------------------------------
-def _get_faq_session_paths(client: Optional[str]) -> tuple[str, str]:
-    """Return (session_filename, browser_data_subdir) for the given client name."""
-    if client:
-        return (
-            f"state/session_state_faq_{client}.json",
-            f"state/browser_data_faq_{client}",
-        )
-    return FAQ_SESSION_FILE, FAQ_BROWSER_DATA
-
-
-def _get_last_faq_client() -> Optional[str]:
-    path = get_session_file_path(FAQ_LAST_CLIENT_FILE)
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f).get("last_client")
-        except Exception:
-            return None
-    return None
-
-
-def _save_last_faq_client(client: str) -> None:
-    path = get_session_file_path(FAQ_LAST_CLIENT_FILE)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"last_client": client}, f)
 
 
 # ---------------------------------------------------------------------------
@@ -252,32 +226,39 @@ def resolve_audio_file(
     Search order:
     1. Subfolder matching ``{zero_padded_number}_*`` (e.g. ``01_Dna_...``)
     2. Flat search in audio_dir root
+    3. Recursive search from repo root (fallback)
     """
     if not audio_code:
         return None
 
     audio_dir_path = Path(audio_dir)
-    if not audio_dir_path.exists():
-        logger.warning(f"Audio directory not found: {audio_dir}")
-        return None
-
     zero_padded = f"{product_number:02d}"
 
-    # Strategy 1: find subfolder matching product number prefix
-    for entry in sorted(audio_dir_path.iterdir()):
-        if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
-            for ext in extensions:
-                candidate = entry / f"{audio_code}{ext}"
-                if candidate.exists():
-                    logger.debug(f"Found audio: {candidate}")
-                    return str(candidate.resolve())
+    if audio_dir_path.exists():
+        # Strategy 1: find subfolder matching product number prefix
+        for entry in sorted(audio_dir_path.iterdir()):
+            if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
+                for ext in extensions:
+                    candidate = entry / f"{audio_code}{ext}"
+                    if candidate.exists():
+                        logger.debug(f"Found audio: {candidate}")
+                        return str(candidate.resolve())
 
-    # Strategy 2: flat search in audio_dir root
+        # Strategy 2: flat search in audio_dir root
+        for ext in extensions:
+            candidate = audio_dir_path / f"{audio_code}{ext}"
+            if candidate.exists():
+                logger.debug(f"Found audio (flat): {candidate}")
+                return str(candidate.resolve())
+    else:
+        logger.warning(f"Audio directory not found: {audio_dir}")
+
+    # Strategy 3: recursive search from repo root (fallback)
+    repo_root = Path(__file__).parent
     for ext in extensions:
-        candidate = audio_dir_path / f"{audio_code}{ext}"
-        if candidate.exists():
-            logger.debug(f"Found audio (flat): {candidate}")
-            return str(candidate.resolve())
+        for candidate_path in repo_root.rglob(f"{audio_code}{ext}"):
+            logger.debug(f"Found audio (repo search): {candidate_path}")
+            return str(candidate_path.resolve())
 
     logger.warning(
         f"Audio file not found for code '{audio_code}' (product {product_number})"
@@ -321,8 +302,8 @@ class FAQAutomation(BrowserAutomation):
         dry_run: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
-        browser_data_subdir: str = FAQ_BROWSER_DATA,
-        session_filename: str = FAQ_SESSION_FILE,
+        browser_data_subdir: str = LIVE_BROWSER_DATA,
+        session_filename: str = LIVE_SESSION_FILE,
     ) -> None:
         super().__init__(
             headless=headless,
@@ -332,20 +313,25 @@ class FAQAutomation(BrowserAutomation):
             screenshots_dir=screenshots_dir,
             browser_data_subdir=browser_data_subdir,
             session_filename=session_filename,
-            login_url=FAQ_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             base_url=config.base_url,
         )
         self.config = config
 
     async def navigate_to_product_qa(self) -> bool:
         """Navigate to Product Q&A tab."""
-        self.logger.info(f"Navigating to {self.config.base_url}")
-        await self.page.goto(
-            self.config.base_url,
-            wait_until="domcontentloaded",
-            timeout=NAVIGATION_TIMEOUT,
-        )
-        await asyncio.sleep(1.5)
+        current = self.page.url
+        target = self.config.base_url.rstrip("/")
+        if not current.rstrip("/").startswith(target):
+            self.logger.info(f"Navigating to {self.config.base_url}")
+            await self.page.goto(
+                self.config.base_url,
+                wait_until="domcontentloaded",
+                timeout=NAVIGATION_TIMEOUT,
+            )
+            await asyncio.sleep(1.5)
+        else:
+            self.logger.info("Already on target page, skipping reload")
 
         # Click "Live Interaction Settings" top-level tab (generic element, not button/tab)
         try:
@@ -948,15 +934,19 @@ def generate_faq_report(
     timestamp: str,
     logger: logging.Logger,
     logs_dir: Optional[str] = None,
+    elapsed_seconds: float = 0.0,
 ) -> dict:
     successful = sum(1 for p in products if p.success)
     failed = len(products) - successful
+    total_questions = sum(len(p.rows) for p in products)
 
     report = {
         "timestamp": datetime.now().isoformat(),
         "total_products": len(products),
         "successful": successful,
         "failed": failed,
+        "total_questions": total_questions,
+        "elapsed_seconds": elapsed_seconds,
         "products": [
             {
                 "product_number": p.product_number,
@@ -974,6 +964,9 @@ def generate_faq_report(
     logger.info("FINAL FAQ REPORT")
     logger.info("=" * 70)
     logger.info(f"Total: {len(products)} | Success: {successful} | Failed: {failed}")
+    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
+    logger.info(f"Questions: {total_questions} total")
+    logger.info(f"Time: {elapsed_str}")
 
     for p in products:
         status = "OK" if p.success else "FAILED"
@@ -1035,12 +1028,12 @@ async def main() -> None:
     if args.debug and args.headless:
         args.debug = False
 
-    # Resolve effective client: explicit > last-used > None (falls back to legacy defaults)
     _explicit_client: Optional[str] = args.client
-    _client: Optional[str] = _explicit_client or _get_last_faq_client()
-    _session_filename, _browser_data_subdir = _get_faq_session_paths(_client)
+    _client: Optional[str] = _explicit_client or get_last_client(FAQ_LAST_CLIENT_FILE)
+    _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
     logger = setup_logging(timestamp, logger_name="auto_faq", log_prefix="auto_faq")
 
     logger.info("ANYLIVE FAQ AUTOMATION")
@@ -1050,9 +1043,11 @@ async def main() -> None:
         logger.info(f"Using account: {_client}")
 
     if args.setup:
+        if _explicit_client:
+            ensure_client_config(_explicit_client, config_type="live", logger=logger)
         await setup_login(
             logger,
-            login_url=FAQ_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             browser_data_subdir=_browser_data_subdir,
             session_filename=_session_filename,
         )
@@ -1065,14 +1060,14 @@ async def main() -> None:
         )
         return
 
-    # Persist last-used when explicitly specified (only for automation runs, not --setup)
     if _explicit_client:
-        _save_last_faq_client(_explicit_client)
+        save_last_client(FAQ_LAST_CLIENT_FILE, _explicit_client)
 
-    # Resolve config path
     config_path: str
     if args.client:
-        config_path = f"configs/{args.client}/live.json"
+        config_path = ensure_client_config(
+            args.client, config_type="live", logger=logger
+        )
     elif args.config:
         config_path = args.config
     else:
@@ -1177,7 +1172,9 @@ async def main() -> None:
             logger.info("=" * 70)
         await automation.close()
 
-    generate_faq_report(products, config, timestamp, logger)
+    generate_faq_report(
+        products, config, timestamp, logger, elapsed_seconds=time.time() - start_time
+    )
 
 
 if __name__ == "__main__":

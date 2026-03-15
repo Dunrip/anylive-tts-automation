@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -22,33 +23,33 @@ import pandas as pd
 from shared import (
     BrowserAutomation,
     async_debug_pause,
+    ensure_client_config,
+    get_live_session_paths,
+    save_last_client,
     setup_login,
     setup_logging,
     find_csv_file,
     load_csv,
     load_jsonc,
     is_session_valid,
-    get_session_file_path,
     CLICK_TIMEOUT,
-    NAVIGATION_TIMEOUT,
+    LIVE_BROWSER_DATA,
+    LIVE_LOGIN_URL,
+    LIVE_SESSION_FILE,
     MAX_RETRIES,
+    NAVIGATION_TIMEOUT,
     RETRY_DELAY_SECONDS,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-# Session/browser data are SHARED with auto_faq.py (same site: live.app.anylive.jp).
-# Only the last-client tracking file is separate.
-SCRIPT_SESSION_FILE = "state/session_state_faq.json"
-SCRIPT_BROWSER_DATA = "state/browser_data_faq"
-SCRIPT_LOGIN_URL = "https://live.app.anylive.jp"
 SCRIPT_LAST_CLIENT_FILE = "state/script_last_client.json"
 
 SCRIPT_SELECTORS: dict[str, list[str]] = {
     "add_audio_button": [
+        'button:has-text("Upload Audio Script")',
         'button:has-text("Add Audio")',
-        ':text("Add Audio")',
     ],
     "script_count": [
         "text=/\\d+\\/20/",
@@ -61,38 +62,10 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
         '[role="menuitem"]:has-text("Delete")',
         'li:has-text("Delete")',
     ],
+    "script_row_name": [
+        '[aria-label="more"]',  # Each script row has a "more" button — used as anchor to find row text
+    ],
 }
-
-
-# ---------------------------------------------------------------------------
-# Multi-account session helpers
-# ---------------------------------------------------------------------------
-def _get_script_session_paths(client: Optional[str]) -> tuple[str, str]:
-    """Return (session_filename, browser_data_subdir) for the given client."""
-    # Share session/browser_data with auto_faq.py — same site, same auth
-    if client:
-        return (
-            f"state/session_state_faq_{client}.json",
-            f"state/browser_data_faq_{client}",
-        )
-    return SCRIPT_SESSION_FILE, SCRIPT_BROWSER_DATA
-
-
-def _get_last_script_client() -> Optional[str]:
-    path = get_session_file_path(SCRIPT_LAST_CLIENT_FILE)
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f).get("last_client")
-        except Exception:
-            return None
-    return None
-
-
-def _save_last_script_client(client: str) -> None:
-    path = get_session_file_path(SCRIPT_LAST_CLIENT_FILE)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"last_client": client}, f)
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +89,7 @@ class ProductScript:
     rows: List[ScriptRow] = field(default_factory=list)
     success: bool = False
     error: Optional[str] = None
+    scripts_skipped: int = 0
 
 
 @dataclass
@@ -148,8 +122,8 @@ class ScriptAutomation(BrowserAutomation):
         dry_run: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
-        browser_data_subdir: str = SCRIPT_BROWSER_DATA,
-        session_filename: str = SCRIPT_SESSION_FILE,
+        browser_data_subdir: str = LIVE_BROWSER_DATA,
+        session_filename: str = LIVE_SESSION_FILE,
     ) -> None:
         super().__init__(
             headless=headless,
@@ -159,23 +133,40 @@ class ScriptAutomation(BrowserAutomation):
             screenshots_dir=screenshots_dir,
             browser_data_subdir=browser_data_subdir,
             session_filename=session_filename,
-            login_url=SCRIPT_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             base_url=config.base_url,
         )
         self.config = config
+
+    def _log_product_header(
+        self, index: int, total: int, product_number: int, label: str
+    ) -> None:
+        self.logger.info("")
+        self.logger.info("=" * 60)
+        self.logger.info(f" [{index}/{total}] Product #{product_number} — {label}")
+        self.logger.info("-" * 60)
+
+    def _log_product_result(self, status: str, detail: str) -> None:
+        self.logger.info(f"  → {status}: {detail}")
 
     async def navigate_to_set_live_content(self) -> bool:
         """Navigate to the Set Live Content tab (default active tab)."""
         if self.page is None:
             raise RuntimeError("Browser page is not initialized")
 
-        self.logger.info(f"Navigating to {self.config.base_url}")
-        await self.page.goto(
-            self.config.base_url,
-            wait_until="domcontentloaded",
-            timeout=NAVIGATION_TIMEOUT,
-        )
-        await asyncio.sleep(1.5)
+        current = self.page.url
+        target = self.config.base_url.rstrip("/")
+        if not current.rstrip("/").startswith(target):
+            self.logger.info(f"Navigating to {self.config.base_url}")
+            await self.page.goto(
+                self.config.base_url,
+                wait_until="domcontentloaded",
+                timeout=NAVIGATION_TIMEOUT,
+            )
+            await asyncio.sleep(1.5)
+        else:
+            self.logger.info("Already on Set Live Content page, skipping reload")
+
         try:
             await self.page.wait_for_selector(
                 ':text("Script Configuration"), :text("Live Products")',
@@ -204,27 +195,32 @@ class ScriptAutomation(BrowserAutomation):
 
         found = await self.page.evaluate(
             """(targetNum) => {
-                // Find sidebar product cards — each card has a number text element
-                // The sidebar contains numbered cards (1-60), each with a clickable area
-                const allDivs = document.querySelectorAll('div');
-                for (const div of allDivs) {
-                    // Look for elements that contain ONLY the target number as text
-                    const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
+                // Scope search to product card rows only: find all
+                // .product-card elements, walk to each card's parent row,
+                // and check if that row contains the target product number.
+                const cards = document.querySelectorAll('.product-card');
+                for (const card of cards) {
+                    const row = card.parentElement;
+                    if (!row) continue;
+                    const walker = document.createTreeWalker(
+                        row, NodeFilter.SHOW_TEXT
+                    );
                     while (walker.nextNode()) {
                         const text = walker.currentNode.textContent.trim();
                         if (text !== targetNum) continue;
-                        // Walk up to find a card-like container (has sibling with image)
-                        let el = walker.currentNode.parentElement;
-                        for (let i = 0; i < 5; i++) {
-                            if (!el) break;
-                            // Check if this element or its parent contains a product image
-                            const hasImg = el.querySelector('img');
-                            if (hasImg) {
-                                el.setAttribute('data-script-product', targetNum);
-                                return true;
-                            }
-                            el = el.parentElement;
+
+                        let isCounter = false;
+                        let check = walker.currentNode.parentElement;
+                        for (let c = 0; c < 3 && check; c++) {
+                            if (/^\\d+\\s*\\/\\s*\\d+$/.test(
+                                check.textContent.trim()
+                            )) { isCounter = true; break; }
+                            check = check.parentElement;
                         }
+                        if (isCounter) continue;
+
+                        row.setAttribute('data-script-product', targetNum);
+                        return true;
                     }
                 }
                 return false;
@@ -245,7 +241,14 @@ class ScriptAutomation(BrowserAutomation):
 
         await locator.first.scroll_into_view_if_needed()
         await locator.first.click()
-        await asyncio.sleep(1.5)
+
+        # networkidle waits for SPA data fetch to complete before reading script count
+        try:
+            await self.page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            await asyncio.sleep(1.5)
+        await asyncio.sleep(0.5)
+
         self.logger.debug(f"Selected product #{product_number}")
         return True
 
@@ -256,13 +259,142 @@ class ScriptAutomation(BrowserAutomation):
 
         try:
             count_el = self.page.locator("text=/^\\d+\\/20$/")
-            if await count_el.count() > 0:
+            matches = await count_el.count()
+            if matches > 0:
                 text = await count_el.first.text_content()
                 if text:
-                    return int(text.split("/")[0])
+                    value = int(text.split("/")[0])
+                    self.logger.debug(f"Script count: {text} ({matches} matches)")
+                    return value
+            self.logger.debug("Script count selector matched 0 elements")
         except Exception as e:
             self.logger.debug(f"Could not read script count: {e}")
         return 0
+
+    async def get_existing_script_names(self) -> list[str]:
+        """Read all script filenames from the center pane.
+
+        Uses the 'more' button (present on each script row) as an anchor,
+        then walks up to the nearest row container to extract the filename.
+        Returns raw displayed names (not normalized).
+        On failure, returns an empty list as a safe fallback.
+        """
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        try:
+            names: list[str] = await self.page.evaluate(
+                """() => {
+                    const buttons = document.querySelectorAll('[aria-label="more"]');
+                    const results = [];
+                    for (const btn of buttons) {
+                        let found = false;
+                        let el = btn.parentElement;
+                        // Walk up at most 5 levels to find the script row
+                        for (let i = 0; i < 5 && el && !found; i++) {
+                            const texts = el.querySelectorAll('span, p');
+                            for (const t of texts) {
+                                // Only check direct text (avoid nested duplicates)
+                                if (t.children.length > 0) continue;
+                                const txt = t.textContent?.trim();
+                                if (txt
+                                    && txt !== 'more'
+                                    && !txt.includes('/')
+                                    && txt.length > 2
+                                    && txt.length < 100
+                                    && /\\.[a-zA-Z0-9]{2,4}$/.test(txt)) {
+                                    results.push(txt);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            el = el.parentElement;
+                        }
+                    }
+                    return [...new Set(results)];
+                }"""
+            )
+            if names:
+                self.logger.debug(f"Found {len(names)} existing scripts: {names}")
+            else:
+                self.logger.debug("No existing script names found in center pane")
+            return names
+        except Exception as e:
+            self.logger.warning(f"Could not read existing script names: {e}")
+            return []
+
+    async def scan_sidebar_script_status(self) -> dict[int, int]:
+        """Pre-scan all sidebar product cards for script labels.
+
+        Reads the visible 'No product script' / 'N product scripts' tag on
+        each card WITHOUT clicking into the product.  Returns a mapping of
+        ``{product_number: script_count}`` for products that have at least
+        one script.  Products with 'No product script' are omitted.
+        """
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        raw: dict[str, int] = await self.page.evaluate(
+            """() => {
+                const labels = document.querySelectorAll('p');
+                const result = {};
+                for (const label of labels) {
+                    const text = label.textContent?.trim();
+                    if (!text) continue;
+                    const m = text.match(/^(\\d+) product scripts?$/);
+                    if (!m) continue;
+                    const count = parseInt(m[1], 10);
+                    if (count === 0) continue;
+
+                    // Walk up past the product-card to its parent row,
+                    // which contains the product number as a child element.
+                    let row = label.parentElement;
+                    for (let i = 0; i < 10 && row; i++) {
+                        if (row.classList?.contains('product-card')) {
+                            row = row.parentElement;
+                            continue;
+                        }
+                        if (!row.querySelector('.product-card')) {
+                            row = row.parentElement;
+                            continue;
+                        }
+                        // Found the row that contains a product-card child.
+                        const walker = document.createTreeWalker(
+                            row, NodeFilter.SHOW_TEXT
+                        );
+                        while (walker.nextNode()) {
+                            const t = walker.currentNode.textContent.trim();
+                            if (!/^\\d{1,3}$/.test(t)) continue;
+                            const num = parseInt(t, 10);
+                            let isCounter = false;
+                            let chk = walker.currentNode.parentElement;
+                            for (let c = 0; c < 3 && chk; c++) {
+                                if (/^\\d+\\s*\\/\\s*\\d+$/.test(
+                                    chk.textContent.trim()
+                                )) { isCounter = true; break; }
+                                chk = chk.parentElement;
+                            }
+                            if (!isCounter && num >= 1) {
+                                result[String(num)] = count;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                return result;
+            }"""
+        )
+
+        products_with_scripts: dict[int, int] = {int(k): v for k, v in raw.items()}
+        if products_with_scripts:
+            self.logger.info(
+                f"Pre-scan: {len(products_with_scripts)} products have scripts "
+                f"({', '.join(f'#{n}({c})' for n, c in sorted(products_with_scripts.items()))})"
+            )
+        else:
+            self.logger.info("Pre-scan: no products have scripts")
+        return products_with_scripts
 
     async def get_product_count(self) -> int:
         """Read total product count from sidebar header (e.g., '60/60' -> 60).
@@ -299,18 +431,30 @@ class ScriptAutomation(BrowserAutomation):
             elapsed += interval
         return False
 
+    async def _dismiss_open_menus(self) -> None:
+        """Press Escape to close any lingering dropdown/context menu."""
+        if self.page is None:
+            return
+        try:
+            await self.page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+        except Exception:
+            pass
+
     async def _delete_single_script(
         self, product_number: int, current_count: int
     ) -> bool:
         """Delete the FIRST script row in the center pane.
 
         Always targets the first row because rows shift up after each deletion.
-        Flow: click 'more' button -> wait for dropdown -> click 'Delete' menuitem.
+        Flow: dismiss stale menus -> click 'more' -> click 'Delete' menuitem.
         """
         if self.page is None:
             raise RuntimeError("Browser page is not initialized")
 
         try:
+            await self._dismiss_open_menus()
+
             more_btn = self.page.get_by_role("button", name="more", exact=True).first
             if await more_btn.count() == 0:
                 more_btn = self.page.locator('[aria-label="more"]').first
@@ -323,7 +467,7 @@ class ScriptAutomation(BrowserAutomation):
 
             await more_btn.scroll_into_view_if_needed()
             await more_btn.click()
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.5)
 
             delete_item = self.page.get_by_role("menuitem", name="Delete").first
             try:
@@ -334,7 +478,7 @@ class ScriptAutomation(BrowserAutomation):
                 ).first
 
             await delete_item.click()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.8)
 
             confirmed = await self._wait_for_delete_confirmation(current_count - 1)
             if not confirmed:
@@ -360,7 +504,21 @@ class ScriptAutomation(BrowserAutomation):
         count = await self.get_script_count()
 
         if count == 0:
-            self.logger.info(f"Product #{product_number} has no scripts to delete")
+            # Fallback: poll briefly in case center pane is still loading.
+            # The sidebar pre-scan already filtered empty products, so this
+            # only fires when scripts genuinely need time to render.
+            poll_timeout = 10.0
+            poll_interval = 0.5
+            elapsed = 0.0
+            while elapsed < poll_timeout:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+                count = await self.get_script_count()
+                if count > 0:
+                    break
+
+        if count == 0:
+            self.logger.info("  No scripts to delete")
             return True, 0
 
         if dry_run:
@@ -377,6 +535,12 @@ class ScriptAutomation(BrowserAutomation):
 
             ok = False
             for attempt in range(MAX_RETRIES):
+                if attempt > 0:
+                    await self._dismiss_open_menus()
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                    current_count = await self.get_script_count()
+                    if current_count == 0:
+                        break
                 ok = await self._delete_single_script(product_number, current_count)
                 if ok:
                     break
@@ -384,7 +548,6 @@ class ScriptAutomation(BrowserAutomation):
                     f"Delete attempt {attempt + 1}/{MAX_RETRIES} failed for "
                     f"product #{product_number}, retrying..."
                 )
-                await asyncio.sleep(RETRY_DELAY_SECONDS)
 
             if not ok:
                 self.logger.error(
@@ -399,7 +562,6 @@ class ScriptAutomation(BrowserAutomation):
                 f"({current_count - 1} remaining)"
             )
 
-        self.logger.info(f"Product #{product_number}: deleted {deleted} scripts")
         return True, deleted
 
     async def delete_all_scripts(
@@ -415,14 +577,59 @@ class ScriptAutomation(BrowserAutomation):
         """
         total = await self.get_product_count()
         end_product = min(start_product + limit, total + 1) if limit else total + 1
+        all_product_numbers = list(range(start_product, end_product))
+
+        script_status = await self.scan_sidebar_script_status()
+        products_with_scripts = [n for n in all_product_numbers if n in script_status]
+        products_without_scripts = [
+            n for n in all_product_numbers if n not in script_status
+        ]
+
+        if products_without_scripts:
+            self.logger.info(f"Skipping {len(products_without_scripts)} empty products")
 
         results: list[dict] = []
-        for product_number in range(start_product, end_product):
+        for product_number in products_without_scripts:
+            results.append(
+                {
+                    "product_number": product_number,
+                    "scripts_deleted": 0,
+                    "success": True,
+                    "error": None,
+                }
+            )
+
+        total_to_delete = len(products_with_scripts)
+        if total_to_delete == 0:
+            self.logger.info("No products have scripts — nothing to delete")
+            return sorted(results, key=lambda r: r["product_number"])
+
+        for idx, product_number in enumerate(products_with_scripts, 1):
+            expected = script_status.get(product_number, 0)
+            self._log_product_header(
+                idx, total_to_delete, product_number, "Deleting scripts"
+            )
             try:
                 success, deleted = await self.delete_product_scripts(
                     product_number, dry_run=dry_run
                 )
-                if not success:
+
+                if success and deleted == 0 and expected > 0 and not dry_run:
+                    self.logger.warning(
+                        f"  Pre-scan expected {expected} scripts but center "
+                        f"pane showed 0 — re-selecting product #{product_number}"
+                    )
+                    success, deleted = await self.delete_product_scripts(
+                        product_number, dry_run=dry_run
+                    )
+
+                if success:
+                    suffix = "(dry run)" if dry_run else "deleted"
+                    self._log_product_result("OK", f"{deleted} scripts {suffix}")
+                else:
+                    self._log_product_result(
+                        "FAILED", f"Stopped after {deleted} deletions"
+                    )
                     try:
                         await self.take_screenshot(f"product_{product_number}")
                     except Exception as screenshot_err:
@@ -437,9 +644,7 @@ class ScriptAutomation(BrowserAutomation):
                 )
             except Exception as e:
                 error_msg = str(e)
-                self.logger.error(
-                    f"Error processing product #{product_number}: {error_msg}"
-                )
+                self._log_product_result("ERROR", error_msg)
                 try:
                     await self.take_screenshot(f"product_{product_number}")
                 except Exception as screenshot_err:
@@ -453,21 +658,73 @@ class ScriptAutomation(BrowserAutomation):
                     }
                 )
 
-        return results
+        return sorted(results, key=lambda r: r["product_number"])
 
     async def _wait_for_upload_confirmation_by_count(
         self, expected_count: int, timeout_s: float = 20.0
     ) -> bool:
-        """Poll until script count increments to expected_count."""
+        """Poll until script count reaches at least expected_count."""
         interval = 0.5
         elapsed = 0.0
         while elapsed < timeout_s:
             current = await self.get_script_count()
-            if current == expected_count:
+            if current >= expected_count:
                 return True
             await asyncio.sleep(interval)
             elapsed += interval
         return False
+
+    async def _is_button_ready(self, btn: Any) -> bool:
+        """Check that a button locator is visible and enabled (not loading)."""
+        try:
+            return (
+                await btn.count() > 0
+                and await btn.first.is_visible()
+                and await btn.first.is_enabled()
+            )
+        except Exception:
+            return False
+
+    async def _wait_for_upload_button(
+        self, timeout_s: float = 30.0, interval: float = 0.5
+    ) -> Optional[Any]:
+        """Wait for upload button to become visible and enabled.
+
+        The Script Configuration panel shows a loading spinner after selecting
+        a product.  The 'Upload Audio Script' / 'Add Audio' button renders
+        as disabled with data-loading while the spinner runs.  Polling until
+        enabled avoids clicking a disabled button.
+
+        Returns the Playwright Locator for the button, or None on timeout.
+        """
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        selectors_role = [
+            ("Upload Audio Script", None),
+            ("Add Audio", None),
+        ]
+        selectors_css = SCRIPT_SELECTORS["add_audio_button"]
+
+        elapsed = 0.0
+        while elapsed < timeout_s:
+            for name, _ in selectors_role:
+                btn = self.page.get_by_role("button", name=name)
+                if await self._is_button_ready(btn):
+                    return btn
+            for sel in selectors_css:
+                btn = self.page.locator(sel)
+                if await self._is_button_ready(btn):
+                    return btn
+
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        self.logger.error(
+            "Upload button not ready (still disabled/loading) "
+            f"after waiting {timeout_s}s"
+        )
+        return None
 
     async def _upload_audio_file(self, audio_path: str) -> bool:
         """Upload a single audio file via the 'Add Audio' button.
@@ -481,12 +738,8 @@ class ScriptAutomation(BrowserAutomation):
         count_before = await self.get_script_count()
 
         try:
-            add_btn = self.page.get_by_role("button", name="Add Audio")
-            if await add_btn.count() == 0:
-                add_btn = self.page.locator('button:has-text("Add Audio")')
-
-            if await add_btn.count() == 0:
-                self.logger.error("Could not find 'Add Audio' button")
+            add_btn = await self._wait_for_upload_button()
+            if add_btn is None:
                 return False
 
             async with self.page.expect_file_chooser(timeout=CLICK_TIMEOUT) as fc_info:
@@ -500,7 +753,7 @@ class ScriptAutomation(BrowserAutomation):
             )
 
             confirmed = await self._wait_for_upload_confirmation_by_count(
-                count_before + 1, timeout_s=20.0
+                count_before + 1, timeout_s=30.0
             )
             if confirmed:
                 self.logger.info(f"Uploaded: {audio_filename}")
@@ -516,16 +769,116 @@ class ScriptAutomation(BrowserAutomation):
             return False
 
     async def upload_product_scripts(
-        self, product: ProductScript, dry_run: bool = False
+        self,
+        product: ProductScript,
+        dry_run: bool = False,
+        sidebar_count: int = 0,
     ) -> bool:
-        """Upload audio files for all rows in a product."""
+        """Upload audio files for all rows in a product, skipping already-present scripts."""
         if not await self.select_product(product.product_number):
             product.error = f"Could not select product #{product.product_number}"
             return False
 
         current_count = await self.get_script_count()
-        rows_to_upload = len(product.rows)
 
+        # Poll for center pane to load when sidebar indicates scripts exist
+        # but the center pane hasn't rendered them yet (stale 0/20 read).
+        if current_count == 0 and sidebar_count > 0:
+            self.logger.debug(
+                f"Script count is 0 but sidebar shows {sidebar_count} — "
+                "polling for center pane to load..."
+            )
+            poll_timeout = 10.0
+            poll_interval = 0.5
+            elapsed = 0.0
+            while elapsed < poll_timeout:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+                current_count = await self.get_script_count()
+                if current_count > 0:
+                    break
+            if current_count == 0:
+                self.logger.warning(
+                    f"Center pane still shows 0 after {poll_timeout}s "
+                    f"(sidebar expected {sidebar_count}) — proceeding cautiously"
+                )
+
+        # --- Detect existing scripts and filter ---
+        try:
+            existing_names = await self.get_existing_script_names()
+        except Exception as e:
+            self.logger.warning(f"Failed to read existing scripts: {e}")
+            existing_names = []
+
+        if current_count > 0 and not existing_names:
+            self.logger.debug(
+                f"Script count is {current_count} but no names found — retrying after 1s"
+            )
+            await asyncio.sleep(1.0)
+            try:
+                existing_names = await self.get_existing_script_names()
+            except Exception as e:
+                self.logger.warning(f"Retry failed to read existing scripts: {e}")
+                existing_names = []
+
+        existing_normalized = {_normalize_script_name(n) for n in existing_names}
+
+        # Resolve audio paths and determine which rows need uploading
+        rows_with_paths: list[tuple[ScriptRow, str]] = []
+        skipped_rows: list[ScriptRow] = []
+        missing_audio: list[ScriptRow] = []
+
+        for row in product.rows:
+            audio_path = resolve_audio_file(
+                row.audio_code,
+                row.product_number,
+                self.config.audio_dir,
+                self.config.audio_extensions,
+                self.logger,
+            )
+            if not audio_path:
+                missing_audio.append(row)
+                continue
+
+            filename = os.path.basename(audio_path)
+            if _normalize_script_name(filename) in existing_normalized:
+                skipped_rows.append(row)
+                self.logger.info(
+                    f"  Skipping '{filename}': already present on product #{product.product_number}"
+                )
+            else:
+                rows_with_paths.append((row, audio_path))
+
+        rows_to_upload = len(rows_with_paths)
+        skipped_count = len(skipped_rows)
+        total_rows = len(product.rows)
+        product.scripts_skipped = skipped_count
+
+        # Log summary
+        if skipped_count > 0:
+            self.logger.info(
+                f"  Product #{product.product_number}: {rows_to_upload}/{total_rows} scripts "
+                f"to upload ({skipped_count} already present)"
+            )
+
+        if missing_audio:
+            for row in missing_audio:
+                self.logger.warning(f"  Audio not found for code '{row.audio_code}'")
+
+        if rows_to_upload == 0 and len(missing_audio) == 0:
+            self.logger.info(
+                f"  All {total_rows} scripts already present on product #{product.product_number}"
+            )
+            product.success = True
+            return True
+
+        if rows_to_upload == 0 and len(missing_audio) > 0:
+            product.error = (
+                f"{len(missing_audio)} audio file(s) not found, nothing to upload"
+            )
+            return False
+
+        # Overflow check with FILTERED count
         if current_count + rows_to_upload > 20:
             product.error = (
                 f"Upload would exceed 20 scripts for product #{product.product_number} "
@@ -535,69 +888,161 @@ class ScriptAutomation(BrowserAutomation):
             return False
 
         if dry_run:
-            for row in product.rows:
-                audio_path = resolve_audio_file(
-                    row.audio_code,
-                    row.product_number,
-                    self.config.audio_dir,
-                    self.config.audio_extensions,
-                    self.logger,
-                )
-                if audio_path:
-                    self.logger.info(
-                        f"DRY RUN: Would upload {os.path.basename(audio_path)} "
-                        f"for product #{product.product_number}"
-                    )
-                else:
-                    self.logger.warning(
-                        f"DRY RUN: Audio not found for code '{row.audio_code}' "
-                        f"(product #{product.product_number})"
-                    )
-            product.success = True
-            return True
+            for _row, audio_path in rows_with_paths:
+                self.logger.info(f"  Would upload {os.path.basename(audio_path)}")
+            product.success = len(missing_audio) == 0
+            if not product.success:
+                product.error = f"{len(missing_audio)} audio file(s) not found"
+            return product.success
 
+        # Upload only filtered rows
         uploaded = 0
-        for i, row in enumerate(product.rows):
-            audio_path = resolve_audio_file(
-                row.audio_code,
-                row.product_number,
-                self.config.audio_dir,
-                self.config.audio_extensions,
-                self.logger,
-            )
-            if not audio_path:
-                self.logger.warning(
-                    f"Skipping row {i + 1}: audio not found for code '{row.audio_code}'"
-                )
-                continue
-
+        timed_out = 0
+        for _i, (row, audio_path) in enumerate(rows_with_paths):
             ok = await self._upload_audio_file(audio_path)
             if ok:
                 uploaded += 1
-                self.logger.info(
-                    f"Uploaded {uploaded}/{rows_to_upload} audio for "
-                    f"product #{product.product_number}: {os.path.basename(audio_path)}"
-                )
             else:
+                timed_out += 1
                 self.logger.warning(
-                    f"Failed to upload row {i + 1} for product #{product.product_number}"
+                    f"Failed to upload {os.path.basename(audio_path)} "
+                    f"for product #{product.product_number}"
                 )
 
-        product.success = uploaded == rows_to_upload
+        # --- Post-upload re-verification ---
+        # When uploads succeed on the server but the UI counter is slow to
+        # update, _upload_audio_file returns False (confirmation timeout).
+        # Re-read the actual count to detect and correct these false negatives.
+        if timed_out > 0 and uploaded < rows_to_upload:
+            await asyncio.sleep(2.0)
+            final_count = await self.get_script_count()
+            expected_final = current_count + rows_to_upload
+            if final_count >= expected_final:
+                self.logger.info(
+                    f"  Re-verification: count is {final_count}/20 "
+                    f"(expected {expected_final}) — all uploads actually succeeded"
+                )
+                uploaded = rows_to_upload
+            elif final_count > current_count + uploaded:
+                recovered = final_count - current_count - uploaded
+                self.logger.info(
+                    f"  Re-verification: count is {final_count}/20 — "
+                    f"recovered {recovered} upload(s) that timed out on confirmation"
+                )
+                uploaded += recovered
+
+        product.success = uploaded == rows_to_upload and len(missing_audio) == 0
         if not product.success:
-            product.error = (
-                f"{rows_to_upload - uploaded}/{rows_to_upload} uploads failed"
-            )
+            parts = []
+            if uploaded < rows_to_upload:
+                parts.append(
+                    f"{rows_to_upload - uploaded}/{rows_to_upload} uploads failed"
+                )
+            if missing_audio:
+                parts.append(f"{len(missing_audio)} audio file(s) not found")
+            product.error = "; ".join(parts)
         return product.success
+
+    def _is_page_alive(self) -> bool:
+        """Check if the browser page is still usable."""
+        if self.page is None:
+            return False
+        try:
+            return not self.page.is_closed()
+        except Exception:
+            return False
+
+    async def _refresh_page(self) -> bool:
+        """Reload the page to reset SPA state (fixes stuck loading spinners)."""
+        if self.page is None:
+            return False
+        try:
+            self.logger.info("  Refreshing page to reset SPA state...")
+            await self.page.reload(
+                wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
+            )
+            await asyncio.sleep(2.0)
+            return True
+        except Exception as e:
+            self.logger.error(f"Page refresh failed: {e}")
+            return False
+
+    def _reset_product_state(self, product: ProductScript) -> None:
+        """Reset a product's tracking fields for retry."""
+        product.success = False
+        product.error = None
+        product.scripts_skipped = 0
+
+    def _log_product_success(self, product: ProductScript, dry_run: bool) -> None:
+        suffix = "(dry run)" if dry_run else "uploaded"
+        if product.scripts_skipped > 0:
+            self._log_product_result(
+                "OK",
+                f"{len(product.rows) - product.scripts_skipped}/{len(product.rows)} "
+                f"scripts {suffix} ({product.scripts_skipped} already present)",
+            )
+        else:
+            self._log_product_result("OK", f"{len(product.rows)} scripts {suffix}")
 
     async def upload_all_scripts(
         self, products: List[ProductScript], dry_run: bool = False
     ) -> None:
         """Upload audio scripts for all products."""
-        for product in products:
+        total = len(products)
+        refresh_every = 10
+        products_since_refresh = 0
+
+        script_status = await self.scan_sidebar_script_status()
+
+        for idx, product in enumerate(products, 1):
+            if not self._is_page_alive():
+                self.logger.error(
+                    "Browser page is closed — aborting remaining "
+                    f"{total - idx + 1} product(s)"
+                )
+                for remaining in products[idx - 1 :]:
+                    remaining.success = False
+                    remaining.error = "Aborted: browser page closed"
+                break
+
+            if products_since_refresh >= refresh_every:
+                self.logger.info(
+                    f"Preventive page refresh after {products_since_refresh} products"
+                )
+                await self._refresh_page()
+                products_since_refresh = 0
+
+            self._log_product_header(
+                idx,
+                total,
+                product.product_number,
+                f"{product.product_name} ({len(product.rows)} scripts)",
+            )
             try:
-                await self.upload_product_scripts(product, dry_run=dry_run)
-                if not product.success:
+                sb_count = script_status.get(product.product_number, 0)
+                await self.upload_product_scripts(
+                    product,
+                    dry_run=dry_run,
+                    sidebar_count=sb_count,
+                )
+
+                if not product.success and not dry_run:
+                    self.logger.info(
+                        f"  Retrying product #{product.product_number} after page refresh..."
+                    )
+                    if await self._refresh_page():
+                        self._reset_product_state(product)
+                        await self.upload_product_scripts(
+                            product,
+                            dry_run=dry_run,
+                            sidebar_count=sb_count,
+                        )
+                        products_since_refresh = 0
+
+                if product.success:
+                    self._log_product_success(product, dry_run)
+                else:
+                    self._log_product_result("FAILED", product.error or "Unknown error")
                     try:
                         await self.take_screenshot(f"product_{product.product_number}")
                     except Exception as screenshot_err:
@@ -605,13 +1050,13 @@ class ScriptAutomation(BrowserAutomation):
             except Exception as e:
                 product.error = str(e)
                 product.success = False
-                self.logger.error(
-                    f"Error processing product #{product.product_number}: {e}"
-                )
+                self._log_product_result("ERROR", str(e))
                 try:
                     await self.take_screenshot(f"product_{product.product_number}")
                 except Exception as screenshot_err:
                     self.logger.debug(f"Screenshot failed: {screenshot_err}")
+
+            products_since_refresh += 1
 
 
 # ---------------------------------------------------------------------------
@@ -779,6 +1224,19 @@ def parse_script_csv(
 # ---------------------------------------------------------------------------
 # Audio file resolution
 # ---------------------------------------------------------------------------
+def _normalize_script_name(name: str) -> str:
+    """Normalize a script filename for duplicate comparison.
+
+    Strips whitespace, lowercases, and removes known audio extensions.
+    """
+    name = name.strip().lower()
+    for ext in (".mp3", ".wav"):
+        if name.endswith(ext):
+            name = name[: -len(ext)]
+            break
+    return name
+
+
 def resolve_audio_file(
     audio_code: str,
     product_number: int,
@@ -791,32 +1249,40 @@ def resolve_audio_file(
     Search order:
     1. Subfolder matching ``{zero_padded_number}_*`` (e.g. ``01_Dna_...``)
     2. Flat search in audio_dir root
+    3. Recursive search in downloads/ folder (fallback)
     """
     if not audio_code:
         return None
 
     audio_dir_path = Path(audio_dir)
-    if not audio_dir_path.exists():
-        logger.warning(f"Audio directory not found: {audio_dir}")
-        return None
-
     zero_padded = f"{product_number:02d}"
 
-    # Strategy 1: find subfolder matching product number prefix
-    for entry in sorted(audio_dir_path.iterdir()):
-        if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
-            for ext in extensions:
-                candidate = entry / f"{audio_code}{ext}"
-                if candidate.exists():
-                    logger.debug(f"Found audio: {candidate}")
-                    return str(candidate.resolve())
+    if audio_dir_path.exists():
+        # Strategy 1: find subfolder matching product number prefix
+        for entry in sorted(audio_dir_path.iterdir()):
+            if entry.is_dir() and entry.name.startswith(f"{zero_padded}_"):
+                for ext in extensions:
+                    candidate = entry / f"{audio_code}{ext}"
+                    if candidate.exists():
+                        logger.debug(f"Found audio: {candidate}")
+                        return str(candidate.resolve())
 
-    # Strategy 2: flat search in audio_dir root
-    for ext in extensions:
-        candidate = audio_dir_path / f"{audio_code}{ext}"
-        if candidate.exists():
-            logger.debug(f"Found audio (flat): {candidate}")
-            return str(candidate.resolve())
+        # Strategy 2: flat search in audio_dir root
+        for ext in extensions:
+            candidate = audio_dir_path / f"{audio_code}{ext}"
+            if candidate.exists():
+                logger.debug(f"Found audio (flat): {candidate}")
+                return str(candidate.resolve())
+    else:
+        logger.warning(f"Audio directory not found: {audio_dir}")
+
+    # Strategy 3: recursive search in downloads/ folder (fallback)
+    downloads_dir = Path(__file__).parent / "downloads"
+    if downloads_dir.exists():
+        for ext in extensions:
+            for candidate_path in downloads_dir.rglob(f"{audio_code}{ext}"):
+                logger.debug(f"Found audio (downloads search): {candidate_path}")
+                return str(candidate_path.resolve())
 
     logger.warning(
         f"Audio file not found for code '{audio_code}' (product {product_number})"
@@ -835,17 +1301,22 @@ def generate_script_report(
     mode: str = "upload",
     delete_results: Optional[list] = None,
     logs_dir: Optional[str] = None,
+    elapsed_seconds: float = 0.0,
 ) -> dict:
     """Generate and save a JSON execution report."""
+    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
     if mode == "delete" and delete_results is not None:
         successful = sum(1 for r in delete_results if r["success"])
         failed = len(delete_results) - successful
+        total_scripts_deleted = sum(r.get("scripts_deleted", 0) for r in delete_results)
         report = {
             "timestamp": datetime.now().isoformat(),
             "mode": "delete",
             "total_products": len(delete_results),
             "successful": successful,
             "failed": failed,
+            "total_scripts_deleted": total_scripts_deleted,
+            "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
         logger.info("")
@@ -855,6 +1326,8 @@ def generate_script_report(
         logger.info(
             f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed}"
         )
+        logger.info(f"Scripts deleted: {total_scripts_deleted} total")
+        logger.info(f"Time: {elapsed_str}")
         for r in delete_results:
             status = "OK" if r["success"] else "FAILED"
             logger.info(
@@ -863,20 +1336,32 @@ def generate_script_report(
             )
             if r.get("error"):
                 logger.info(f"      Error: {r['error']}")
+        logger.info("-" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed} | "
+            f"Deleted: {total_scripts_deleted} | Time: {elapsed_str}"
+        )
+        logger.info("=" * 70)
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
+        total_scripts = sum(len(p.rows) for p in products)
+        total_skipped = sum(p.scripts_skipped for p in products)
         report = {
             "timestamp": datetime.now().isoformat(),
             "mode": "upload",
             "total_products": len(products),
             "successful": successful,
             "failed": failed,
+            "total_scripts": total_scripts,
+            "total_skipped": total_skipped,
+            "elapsed_seconds": elapsed_seconds,
             "products": [
                 {
                     "product_number": p.product_number,
                     "product_name": p.product_name,
                     "scripts": len(p.rows),
+                    "scripts_skipped": p.scripts_skipped,
                     "success": p.success,
                     "error": p.error,
                 }
@@ -890,6 +1375,11 @@ def generate_script_report(
         logger.info(
             f"Total: {len(products)} | Success: {successful} | Failed: {failed}"
         )
+        if total_skipped > 0:
+            logger.info(f"Scripts: {total_scripts} total ({total_skipped} skipped)")
+        else:
+            logger.info(f"Scripts: {total_scripts} total")
+        logger.info(f"Time: {elapsed_str}")
         for p in products:
             status = "OK" if p.success else "FAILED"
             logger.info(
@@ -898,6 +1388,18 @@ def generate_script_report(
             )
             if p.error:
                 logger.info(f"      Error: {p.error}")
+        logger.info("-" * 70)
+        summary_parts = [
+            f"Total: {len(products)}",
+            f"Success: {successful}",
+            f"Failed: {failed}",
+            f"Scripts: {total_scripts}",
+        ]
+        if total_skipped > 0:
+            summary_parts.append(f"Skipped: {total_skipped}")
+        summary_parts.append(f"Time: {elapsed_str}")
+        logger.info(" | ".join(summary_parts))
+        logger.info("=" * 70)
 
     logs_path = Path(logs_dir) if logs_dir else Path("logs")
     logs_path.mkdir(exist_ok=True)
@@ -960,11 +1462,11 @@ async def main() -> None:
     if args.debug and args.headless:
         args.debug = False
 
-    # Resolve client and session paths
     _client: Optional[str] = args.client
-    _session_filename, _browser_data_subdir = _get_script_session_paths(_client)
+    _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
     logger = setup_logging(
         timestamp, logger_name="auto_script", log_prefix="auto_script"
     )
@@ -976,9 +1478,11 @@ async def main() -> None:
         logger.info(f"Using account: {_client}")
 
     if args.setup:
+        if _client:
+            ensure_client_config(_client, config_type="live", logger=logger)
         await setup_login(
             logger,
-            login_url=SCRIPT_LOGIN_URL,
+            login_url=LIVE_LOGIN_URL,
             browser_data_subdir=_browser_data_subdir,
             session_filename=_session_filename,
         )
@@ -992,12 +1496,13 @@ async def main() -> None:
         return
 
     if _client:
-        _save_last_script_client(_client)
+        save_last_client(SCRIPT_LAST_CLIENT_FILE, _client)
 
-    # Resolve config path
     config_path: Optional[str] = None
     if args.client:
-        config_path = f"configs/{args.client}/live.json"
+        config_path = ensure_client_config(
+            args.client, config_type="live", logger=logger
+        )
     elif args.config:
         config_path = args.config
 
@@ -1070,6 +1575,7 @@ async def main() -> None:
                 logger=logger,
                 mode="delete",
                 delete_results=delete_results,
+                elapsed_seconds=time.time() - start_time,
             )
 
         else:
@@ -1108,6 +1614,7 @@ async def main() -> None:
                 timestamp=timestamp,
                 logger=logger,
                 mode="upload",
+                elapsed_seconds=time.time() - start_time,
             )
 
     finally:

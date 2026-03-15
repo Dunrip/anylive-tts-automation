@@ -7,7 +7,9 @@ import pandas as pd
 import pytest
 
 from auto_script import (
+    ProductScript,
     ScriptConfig,
+    _normalize_script_name,
     load_script_config,
     parse_script_csv,
     resolve_audio_file,
@@ -94,6 +96,89 @@ class TestResolveAudioFile:
             "", 1, str(tmp_path), [".mp3", ".wav"], _make_logger()
         )
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _normalize_script_name
+# ---------------------------------------------------------------------------
+class TestNormalizeScriptName:
+    def test_mp3_extension(self) -> None:
+        assert _normalize_script_name("SFD1.mp3") == "sfd1"
+
+    def test_wav_extension(self) -> None:
+        assert _normalize_script_name("SFD1.wav") == "sfd1"
+
+    def test_no_extension(self) -> None:
+        assert _normalize_script_name("SFD1") == "sfd1"
+
+    def test_whitespace_and_extension(self) -> None:
+        assert _normalize_script_name("  SFD1.mp3  ") == "sfd1"
+
+    def test_uppercase_extension(self) -> None:
+        assert _normalize_script_name("sfd1.MP3") == "sfd1"
+
+    def test_empty_string(self) -> None:
+        assert _normalize_script_name("") == ""
+
+    def test_multiple_dots(self) -> None:
+        assert _normalize_script_name("file.with.dots.mp3") == "file.with.dots"
+
+
+# ---------------------------------------------------------------------------
+# Upload filtering logic
+# ---------------------------------------------------------------------------
+class TestUploadFiltering:
+    def test_all_present_filters_everything(self) -> None:
+        existing = ["SFD1.mp3", "SFD2.mp3"]
+        csv_codes = ["SFD1", "SFD2"]
+        existing_normalized = {_normalize_script_name(n) for n in existing}
+        filtered = [
+            c for c in csv_codes if _normalize_script_name(c) not in existing_normalized
+        ]
+        assert filtered == []
+
+    def test_partial_present_filters_matches(self) -> None:
+        existing = ["SFD1.mp3"]
+        csv_codes = ["SFD1", "SFD2", "SFD3"]
+        existing_normalized = {_normalize_script_name(n) for n in existing}
+        filtered = [
+            c for c in csv_codes if _normalize_script_name(c) not in existing_normalized
+        ]
+        assert filtered == ["SFD2", "SFD3"]
+
+    def test_none_present_filters_nothing(self) -> None:
+        existing: list[str] = []
+        csv_codes = ["SFD1", "SFD2", "SFD3"]
+        existing_normalized = {_normalize_script_name(n) for n in existing}
+        filtered = [
+            c for c in csv_codes if _normalize_script_name(c) not in existing_normalized
+        ]
+        assert filtered == ["SFD1", "SFD2", "SFD3"]
+
+    def test_case_insensitive_matching(self) -> None:
+        existing = ["sfd1.MP3"]
+        csv_codes = ["SFD1"]
+        existing_normalized = {_normalize_script_name(n) for n in existing}
+        filtered = [
+            c for c in csv_codes if _normalize_script_name(c) not in existing_normalized
+        ]
+        assert filtered == []
+
+    def test_overflow_with_filtered_count(self) -> None:
+        current_count = 18
+        existing = ["SFD1.mp3", "SFD2.mp3", "SFD3.mp3"]
+        csv_codes = ["SFD1", "SFD2", "SFD3", "SFD4", "SFD5"]
+        existing_normalized = {_normalize_script_name(n) for n in existing}
+        filtered = [
+            c for c in csv_codes if _normalize_script_name(c) not in existing_normalized
+        ]
+        assert len(filtered) == 2
+        assert current_count + len(filtered) <= 20
+
+    def test_report_includes_scripts_skipped(self) -> None:
+        """Report dict should include scripts_skipped field for each product."""
+        p = ProductScript(product_number=1, product_name="Test", scripts_skipped=3)
+        assert p.scripts_skipped == 3
 
 
 # ---------------------------------------------------------------------------
