@@ -33,6 +33,7 @@ from shared import (
     DEFAULT_TIMEOUT,
     CLICK_TIMEOUT,
     DEBUG_SLOW_MO,
+    MODIFIER_KEY,
     NAVIGATION_TIMEOUT,
     POST_AUTOSAVE_DELAY_SECONDS,
     PRE_FILL_START_DELAY_SECONDS,
@@ -840,9 +841,9 @@ class TTSAutomation:
                 await el.scroll_into_view_if_needed()
                 await el.click(force=True)
                 await asyncio.sleep(0.03)
-                await el.press("Meta+A")
+                await el.press(f"{MODIFIER_KEY}+A")
                 await el.press("Backspace")
-                await self.page.keyboard.press("Meta+V")
+                await self.page.keyboard.press(f"{MODIFIER_KEY}+V")
                 await asyncio.sleep(0.03)
                 try:
                     await el.press("Tab")
@@ -865,7 +866,7 @@ class TTSAutomation:
                 await asyncio.sleep(0.03)
 
                 try:
-                    await element.press("Meta+A")
+                    await element.press(f"{MODIFIER_KEY}+A")
                     await element.press("Backspace")
                 except Exception:
                     try:
@@ -1612,7 +1613,7 @@ class TTSAutomation:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
                     await asyncio.sleep(0.02)
-                    await el.press("Meta+A")
+                    await el.press(f"{MODIFIER_KEY}+A")
                     await el.press("Backspace")
                     await self.page.keyboard.type(val, delay=1)
                     # commit
@@ -1664,7 +1665,7 @@ class TTSAutomation:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
                     await asyncio.sleep(0.02)
-                    await el.press("Meta+A")
+                    await el.press(f"{MODIFIER_KEY}+A")
                     await el.press("Backspace")
                     await self.page.keyboard.type(val, delay=1)
                     await asyncio.sleep(0.03)
@@ -1755,7 +1756,7 @@ class TTSAutomation:
                     try:
                         await template.scroll_into_view_if_needed()
                         await template.click(force=True)
-                        await template.press("Meta+A")
+                        await template.press(f"{MODIFIER_KEY}+A")
                         await template.press("Backspace")
                         await self.page.keyboard.type(audio_code, delay=1)
                         await template.press("Enter")

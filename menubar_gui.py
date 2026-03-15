@@ -20,11 +20,13 @@ import rumps
 
 # Playwright packaging note:
 # Playwright may default to looking for browsers inside the app bundle.
-# Force use of the system-wide Playwright cache at ~/Library/Caches/ms-playwright
-# (installed via `python -m playwright install chromium`).
+# Force use of the system-wide Playwright cache (installed via `python -m playwright install chromium`).
+# Import shared first to set up the environment variable.
+from shared import get_playwright_cache_dir
+
 os.environ.setdefault(
     "PLAYWRIGHT_BROWSERS_PATH",
-    str(Path.home() / "Library" / "Caches" / "ms-playwright"),
+    str(get_playwright_cache_dir()),
 )
 
 # Import from auto_tts (after env setup)
@@ -97,8 +99,8 @@ def check_chromium_installed() -> bool:
     IMPORTANT: Don't launch Chromium as a health check.
     """
     try:
-        # Default Playwright global cache location
-        cache_dir = Path.home() / "Library" / "Caches" / "ms-playwright"
+        # Default Playwright global cache location (cross-platform)
+        cache_dir = get_playwright_cache_dir()
         if cache_dir.exists():
             candidates = list(cache_dir.glob("chromium-*")) + list(
                 cache_dir.glob("chromium_headless_shell-*")
@@ -919,7 +921,9 @@ class AnyLiveTTSApp(rumps.App):
         try:
             # Close any remaining Playwright profile by killing stray Chromium for this app.
             # (Best effort; ignore errors.)
-            subprocess.call(["pkill", "-f", str(APP_SUPPORT_DIR / "state" / "browser_data")])
+            subprocess.call(
+                ["pkill", "-f", str(APP_SUPPORT_DIR / "state" / "browser_data")]
+            )
         except Exception:
             pass
 
