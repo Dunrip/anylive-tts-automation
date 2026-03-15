@@ -8,6 +8,7 @@ interface SidebarProps {
   selectedClient: string;
   onClientChange: (client: string) => void;
   sessionValid: boolean;
+  sidecarUrl?: string | null;
   onRelogin?: () => void;
 }
 
@@ -18,6 +19,7 @@ export function Sidebar({
   selectedClient,
   onClientChange,
   sessionValid,
+  sidecarUrl,
   onRelogin,
 }: SidebarProps): React.ReactElement {
   return (
@@ -131,6 +133,29 @@ export function Sidebar({
           borderTop: "1px solid var(--border-default)",
         }}
       >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "8px",
+          }}
+        >
+          <div
+            data-testid="sidecar-dot"
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              backgroundColor: sidecarUrl ? "var(--success)" : "var(--warning)",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+            {sidecarUrl ? "Sidecar Connected" : "Sidecar Connecting"}
+          </span>
+        </div>
+
         <div
           style={{
             display: "flex",

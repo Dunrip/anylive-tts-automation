@@ -1,8 +1,13 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { PanelType } from "../../lib/navigation";
+import type { WSMessage } from "../../lib/types";
+import { TTSPanel } from "../tts/TTSPanel";
+import { LogViewer } from "./LogViewer";
 
 interface MainContentProps {
   activePanel: PanelType;
+  client: string;
+  sidecarUrl?: string | null;
 }
 
 // Placeholder panels — will be replaced by actual panels in later tasks
@@ -23,11 +28,30 @@ function PlaceholderPanel({ name }: { name: string }): React.ReactElement {
   );
 }
 
-export function MainContent({ activePanel }: MainContentProps): React.ReactElement {
+export function MainContent({ activePanel, client, sidecarUrl }: MainContentProps): React.ReactElement {
+  const [wsMessages, setWsMessages] = useState<WSMessage[]>([]);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [clearLogs, setClearLogs] = useState<() => void>(() => () => undefined);
+
+  const handleLogStateChange = useCallback(
+    (logState: { messages: WSMessage[]; isConnected: boolean; clearMessages: () => void }): void => {
+      setWsMessages(logState.messages);
+      setWsConnected(logState.isConnected);
+      setClearLogs(() => logState.clearMessages);
+    },
+    []
+  );
+
   const renderPanel = (): React.ReactElement => {
     switch (activePanel) {
       case "tts":
-        return <PlaceholderPanel name="TTS" />;
+        return (
+          <TTSPanel
+            client={client}
+            sidecarUrl={sidecarUrl}
+            onLogStateChange={handleLogStateChange}
+          />
+        );
       case "faq":
         return <PlaceholderPanel name="FAQ" />;
       case "scripts":
@@ -56,6 +80,13 @@ export function MainContent({ activePanel }: MainContentProps): React.ReactEleme
       <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
         {renderPanel()}
       </div>
+
+      <LogViewer
+        messages={wsMessages}
+        isConnected={wsConnected}
+        onClear={clearLogs}
+        height="220px"
+      />
     </main>
   );
 }

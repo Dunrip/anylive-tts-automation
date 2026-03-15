@@ -1,19 +1,20 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from "../common/ProgressBar";
-import type { JobStatus, CSVPreviewResponse } from "../../lib/types";
-
-interface VersionItem {
-  name: string;
-  status: JobStatus;
-  duration?: number; // ms
-}
+import { useAutomation } from "../../hooks/useAutomation";
+import { useWebSocket } from "../../hooks/useWebSocket";
+import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 
 interface TTSPanelProps {
   client: string;
   sidecarUrl?: string | null;
   onRunStart?: (jobId: string) => void;
+  onLogStateChange?: (logState: {
+    messages: WSMessage[];
+    isConnected: boolean;
+    clearMessages: () => void;
+  }) => void;
 }
 
 interface RunOptions {
@@ -24,62 +25,89 @@ interface RunOptions {
   limit?: number;
 }
 
-export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): React.ReactElement {
+export function TTSPanel({
+  client,
+  sidecarUrl,
+  onRunStart,
+  onLogStateChange,
+}: TTSPanelProps): React.ReactElement {
   const [csvPath, setCsvPath] = useState<string | null>(null);
+  const [estimatedVersions, setEstimatedVersions] = useState(0);
   const [options, setOptions] = useState<RunOptions>({
     headless: true,
     dry_run: false,
     debug: false,
   });
-  const [versions, setVersions] = useState<VersionItem[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [isRunning, setIsRunning] = useState(false);
   const [jobStartTime, setJobStartTime] = useState<number | undefined>();
+  const processedCountRef = useRef(0);
+  const hasConnectedRef = useRef(false);
+  const automation = useAutomation();
+  const ws = useWebSocket(automation.wsUrl);
 
   const configPath = `configs/${client}/tts.json`;
 
   const handleCsvSelected = (path: string, preview: CSVPreviewResponse): void => {
     setCsvPath(path);
-    // Initialize version list from preview
-    setVersions(
-      Array.from({ length: preview.estimated_versions }, (_, i) => ({
-        name: `Version ${i + 1}`,
-        status: "pending" as JobStatus,
-      }))
-    );
+    setEstimatedVersions(preview.estimated_versions);
   };
 
-  const handleRun = async (): Promise<void> => {
-    if (!csvPath || !sidecarUrl || isRunning) return;
-
-    setIsRunning(true);
-    setJobStartTime(Date.now());
-    setProgress({ current: 0, total: versions.length });
-
-    try {
-      const resp = await fetch(`${sidecarUrl}/api/tts/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          config_path: configPath,
-          csv_path: csvPath,
-          options: {
-            headless: options.headless,
-            dry_run: options.dry_run,
-            debug: options.debug,
-            start_version: options.start_version,
-            limit: options.limit,
-          },
-        }),
-      });
-
-      if (resp.ok) {
-        const { job_id } = await resp.json();
-        onRunStart?.(job_id);
-      }
-    } catch {
-      setIsRunning(false);
+  useEffect(() => {
+    if (ws.isConnected) {
+      hasConnectedRef.current = true;
     }
+  }, [ws.isConnected]);
+
+  useEffect(() => {
+    processedCountRef.current = 0;
+    hasConnectedRef.current = false;
+  }, [automation.wsUrl]);
+
+  useEffect(() => {
+    const newMessages = ws.messages.slice(processedCountRef.current);
+    newMessages.forEach(automation.handleMessage);
+    processedCountRef.current = ws.messages.length;
+  }, [ws.messages, automation.handleMessage]);
+
+  useEffect(() => {
+    if (!onLogStateChange) {
+      return;
+    }
+    onLogStateChange({
+      messages: ws.messages,
+      isConnected: ws.isConnected,
+      clearMessages: ws.clearMessages,
+    });
+  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange]);
+
+  useEffect(() => {
+    if (automation.jobId) {
+      onRunStart?.(automation.jobId);
+    }
+  }, [automation.jobId, onRunStart]);
+
+  const handleRun = async (): Promise<void> => {
+    if (!csvPath || !sidecarUrl || automation.isRunning) {
+      return;
+    }
+
+    ws.clearMessages();
+    processedCountRef.current = 0;
+    setJobStartTime(Date.now());
+
+    await automation.startRun({
+      sidecarUrl,
+      endpoint: "/api/tts/run",
+      configPath,
+      csvPath,
+      options: {
+        headless: options.headless,
+        dry_run: options.dry_run,
+        debug: options.debug,
+        start_version: options.start_version,
+        limit: options.limit,
+      },
+      estimatedVersions,
+    });
   };
 
   const toggleOption = (key: keyof RunOptions): void => {
@@ -105,10 +133,48 @@ export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): Rea
       {/* CSV Picker */}
       <CSVPicker
         onFileSelected={handleCsvSelected}
-        onClear={() => { setCsvPath(null); setVersions([]); }}
+        onClear={() => {
+          setCsvPath(null);
+          setEstimatedVersions(0);
+          automation.reset();
+          ws.clearMessages();
+          processedCountRef.current = 0;
+        }}
         sidecarUrl={sidecarUrl}
         configPath={configPath}
       />
+
+      {automation.error ? (
+        <div
+          data-testid="automation-error"
+          style={{
+            padding: "8px 10px",
+            borderRadius: "6px",
+            border: "1px solid var(--error)",
+            color: "var(--error)",
+            fontSize: "12px",
+            backgroundColor: "color-mix(in srgb, var(--error) 10%, transparent)",
+          }}
+        >
+          {automation.error}
+        </div>
+      ) : null}
+
+      {automation.isRunning && automation.wsUrl && hasConnectedRef.current && !ws.isConnected ? (
+        <div
+          data-testid="connection-lost-banner"
+          style={{
+            padding: "8px 10px",
+            borderRadius: "6px",
+            border: "1px solid var(--warning)",
+            color: "var(--warning)",
+            fontSize: "12px",
+            backgroundColor: "color-mix(in srgb, var(--warning) 10%, transparent)",
+          }}
+        >
+          Connection lost
+        </div>
+      ) : null}
 
       {/* Options row */}
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
@@ -144,21 +210,21 @@ export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): Rea
         <button
           data-testid="run-button"
           onClick={handleRun}
-          disabled={!csvPath || isRunning || !sidecarUrl}
+          disabled={!csvPath || automation.isRunning || !sidecarUrl}
           title={!sidecarUrl ? "Sidecar not connected" : !csvPath ? "Select a CSV file first" : ""}
           style={{
             padding: "8px 24px",
-            backgroundColor: isRunning ? "var(--bg-elevated)" : "var(--accent)",
+            backgroundColor: automation.isRunning ? "var(--bg-elevated)" : "var(--accent)",
             color: "white",
             border: "none",
             borderRadius: "6px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor: !csvPath || isRunning || !sidecarUrl ? "not-allowed" : "pointer",
-            opacity: !csvPath || isRunning || !sidecarUrl ? 0.6 : 1,
+            cursor: !csvPath || automation.isRunning || !sidecarUrl ? "not-allowed" : "pointer",
+            opacity: !csvPath || automation.isRunning || !sidecarUrl ? 0.6 : 1,
           }}
         >
-          {isRunning ? "⟳ Running..." : "▶ Run"}
+          {automation.isRunning ? "⟳ Running..." : "▶ Run"}
         </button>
         <button
           data-testid="stop-button"
@@ -180,19 +246,19 @@ export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): Rea
       </div>
 
       {/* Progress bar (shown when running or has progress) */}
-      {(isRunning || progress.current > 0) && (
+      {(automation.isRunning || automation.progress.current > 0) && (
         <ProgressBar
-          current={progress.current}
-          total={progress.total}
+          current={automation.progress.current}
+          total={automation.progress.total}
           startTime={jobStartTime}
         />
       )}
 
       {/* Version list */}
-      {versions.length > 0 && (
+      {automation.versions.length > 0 && (
         <div>
           <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>
-            {versions.length} versions
+            {automation.versions.length} versions
           </p>
           <div
             data-testid="version-list"
@@ -202,7 +268,7 @@ export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): Rea
               overflow: "hidden",
             }}
           >
-            {versions.map((v, i) => (
+            {automation.versions.map((v, i) => (
               <div
                 key={i}
                 data-testid={`version-item-${i}`}
@@ -211,7 +277,7 @@ export function TTSPanel({ client, sidecarUrl, onRunStart }: TTSPanelProps): Rea
                   alignItems: "center",
                   justifyContent: "space-between",
                   padding: "8px 12px",
-                  borderBottom: i < versions.length - 1 ? "1px solid var(--border-default)" : "none",
+                  borderBottom: i < automation.versions.length - 1 ? "1px solid var(--border-default)" : "none",
                   backgroundColor: i % 2 === 0 ? "transparent" : "var(--bg-surface)",
                 }}
               >
