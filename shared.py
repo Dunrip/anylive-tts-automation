@@ -9,6 +9,7 @@ import glob
 import json
 import logging
 import os
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -300,9 +301,10 @@ class BrowserAutomation:
             self.logger.debug("Validating session...")
             await self.page.goto(
                 self.base_url or self.login_url,
-                wait_until="networkidle",
-                timeout=30000,
+                wait_until="domcontentloaded",
+                timeout=NAVIGATION_TIMEOUT,
             )
+            await asyncio.sleep(2)
             current_url = self.page.url
             if "login" in current_url.lower():
                 self.logger.error("Session expired - redirected to login page")
@@ -597,3 +599,80 @@ async def setup_login(
         await context.close()
 
     logger.info("Setup complete! You can now run without --setup")
+
+
+# ---------------------------------------------------------------------------
+# Unified live-platform session management (auto_faq + auto_script)
+# ---------------------------------------------------------------------------
+LIVE_SESSION_FILE = "state/session_state_faq.json"
+LIVE_BROWSER_DATA = "state/browser_data_faq"
+LIVE_LOGIN_URL = "https://live.app.anylive.jp"
+
+
+def get_live_session_paths(client: Optional[str]) -> tuple[str, str]:
+    """Return (session_filename, browser_data_subdir) for the live platform.
+
+    Both auto_faq.py and auto_script.py operate on the same site
+    (live.app.anylive.jp) and share authentication.  This is the single
+    source of truth for their session/browser-data paths.
+    """
+    if client:
+        return (
+            f"state/session_state_faq_{client}.json",
+            f"state/browser_data_faq_{client}",
+        )
+    return LIVE_SESSION_FILE, LIVE_BROWSER_DATA
+
+
+def get_last_client(tracking_file: str) -> Optional[str]:
+    """Read the last-used client name from a JSON tracking file."""
+    path = get_session_file_path(tracking_file)
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f).get("last_client")
+        except Exception:
+            return None
+    return None
+
+
+def save_last_client(tracking_file: str, client: str) -> None:
+    """Persist the last-used client name to a JSON tracking file."""
+    path = get_session_file_path(tracking_file)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"last_client": client}, f)
+
+
+def ensure_client_config(
+    client: str,
+    config_type: str = "live",
+    logger: Optional[logging.Logger] = None,
+) -> str:
+    """Ensure a client config directory and file exist, creating from default if needed.
+
+    Returns the config file path (e.g. ``configs/<client>/live.json``).
+    """
+    config_dir = Path("configs") / client
+    config_file = config_dir / f"{config_type}.json"
+    default_file = Path("configs") / "default" / f"{config_type}.json"
+
+    if config_file.exists():
+        return str(config_file)
+
+    if not default_file.exists():
+        raise FileNotFoundError(
+            f"Default config template not found: {default_file}\n"
+            f"Cannot auto-create config for client '{client}'."
+        )
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(default_file, config_file)
+
+    msg = (
+        f"Created config for '{client}': {config_file}\n"
+        f"   Update base_url in {config_file} before running automation."
+    )
+    if logger:
+        logger.info(msg)
+
+    return str(config_file)

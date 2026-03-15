@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -334,6 +335,8 @@ class Report:
     successful: int
     failed: int
     versions: List[dict] = field(default_factory=list)
+    total_scripts: int = 0
+    elapsed_seconds: float = 0.0
 
 
 def filter_versions_from_product(
@@ -2391,10 +2394,12 @@ def generate_report(
     timestamp: str,
     logger: logging.Logger,
     logs_dir: Optional[str] = None,
+    elapsed_seconds: float = 0.0,
 ) -> Report:
     successful = sum(1 for v in versions if v.success)
     partial = sum(1 for v in versions if getattr(v, "failed_slots", None))
     failed = len(versions) - successful
+    total_scripts = sum(len(v.scripts) for v in versions)
 
     report = Report(
         timestamp=datetime.now().isoformat(),
@@ -2417,6 +2422,8 @@ def generate_report(
             }
             for v in versions
         ],
+        total_scripts=total_scripts,
+        elapsed_seconds=elapsed_seconds,
     )
 
     logger.info("")
@@ -2427,6 +2434,9 @@ def generate_report(
     logger.info(
         f"Total: {report.total} | Success: {successful} ✅ | Partial: {partial} ⚠️ | Failed: {failed} ❌"
     )
+    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
+    logger.info(f"Scripts: {total_scripts} total")
+    logger.info(f"Time: {elapsed_str}")
     logger.info("")
     logger.info("📑 VERSION → PRODUCTS MAPPING:")
     logger.info("-" * 70)
@@ -2497,6 +2507,7 @@ async def run_job(
         screenshots_dir = None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
     logger = setup_logging(timestamp, logs_dir=logs_dir, log_callback=log_callback)
 
     logger.info("🚀 ANYLIVE TTS AUTOMATION")
@@ -2617,7 +2628,14 @@ async def run_job(
             await automation.close()
 
         # Generate report
-        report = generate_report(versions, config, timestamp, logger, logs_dir=logs_dir)
+        report = generate_report(
+            versions,
+            config,
+            timestamp,
+            logger,
+            logs_dir=logs_dir,
+            elapsed_seconds=time.time() - start_time,
+        )
 
         return {"success": True, "report": report, "error": None}
 
@@ -2696,6 +2714,7 @@ async def main():
         args.debug = False
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
     logger = setup_logging(timestamp)
 
     logger.info("🚀 ANYLIVE TTS AUTOMATION")
@@ -2939,7 +2958,9 @@ async def main():
             logger.info("=" * 70)
         await automation.close()
 
-    generate_report(versions, config, timestamp, logger)
+    generate_report(
+        versions, config, timestamp, logger, elapsed_seconds=time.time() - start_time
+    )
 
 
 if __name__ == "__main__":
