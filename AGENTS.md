@@ -94,7 +94,7 @@ python auto_tts.py --template "Template_Name"
 ## Architecture
 
 ### High-Level Overview
-Playwright-based web automation tool for TTS script creation on AnyLive. Includes both CLI (`auto_tts.py`) and macOS menu bar GUI (`menubar_gui.py`) interfaces. Also includes `auto_faq.py` for Product Q&A automation and `auto_script.py` for Set Live Content script upload/deletion.
+Playwright-based web automation tool for TTS script creation on AnyLive. Includes CLI (`auto_tts.py`) and a Tauri v2 desktop app (`app/`). Also includes `auto_faq.py` for Product Q&A automation and `auto_script.py` for Set Live Content script upload/deletion.
 
 ### Core Components
 
@@ -142,13 +142,6 @@ Playwright-based web automation tool for TTS script creation on AnyLive. Include
 - JSON execution reports with version-level success/failure tracking
 - Error screenshots saved to `screenshots/`
 
-#### 7. **Menu Bar Application** (`menubar_gui.py`)
-- Native macOS menu bar integration via `rumps`
-- Wraps auto_tts.py functionality in GUI
-- Stores data in `~/Library/Application Support/AnyLiveTTS/`
-- PyInstaller-ready for .app bundle compilation
-- Background threading for async operations
-
 ### Data Flow
 
 ```
@@ -175,8 +168,6 @@ Generate JSON report
 - `auto_tts.py`: Main automation script (single-file design for app compilation)
 - `auto_faq.py`: Product FAQ automation script (CLI)
 - `auto_script.py`: Set Live Content script automation (CLI) — upload/delete audio scripts
-- `menubar_gui.py`: macOS menu bar application
-- `menubar_app.spec`: PyInstaller specification file
 - `configs/{client}/tts.json`: TTS client configuration
 - `configs/{client}/live.json`: FAQ/Script client configuration
 - `state/session_state.json`: Saved browser session (gitignored)
@@ -349,7 +340,6 @@ Single-file design intentional for PyInstaller packaging:
 - External configs in `configs/` directory can be bundled as data files
 - Session and logs remain external for user data persistence
 - Use `--onefile` flag with PyInstaller for standalone executable
-- `menubar_app.spec` contains PyInstaller configuration for menu bar app
 
 ### Recent UI Changes
 
@@ -361,11 +351,4 @@ Recent commits updated selectors for new AnyLive UI version:
 
 **Key lesson**: When modifying selectors, always scope to nearest stable parent (modal, dialog, card) to avoid ambiguity and prevent clicking hidden/wrong elements.
 
-### Menu Bar App Development
 
-When working on `menubar_gui.py`:
-- Use `ui_call()` to schedule UI updates from background threads
-- Never call `rumps` UI functions directly from background threads
-- Logging goes to `~/Library/Application Support/AnyLiveTTS/logs/menubar.log`
-- Check Chromium installation with `check_chromium_installed()` (doesn't launch browser)
-- App Support directory structure mirrors repository for consistency

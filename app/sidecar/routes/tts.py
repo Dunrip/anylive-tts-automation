@@ -51,6 +51,19 @@ async def _run_tts_job(job: Job) -> None:
     start_version: Optional[int] = opts.get("start_version")
     limit: Optional[int] = opts.get("limit")
 
+    download: bool = bool(opts.get("download", False))
+    replace: bool = bool(opts.get("replace", False))
+    flat_mode: bool = bool(opts.get("flat_mode", False))
+    no_save: bool = bool(opts.get("no_save", False))
+    verify: bool = bool(opts.get("verify", False))
+
+    version_filter_raw: Optional[str] = opts.get("version_filter")
+    version_filter: Optional[set[int]] = None
+    if version_filter_raw:
+        from auto_tts import parse_version_spec  # type: ignore[import]
+
+        version_filter = parse_version_spec(version_filter_raw)
+
     result: dict[str, Any] = await run_job(
         config_path=str(config_path),
         csv_path=csv_path_str or "",
@@ -59,6 +72,12 @@ async def _run_tts_job(job: Job) -> None:
         debug=debug,
         start_version=start_version,
         limit=limit,
+        download=download,
+        replace=replace,
+        version_filter=version_filter,
+        flat_mode=flat_mode,
+        no_save=no_save,
+        verify=verify,
         log_callback=log_callback,
     )
 

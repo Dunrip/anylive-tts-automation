@@ -31,6 +31,13 @@ def _get_chromium_path() -> Path | None:
     return None
 
 
+@router.get("/setup/status")
+async def setup_status() -> dict:
+    """Aggregate status check for frontend bootstrap."""
+    chromium_path = _get_chromium_path()
+    return {"chromium_installed": chromium_path is not None}
+
+
 @router.get("/setup/chromium-status")
 async def chromium_status() -> dict:
     """Check if Chromium is installed for Playwright."""

@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface SetupWizardProps {
   sidecarUrl: string;
@@ -40,65 +42,40 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
   return (
     <div
       data-testid="setup-wizard"
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.7)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70"
     >
-      <div
-        style={{
-          backgroundColor: "var(--bg-elevated)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "12px",
-          padding: "32px",
-          maxWidth: "400px",
-          width: "90%",
-        }}
-      >
-        <h2 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "12px" }}>
+      <div className="w-[90%] max-w-[400px] rounded-xl border border-border-default bg-bg-elevated p-8">
+        <h2 className="mb-3 text-[18px] font-semibold text-text-primary">
           Browser Setup Required
         </h2>
-        <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "24px" }}>
+        <p className="mb-6 text-sm text-text-secondary">
           Chromium browser is required for automation. Install it now to get started.
         </p>
 
         {message && (
           <p
             data-testid="setup-message"
-            style={{
-              fontSize: "13px",
-              color: status === "error" ? "var(--error)" : status === "done" ? "var(--success)" : "var(--text-secondary)",
-              marginBottom: "16px",
-            }}
+            className={cn(
+              "mb-4 text-[13px]",
+              status === "error" ? "text-error" : status === "done" ? "text-success" : "text-text-secondary"
+            )}
           >
             {message}
           </p>
         )}
 
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
+        <div className="flex gap-2">
+          <Button
             data-testid="install-button"
             onClick={handleInstall}
             disabled={installing || status === "done"}
-            style={{
-              padding: "10px 24px",
-              backgroundColor: "var(--accent)",
-              color: "white",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "14px",
-              fontWeight: 600,
-              cursor: installing || status === "done" ? "not-allowed" : "pointer",
-              opacity: installing || status === "done" ? 0.7 : 1,
-            }}
+            className={cn(
+              "border-none bg-accent px-6 py-2.5 text-sm font-semibold text-white",
+              (installing || status === "done") ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+            )}
           >
             {installing ? "Installing..." : status === "done" ? "Done ✓" : "Install Chromium"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

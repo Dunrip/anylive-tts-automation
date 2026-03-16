@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* ========== Raycast-inspired dark theme ========== */
 /* Always dark — no light mode toggle */
@@ -21,7 +19,6 @@
   --text-muted: rgba(255, 255, 255, 0.35);
 
   /* Accent / Status */
-  --accent: #3B82F6;
   --success: #22C55E;
   --error: #EF4444;
   --warning: #F59E0B;
@@ -76,4 +73,51 @@ html {
 .mono {
   font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
   font-size: 0.75rem;
+}
+
+/* Toggle switch styling for native checkboxes */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+input[type="checkbox"]:checked {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+input[type="checkbox"]:checked::after {
+  transform: translateX(12px);
+  background: white;
+}
+
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

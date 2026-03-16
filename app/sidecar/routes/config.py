@@ -92,3 +92,31 @@ async def update_config(client: str, body: dict[str, Any]) -> dict[str, str]:
         )
 
     return {"status": "saved"}
+
+
+@router.post("/configs")
+async def create_config(body: dict[str, Any]) -> dict[str, str]:
+    """Create a new client config by copying from default."""
+    import shutil
+
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Client name is required")
+
+    if not all(c.isalnum() or c in "-_" for c in name):
+        raise HTTPException(status_code=422, detail="Name must be alphanumeric, hyphens, or underscores only")
+
+    configs_dir = _get_configs_dir()
+    client_dir = configs_dir / name
+    if client_dir.exists():
+        raise HTTPException(status_code=409, detail=f"Config '{name}' already exists")
+
+    default_dir = configs_dir / "default"
+    if default_dir.exists():
+        shutil.copytree(default_dir, client_dir)
+    else:
+        client_dir.mkdir(parents=True)
+        (client_dir / "tts.json").write_text("{}", encoding="utf-8")
+        (client_dir / "live.json").write_text("{}", encoding="utf-8")
+
+    return {"status": "created", "client": name}

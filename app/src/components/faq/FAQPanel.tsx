@@ -5,6 +5,9 @@ import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { CSVPreviewResponse } from "../../lib/types";
+import { Button } from "@/components/ui/button";
+
+import { cn } from "@/lib/utils";
 
 interface FAQPanelProps {
   client: string;
@@ -15,8 +18,15 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
   const [csvPath, setCsvPath] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<CSVPreviewResponse | null>(null);
   const [audioDir, setAudioDir] = useState<string>("");
-  const [options, setOptions] = useState({
-    headless: true,
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [options, setOptions] = useState<{
+    headless: boolean;
+    dry_run: boolean;
+    debug: boolean;
+    start_product?: number;
+    limit?: number;
+  }>({
+    headless: false,
     dry_run: false,
     debug: false,
   });
@@ -51,6 +61,8 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
         dry_run: options.dry_run,
         debug: options.debug,
         audio_dir: audioDir || undefined,
+        start_product: options.start_product,
+        limit: options.limit,
       },
       estimatedVersions: csvPreview?.estimated_versions || 0,
     });
@@ -59,9 +71,9 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
   return (
     <div
       data-testid="faq-panel"
-      style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "16px", height: "100%", overflowY: "auto" }}
+      className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
-      <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+      <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
         ❓ FAQ Automation
       </h2>
 
@@ -75,7 +87,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
 
       {/* Audio directory input */}
       <div>
-        <label style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
+        <label className="text-xs text-[var(--text-secondary)] block mb-1">
           Audio Directory (optional)
         </label>
         <input
@@ -84,63 +96,90 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
           value={audioDir}
           onChange={(e) => setAudioDir(e.target.value)}
           placeholder="downloads/"
-          style={{
-            width: "100%",
-            padding: "6px 10px",
-            backgroundColor: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "6px",
-            fontSize: "13px",
-            boxSizing: "border-box",
-          }}
+          className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-[13px] box-border"
         />
       </div>
 
       {/* Options */}
-      <div style={{ display: "flex", gap: "16px" }}>
+      <div className="flex gap-4">
         {[
           { key: "headless" as const, label: "Headless" },
           { key: "dry_run" as const, label: "Dry Run" },
           { key: "debug" as const, label: "Debug" },
         ].map(({ key, label }) => (
-          <label key={key} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "var(--text-secondary)", cursor: "pointer" }}>
-            <input
+          <label key={key} className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+            <input type="checkbox"
               data-testid={`faq-option-${key}`}
-              type="checkbox"
-              checked={options[key]}
+              checked={options[key] as boolean}
               onChange={() => setOptions((prev) => ({ ...prev, [key]: !prev[key] }))}
+             
             />
             {label}
           </label>
         ))}
       </div>
 
-      {/* Run button */}
-      <div style={{ display: "flex", gap: "8px" }}>
+      {/* Advanced options */}
+      <div>
         <button
+          data-testid="faq-toggle-advanced"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+          className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+        >
+          <span className={cn("transition-transform text-[10px]", showAdvanced && "rotate-90")}>▶</span>
+          Advanced
+        </button>
+        {showAdvanced && (
+          <div className="mt-2 flex gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-[var(--text-muted)]">Start from product</label>
+              <input
+                data-testid="faq-option-start-product"
+                type="number"
+                min={1}
+                placeholder="1"
+                value={options.start_product ?? ""}
+                onChange={(e) => setOptions((prev) => ({
+                  ...prev,
+                  start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                }))}
+                className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-[var(--text-muted)]">Limit products</label>
+              <input
+                data-testid="faq-option-limit"
+                type="number"
+                min={1}
+                placeholder="All"
+                value={options.limit ?? ""}
+                onChange={(e) => setOptions((prev) => ({
+                  ...prev,
+                  limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                }))}
+                className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Run button */}
+      <div className="flex gap-2">
+        <Button
           data-testid="faq-run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          style={{
-            padding: "8px 24px",
-            backgroundColor: automation.isRunning ? "var(--bg-elevated)" : "var(--accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: !csvPath || automation.isRunning || !sidecarUrl ? "not-allowed" : "pointer",
-            opacity: !csvPath || automation.isRunning || !sidecarUrl ? 0.6 : 1,
-          }}
+          className={cn(automation.isRunning && "bg-[var(--bg-elevated)]")}
         >
           {automation.isRunning ? "⟳ Running..." : "▶ Run"}
-        </button>
+        </Button>
       </div>
 
       {/* Error banner */}
       {automation.error && (
-        <div data-testid="faq-error" style={{ padding: "8px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid var(--error)", borderRadius: "6px", fontSize: "13px", color: "var(--error)" }}>
+        <div data-testid="faq-error" className="px-3 py-2 bg-red-500/10 border border-[var(--error)] rounded-md text-[13px] text-[var(--error)]">
           {automation.error}
         </div>
       )}
@@ -152,21 +191,18 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
 
       {/* Product list */}
       {automation.versions.length > 0 && (
-        <div data-testid="product-list" style={{ border: "1px solid var(--border-default)", borderRadius: "6px", overflow: "hidden" }}>
+        <div data-testid="product-list" className="border border-[var(--border-default)] rounded-md overflow-hidden">
           {automation.versions.map((v, i) => (
             <div
               key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 12px",
-                borderBottom: i < automation.versions.length - 1 ? "1px solid var(--border-default)" : "none",
-                backgroundColor: i % 2 === 0 ? "transparent" : "var(--bg-surface)",
-              }}
+              className={cn(
+                "flex items-center justify-between px-3 py-2",
+                i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",
+                i % 2 !== 0 && "bg-[var(--bg-surface)]"
+              )}
             >
-              <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{v.name}</span>
-              <StatusBadge status={v.status} size="sm" />
+              <span className="text-[13px] text-[var(--text-primary)]">{v.name}</span>
+              <StatusBadge status={v.status} />
             </div>
           ))}
         </div>

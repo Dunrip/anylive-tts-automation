@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import type { CSVPreviewResponse } from "../../lib/types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 
 interface CSVPickerProps {
   onFileSelected?: (path: string, preview: CSVPreviewResponse) => void;
@@ -68,62 +71,39 @@ export function CSVPicker({
   };
 
   return (
-    <div data-testid="csv-picker" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <button
+    <div data-testid="csv-picker" className="flex flex-col gap-2">
+      <div className="flex gap-2 items-center">
+        <Button
           data-testid="select-csv-button"
           onClick={handleSelectFile}
           disabled={loading}
-          style={{
-            padding: "6px 14px",
-            backgroundColor: "var(--accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "13px",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
-          }}
+          size="sm"
         >
           {loading ? "Loading..." : "Select CSV"}
-        </button>
+        </Button>
 
         {selectedPath && (
           <>
             <span
               data-testid="selected-file-name"
-              style={{
-                fontSize: "13px",
-                color: "var(--text-secondary)",
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
+              className="text-[13px] text-[var(--text-secondary)] flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
             >
               {selectedPath.split("/").pop() || selectedPath}
             </span>
-            <button
+            <Button
               data-testid="clear-csv-button"
               onClick={handleClear}
-              style={{
-                padding: "4px 8px",
-                backgroundColor: "transparent",
-                color: "var(--text-muted)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "4px",
-                fontSize: "12px",
-                cursor: "pointer",
-              }}
+              variant="outline"
+              size="xs"
             >
               Clear
-            </button>
+            </Button>
           </>
         )}
       </div>
 
       {error && (
-        <p data-testid="csv-error" style={{ fontSize: "12px", color: "var(--error)", margin: 0 }}>
+        <p data-testid="csv-error" className="text-xs text-[var(--error)]">
           {error}
         </p>
       )}
@@ -132,73 +112,38 @@ export function CSVPicker({
         <div data-testid="csv-preview">
           <p
             data-testid="csv-summary"
-            style={{ fontSize: "12px", color: "var(--text-secondary)", margin: "0 0 8px" }}
+            className="text-xs text-[var(--text-secondary)] mb-2"
           >
             {preview.rows} rows · {preview.products} products · ~{preview.estimated_versions} versions
           </p>
 
           {preview.preview.length > 0 && (
-            <div
-              style={{
-                overflowX: "auto",
-                border: "1px solid var(--border-default)",
-                borderRadius: "6px",
-              }}
-            >
-              <table
-                data-testid="csv-preview-table"
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "12px",
-                }}
-              >
-                <thead>
-                  <tr style={{ backgroundColor: "var(--bg-elevated)" }}>
-                    {["No.", "Product", "Script", "Audio Code"].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          padding: "6px 10px",
-                          textAlign: "left",
-                          color: "var(--text-muted)",
-                          fontWeight: 500,
-                          borderBottom: "1px solid var(--border-default)",
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.preview.map((row, i) => (
-                    <tr
-                      key={i}
-                      style={{
-                        backgroundColor: i % 2 === 0 ? "transparent" : "var(--bg-surface)",
-                      }}
-                    >
-                      <td style={{ padding: "5px 10px", color: "var(--text-secondary)" }}>{row.no}</td>
-                      <td style={{ padding: "5px 10px", color: "var(--text-primary)" }}>{row.product_name}</td>
-                      <td
-                        style={{
-                          padding: "5px 10px",
-                          color: "var(--text-secondary)",
-                          maxWidth: "200px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {row.script}
-                      </td>
-                      <td style={{ padding: "5px 10px", color: "var(--text-muted)" }}>{row.audio_code}</td>
-                    </tr>
+            <Table data-testid="csv-preview-table" className="border border-[var(--border-default)] rounded-md">
+              <TableHeader className="bg-[var(--bg-elevated)]">
+                <TableRow>
+                  {["No.", "Product", "Script", "Audio Code"].map((h) => (
+                    <TableHead key={h} className="text-[var(--text-muted)]">
+                      {h}
+                    </TableHead>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {preview.preview.map((row, i) => (
+                  <TableRow
+                    key={i}
+                    className={cn(i % 2 !== 0 && "bg-[var(--bg-surface)]")}
+                  >
+                    <TableCell className="text-[var(--text-secondary)]">{row.no}</TableCell>
+                    <TableCell className="text-[var(--text-primary)]">{row.product_name}</TableCell>
+                    <TableCell className="text-[var(--text-secondary)] max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap">
+                      {row.script}
+                    </TableCell>
+                    <TableCell className="text-[var(--text-muted)]">{row.audio_code}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </div>
       )}

@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { StatusBadge } from "../common/StatusBadge";
 import { useHistory } from "../../hooks/useHistory";
 import type { AutomationType, JobStatus } from "../../lib/types";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface HistoryPanelProps {
   sidecarUrl?: string | null;
@@ -50,31 +52,24 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
   return (
     <div
       data-testid="history-panel"
-      style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "16px", height: "100%", overflowY: "auto" }}
+      className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
           📊 History
         </h2>
-        <button
+        <Button
           data-testid="refresh-button"
           onClick={refresh}
-          style={{
-            padding: "4px 12px",
-            backgroundColor: "transparent",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "4px",
-            fontSize: "12px",
-            cursor: "pointer",
-          }}
+          variant="outline"
+          size="xs"
         >
           ↻ Refresh
-        </button>
+        </Button>
       </div>
 
       {/* Stats */}
-      <div style={{ display: "flex", gap: "16px" }}>
+      <div className="flex gap-4">
         {[
           { label: "Total Runs", value: runs.length },
           { label: "Success Rate", value: `${successRate}%` },
@@ -82,66 +77,46 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
         ].map(({ label, value }) => (
           <div
             key={label}
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              backgroundColor: "var(--bg-surface)",
-              borderRadius: "6px",
-              border: "1px solid var(--border-default)",
-            }}
+            className="flex-1 px-3.5 py-2.5 bg-[var(--bg-surface)] rounded-md border border-[var(--border-default)]"
           >
-            <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: "0 0 4px" }}>{label}</p>
-            <p style={{ fontSize: "18px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>{value}</p>
+            <p className="text-[11px] text-[var(--text-muted)] m-0 mb-1">{label}</p>
+            <p className="text-lg font-semibold text-[var(--text-primary)] m-0">{value}</p>
           </div>
         ))}
       </div>
 
       {/* Type filter tabs */}
-      <div style={{ display: "flex", gap: "4px", borderBottom: "1px solid var(--border-default)", paddingBottom: "8px" }}>
+      <div className="flex gap-1 border-b border-[var(--border-default)] pb-2">
         {(["all", "tts", "faq", "script"] as FilterType[]).map((type) => (
-          <button
+          <Button
             key={type}
             data-testid={`filter-${type}`}
             onClick={() => setFilter(type)}
-            style={{
-              padding: "4px 12px",
-              backgroundColor: filter === type ? "var(--accent)" : "transparent",
-              color: filter === type ? "white" : "var(--text-secondary)",
-              border: "none",
-              borderRadius: "4px",
-              fontSize: "12px",
-              cursor: "pointer",
-              fontWeight: filter === type ? 600 : 400,
-            }}
+            variant="ghost"
+            size="xs"
+            className={cn(
+              filter === type && "bg-primary text-primary-foreground font-semibold"
+            )}
           >
             {TYPE_LABELS[type]}
-          </button>
+          </Button>
         ))}
       </div>
 
       {/* Loading / Error */}
-      {loading && <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>Loading...</p>}
-      {error && <p style={{ color: "var(--error)", fontSize: "13px" }}>{error}</p>}
+      {loading && <p className="text-[var(--text-muted)] text-[13px]">Loading...</p>}
+      {error && <p className="text-[var(--error)] text-[13px]">{error}</p>}
 
       {/* History table */}
       {!loading && filteredRuns.length === 0 ? (
-        <p data-testid="empty-history" style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+        <p data-testid="empty-history" className="text-[var(--text-muted)] text-[13px]">
           No runs yet. Start an automation to see history here.
         </p>
       ) : (
-        <div style={{ border: "1px solid var(--border-default)", borderRadius: "6px", overflow: "hidden" }}>
+        <div className="border border-[var(--border-default)] rounded-md overflow-hidden">
           {/* Table header */}
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 80px 80px 100px 80px",
-              padding: "8px 12px",
-              backgroundColor: "var(--bg-elevated)",
-              borderBottom: "1px solid var(--border-default)",
-              fontSize: "11px",
-              color: "var(--text-muted)",
-              fontWeight: 600,
-            }}
+            className="grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-[11px] text-[var(--text-muted)] font-semibold"
           >
             <span>Date</span>
             <span>Type</span>
@@ -156,25 +131,20 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
               <div
                 data-testid={`history-row-${run.id}`}
                 onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 80px 80px 100px 80px",
-                  padding: "10px 12px",
-                  borderBottom: "1px solid var(--border-default)",
-                  cursor: "pointer",
-                  backgroundColor: expandedId === run.id ? "var(--bg-surface)" : "transparent",
-                  fontSize: "13px",
-                }}
+                className={cn(
+                  "grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2.5 border-b border-[var(--border-default)] cursor-pointer text-[13px]",
+                  expandedId === run.id ? "bg-[var(--bg-surface)]" : "bg-transparent"
+                )}
               >
-                <span style={{ color: "var(--text-secondary)" }}>{formatDate(run.started_at)}</span>
-                <span style={{ color: "var(--text-primary)", textTransform: "uppercase", fontSize: "11px" }}>
+                <span className="text-[var(--text-secondary)]">{formatDate(run.started_at)}</span>
+                <span className="text-[var(--text-primary)] uppercase text-[11px]">
                   {run.automation_type}
                 </span>
                 <StatusBadge status={run.status as JobStatus} size="sm" />
-                <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>
+                <span className="text-[var(--text-muted)] text-[12px]">
                   {formatDuration(run.started_at, run.finished_at)}
                 </span>
-                <span style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                <span className="text-[var(--text-secondary)] text-[12px]">
                   {run.versions_success}/{run.versions_total}
                 </span>
               </div>
@@ -183,18 +153,12 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
               {expandedId === run.id && (
                 <div
                   data-testid={`history-detail-${run.id}`}
-                  style={{
-                    padding: "12px 16px",
-                    backgroundColor: "var(--bg-elevated)",
-                    borderBottom: "1px solid var(--border-default)",
-                    fontSize: "12px",
-                    color: "var(--text-secondary)",
-                  }}
+                  className="px-4 py-3 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-[12px] text-[var(--text-secondary)]"
                 >
-                  <p style={{ margin: "0 0 4px" }}>Job ID: <span style={{ color: "var(--text-primary)", fontFamily: "monospace" }}>{run.id}</span></p>
-                  <p style={{ margin: "0 0 4px" }}>Client: {run.client}</p>
+                  <p className="m-0 mb-1">Job ID: <span className="text-[var(--text-primary)] font-mono">{run.id}</span></p>
+                  <p className="m-0 mb-1">Client: {run.client}</p>
                   {run.error && (
-                    <p style={{ margin: "0", color: "var(--error)" }}>Error: {run.error}</p>
+                    <p className="m-0 text-[var(--error)]">Error: {run.error}</p>
                   )}
                 </div>
               )}

@@ -26,6 +26,7 @@ describe("Sidebar", () => {
     const switcher = screen.getByTestId("client-switcher");
     expect(switcher).toBeTruthy();
     expect(screen.getByText("default")).toBeTruthy();
+    fireEvent.click(switcher);
     expect(screen.getByText("mybrand")).toBeTruthy();
   });
 
@@ -40,14 +41,14 @@ describe("Sidebar", () => {
     render(<Sidebar {...defaultProps} sessionValid={true} />);
     expect(screen.getByText("Session Active")).toBeTruthy();
     const dot = screen.getByTestId("session-dot");
-    expect(dot.style.backgroundColor).toBe("var(--success)");
+    expect(dot.className).toContain("bg-[var(--success)]");
   });
 
   it("shows red session indicator when session is expired", () => {
     render(<Sidebar {...defaultProps} sessionValid={false} />);
     expect(screen.getByText("Session Expired")).toBeTruthy();
     const dot = screen.getByTestId("session-dot");
-    expect(dot.style.backgroundColor).toBe("var(--error)");
+    expect(dot.className).toContain("bg-[var(--error)]");
   });
 
   it("shows re-login button when session expired", () => {
@@ -63,7 +64,9 @@ describe("Sidebar", () => {
     const onClientChange = vi.fn();
     render(<Sidebar {...defaultProps} onClientChange={onClientChange} />);
     const switcher = screen.getByTestId("client-switcher");
-    fireEvent.change(switcher, { target: { value: "mybrand" } });
+    fireEvent.click(switcher);
+    const option = screen.getByText("mybrand");
+    fireEvent.click(option);
     expect(onClientChange).toHaveBeenCalledWith("mybrand");
   });
 });
