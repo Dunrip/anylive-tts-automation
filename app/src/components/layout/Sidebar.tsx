@@ -13,6 +13,7 @@ interface SidebarProps {
   sidecarUrl?: string | null;
   onRelogin?: () => void;
   onClientCreated?: (name: string) => void;
+  onClientDeleted?: (name: string) => void;
 }
 
 function ClientSelect({
@@ -82,6 +83,7 @@ export function Sidebar({
   sidecarUrl,
   onRelogin,
   onClientCreated,
+  onClientDeleted,
 }: SidebarProps): React.ReactElement {
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -126,6 +128,21 @@ export function Sidebar({
     setIsCreating(false);
   };
 
+  const handleDelete = async (): Promise<void> => {
+    if (selectedClient === "default") return;
+    if (!confirm(`Delete client "${selectedClient}"? This removes its config files.`)) return;
+    try {
+      if (sidecarUrl) {
+        // No sidecar delete endpoint yet — use Rust
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("delete_client_config", { name: selectedClient });
+      onClientDeleted?.(selectedClient);
+    } catch (err: unknown) {
+      setCreateError(String(err));
+    }
+  };
+
   return (
     <aside className="w-[220px] min-w-[220px] h-full bg-[var(--bg-surface)] border-r border-[var(--border-default)] flex flex-col py-3">
       {/* App title */}
@@ -139,13 +156,24 @@ export function Sidebar({
       <div className="px-3 pb-3">
         <div className="flex items-center justify-between mb-1">
           <label className="text-[11px] text-[var(--text-muted)]">CLIENT</label>
-          <button
-            data-testid="new-client-button"
-            onClick={() => setIsCreating((prev) => !prev)}
-            className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer p-0 transition-colors"
-          >
-            {isCreating ? "Cancel" : "+ New"}
-          </button>
+          <div className="flex gap-2">
+            {selectedClient !== "default" && (
+              <button
+                data-testid="delete-client-button"
+                onClick={handleDelete}
+                className="text-[10px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
+              >
+                Delete
+              </button>
+            )}
+            <button
+              data-testid="new-client-button"
+              onClick={() => setIsCreating((prev) => !prev)}
+              className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer p-0 transition-colors"
+            >
+              {isCreating ? "Cancel" : "+ New"}
+            </button>
+          </div>
         </div>
         <ClientSelect
           clients={clients}

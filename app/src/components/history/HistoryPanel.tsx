@@ -105,7 +105,11 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
 
       {/* Loading / Error */}
       {loading && <p className="text-[var(--text-muted)] text-[13px]">Loading...</p>}
-      {error && <p className="text-[var(--error)] text-[13px]">{error}</p>}
+      {error && (
+        <p className="text-[var(--text-muted)] text-[13px]">
+          {sidecarUrl ? error : "Sidecar not connected. Start the sidecar to view run history."}
+        </p>
+      )}
 
       {/* History table */}
       {!loading && filteredRuns.length === 0 ? (
