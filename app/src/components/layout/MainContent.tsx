@@ -5,6 +5,7 @@ import { TTSPanel } from "../tts/TTSPanel";
 import { FAQPanel } from "../faq/FAQPanel";
 import { ScriptsPanel } from "../scripts/ScriptsPanel";
 import { HistoryPanel } from "../history/HistoryPanel";
+import { SettingsPanel } from "../settings/SettingsPanel";
 import { LogViewer } from "./LogViewer";
 
 interface MainContentProps {
@@ -13,23 +14,7 @@ interface MainContentProps {
   sidecarUrl?: string | null;
 }
 
-// Placeholder panels — will be replaced by actual panels in later tasks
-function PlaceholderPanel({ name }: { name: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        color: "var(--text-muted)",
-        fontSize: "14px",
-      }}
-    >
-      {name} Panel — Coming Soon
-    </div>
-  );
-}
+
 
 export function MainContent({ activePanel, client, sidecarUrl }: MainContentProps): React.ReactElement {
   const [wsMessages, setWsMessages] = useState<WSMessage[]>([]);
@@ -72,25 +57,16 @@ export function MainContent({ activePanel, client, sidecarUrl }: MainContentProp
       case "history":
         return <HistoryPanel sidecarUrl={sidecarUrl} />;
       case "settings":
-        return <PlaceholderPanel name="Settings" />;
+        return <SettingsPanel client={client} sidecarUrl={sidecarUrl} />;
       default:
-        return <PlaceholderPanel name="Unknown" />;
+        return <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">Unknown Panel</div>;
     }
   };
 
   return (
-    <main
-      style={{
-        flex: 1,
-        height: "100vh",
-        backgroundColor: "var(--bg-base)",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <main className="flex-1 h-full bg-[var(--bg-base)] overflow-hidden flex flex-col">
       {/* Content area */}
-      <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
+      <div className="flex-1 overflow-auto p-4">
         {renderPanel()}
       </div>
 

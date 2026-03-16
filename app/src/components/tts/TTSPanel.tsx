@@ -4,6 +4,10 @@ import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
+import { useNotification } from "../../hooks/useNotification";
+import { Button } from "@/components/ui/button";
+
+import { cn } from "@/lib/utils";
 import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 
 interface TTSPanelProps {
@@ -21,9 +25,17 @@ interface RunOptions {
   headless: boolean;
   dry_run: boolean;
   debug: boolean;
+  download: boolean;
+  replace: boolean;
+  verify: boolean;
+  flat_mode: boolean;
+  no_save: boolean;
   start_version?: number;
   limit?: number;
+  version_filter: string;
 }
+
+type BooleanOptionKey = "headless" | "dry_run" | "debug" | "download" | "replace" | "verify" | "flat_mode" | "no_save";
 
 export function TTSPanel({
   client,
@@ -34,15 +46,24 @@ export function TTSPanel({
   const [csvPath, setCsvPath] = useState<string | null>(null);
   const [estimatedVersions, setEstimatedVersions] = useState(0);
   const [options, setOptions] = useState<RunOptions>({
-    headless: true,
+    headless: false,
     dry_run: false,
     debug: false,
+    download: false,
+    replace: false,
+    verify: false,
+    flat_mode: false,
+    no_save: false,
+    version_filter: "",
   });
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [jobStartTime, setJobStartTime] = useState<number | undefined>();
   const processedCountRef = useRef(0);
   const hasConnectedRef = useRef(false);
+  const wasRunningRef = useRef(false);
   const automation = useAutomation();
   const ws = useWebSocket(automation.wsUrl);
+  const { sendJobNotification } = useNotification({ enabled: true });
 
   const configPath = `configs/${client}/tts.json`;
 
@@ -85,6 +106,20 @@ export function TTSPanel({
     }
   }, [automation.jobId, onRunStart]);
 
+  useEffect(() => {
+    if (wasRunningRef.current && !automation.isRunning) {
+      const successCount = automation.versions.filter((v) => v.status === "success").length;
+      const failedCount = automation.versions.filter((v) => v.status === "failed").length;
+      sendJobNotification("tts", {
+        versionsTotal: automation.versions.length,
+        versionsSuccess: successCount,
+        versionsFailed: failedCount,
+        error: automation.error ?? undefined,
+      });
+    }
+    wasRunningRef.current = automation.isRunning;
+  }, [automation.isRunning]);
+
   const handleRun = async (): Promise<void> => {
     if (!csvPath || !sidecarUrl || automation.isRunning) {
       return;
@@ -103,34 +138,32 @@ export function TTSPanel({
         headless: options.headless,
         dry_run: options.dry_run,
         debug: options.debug,
+        download: options.download,
+        replace: options.replace,
+        verify: options.verify,
+        flat_mode: options.flat_mode,
+        no_save: options.no_save,
         start_version: options.start_version,
         limit: options.limit,
+        version_filter: options.version_filter || undefined,
       },
       estimatedVersions,
     });
   };
 
-  const toggleOption = (key: keyof RunOptions): void => {
+  const toggleOption = (key: BooleanOptionKey): void => {
     setOptions((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
     <div
       data-testid="tts-panel"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "16px",
-        padding: "16px",
-        height: "100%",
-        overflowY: "auto",
-      }}
+      className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
-      <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+      <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
         🎙️ TTS Automation
       </h2>
 
-      {/* CSV Picker */}
       <CSVPicker
         onFileSelected={handleCsvSelected}
         onClear={() => {
@@ -147,14 +180,7 @@ export function TTSPanel({
       {automation.error ? (
         <div
           data-testid="automation-error"
-          style={{
-            padding: "8px 10px",
-            borderRadius: "6px",
-            border: "1px solid var(--error)",
-            color: "var(--error)",
-            fontSize: "12px",
-            backgroundColor: "color-mix(in srgb, var(--error) 10%, transparent)",
-          }}
+          className="px-2.5 py-2 rounded-md border border-[var(--error)] text-[var(--error)] text-xs bg-[color-mix(in_srgb,var(--error)_10%,transparent)]"
         >
           {automation.error}
         </div>
@@ -163,89 +189,149 @@ export function TTSPanel({
       {automation.isRunning && automation.wsUrl && hasConnectedRef.current && !ws.isConnected ? (
         <div
           data-testid="connection-lost-banner"
-          style={{
-            padding: "8px 10px",
-            borderRadius: "6px",
-            border: "1px solid var(--warning)",
-            color: "var(--warning)",
-            fontSize: "12px",
-            backgroundColor: "color-mix(in srgb, var(--warning) 10%, transparent)",
-          }}
+          className="px-2.5 py-2 rounded-md border border-[var(--warning)] text-[var(--warning)] text-xs bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]"
         >
           Connection lost
         </div>
       ) : null}
 
-      {/* Options row */}
-      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-        {[
-          { key: "headless" as const, label: "Headless" },
-          { key: "dry_run" as const, label: "Dry Run" },
-          { key: "debug" as const, label: "Debug" },
-        ].map(({ key, label }) => (
-          <label
-            key={key}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              fontSize: "13px",
-              color: "var(--text-secondary)",
-              cursor: "pointer",
-            }}
-          >
-            <input
-              data-testid={`option-${key}`}
-              type="checkbox"
-              checked={options[key] as boolean}
-              onChange={() => toggleOption(key)}
-            />
-            {label}
-          </label>
-        ))}
+      <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[var(--bg-surface)] border border-[var(--border-default)]">
+        <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer font-medium">
+          <input type="checkbox"
+            data-testid="option-download"
+            checked={options.download}
+            onChange={() => toggleOption("download")}
+           
+          />
+          Download Mode
+        </label>
+        <span className="text-[11px] text-[var(--text-muted)]">
+          {options.download ? "Download files from existing versions" : "Create and fill new versions"}
+        </span>
       </div>
 
-      {/* Run button */}
-      <div style={{ display: "flex", gap: "8px" }}>
-        <button
+      {options.download ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-4 flex-wrap">
+            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+              <input type="checkbox" data-testid="option-headless"  checked={options.headless} onChange={() => toggleOption("headless")} />
+              Headless
+            </label>
+            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+              <input type="checkbox" data-testid="option-replace"  checked={options.replace} onChange={() => toggleOption("replace")} />
+              Replace existing
+            </label>
+            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+              <input type="checkbox" data-testid="option-verify"  checked={options.verify} onChange={() => toggleOption("verify")} />
+              Verify after
+            </label>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-[var(--text-muted)]">Version filter</label>
+            <input
+              data-testid="option-version-filter"
+              type="text"
+              placeholder="e.g. 1-5,8,10-12 (blank = all)"
+              value={options.version_filter}
+              onChange={(e) => setOptions((prev) => ({ ...prev, version_filter: e.target.value }))}
+              className="w-full max-w-[250px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-4 flex-wrap">
+            {[
+              { key: "headless" as BooleanOptionKey, label: "Headless" },
+              { key: "dry_run" as BooleanOptionKey, label: "Dry Run" },
+              { key: "debug" as BooleanOptionKey, label: "Debug" },
+            ].map(({ key, label }) => (
+              <label
+                key={key}
+                className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer"
+              >
+                <input type="checkbox"
+                  data-testid={`option-${key}`}
+                  checked={options[key]}
+                  onChange={() => toggleOption(key)}
+                 
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+
+          <div>
+            <button
+              data-testid="toggle-advanced"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+            >
+              <span className={cn("transition-transform text-[10px]", showAdvanced && "rotate-90")}>▶</span>
+              Advanced
+            </button>
+            {showAdvanced && (
+              <div className="mt-2 flex flex-col gap-3">
+                <div className="flex gap-4">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-[var(--text-muted)]">Start from version</label>
+                    <input
+                      data-testid="option-start-version"
+                      type="number"
+                      min={1}
+                      placeholder="1"
+                      value={options.start_version ?? ""}
+                      onChange={(e) => setOptions((prev) => ({
+                        ...prev,
+                        start_version: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                      }))}
+                      className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-[var(--text-muted)]">Limit versions</label>
+                    <input
+                      data-testid="option-limit"
+                      type="number"
+                      min={1}
+                      placeholder="All"
+                      value={options.limit ?? ""}
+                      onChange={(e) => setOptions((prev) => ({
+                        ...prev,
+                        limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                      }))}
+                      className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] cursor-pointer">
+                    <input type="checkbox" data-testid="option-flat_mode"  checked={options.flat_mode} onChange={() => toggleOption("flat_mode")} />
+                    Flat mode
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] cursor-pointer">
+                    <input type="checkbox" data-testid="option-no_save"  checked={options.no_save} onChange={() => toggleOption("no_save")} />
+                    No save
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2">
+        <Button
           data-testid="run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
           title={!sidecarUrl ? "Sidecar not connected" : !csvPath ? "Select a CSV file first" : ""}
-          style={{
-            padding: "8px 24px",
-            backgroundColor: automation.isRunning ? "var(--bg-elevated)" : "var(--accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: !csvPath || automation.isRunning || !sidecarUrl ? "not-allowed" : "pointer",
-            opacity: !csvPath || automation.isRunning || !sidecarUrl ? 0.6 : 1,
-          }}
+          className={cn(automation.isRunning && "bg-[var(--bg-elevated)]")}
         >
-          {automation.isRunning ? "⟳ Running..." : "▶ Run"}
-        </button>
-        <button
-          data-testid="stop-button"
-          disabled={true}
-          title="Stop not available in MVP"
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "transparent",
-            color: "var(--text-muted)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "6px",
-            fontSize: "14px",
-            cursor: "not-allowed",
-            opacity: 0.5,
-          }}
-        >
-          ⏹ Stop
-        </button>
+          {automation.isRunning ? "⟳ Running..." : options.download ? "⬇ Download" : "▶ Run"}
+        </Button>
       </div>
 
-      {/* Progress bar (shown when running or has progress) */}
       {(automation.isRunning || automation.progress.current > 0) && (
         <ProgressBar
           current={automation.progress.current}
@@ -254,50 +340,30 @@ export function TTSPanel({
         />
       )}
 
-      {/* Version list */}
       {automation.versions.length > 0 && (
         <div>
-          <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>
+          <p className="text-xs text-[var(--text-muted)] mb-2">
             {automation.versions.length} versions
           </p>
           <div
             data-testid="version-list"
-            style={{
-              border: "1px solid var(--border-default)",
-              borderRadius: "6px",
-              overflow: "hidden",
-            }}
+            className="border border-[var(--border-default)] rounded-md overflow-hidden"
           >
             {automation.versions.map((v, i) => (
               <div
                 key={i}
                 data-testid={`version-item-${i}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "8px 12px",
-                  borderBottom: i < automation.versions.length - 1 ? "1px solid var(--border-default)" : "none",
-                  backgroundColor: i % 2 === 0 ? "transparent" : "var(--bg-surface)",
-                }}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2",
+                  i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",
+                  i % 2 !== 0 && "bg-[var(--bg-surface)]"
+                )}
               >
-                <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{v.name}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <StatusBadge status={v.status} size="sm" />
+                <span className="text-[13px] text-[var(--text-primary)]">{v.name}</span>
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={v.status} />
                   {v.status === "failed" && (
-                    <button
-                      style={{
-                        fontSize: "11px",
-                        padding: "2px 6px",
-                        backgroundColor: "transparent",
-                        color: "var(--text-muted)",
-                        border: "1px solid var(--border-default)",
-                        borderRadius: "3px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Retry
-                    </button>
+                    <Button variant="outline" size="xs" className="text-[11px]">Retry</Button>
                   )}
                 </div>
               </div>

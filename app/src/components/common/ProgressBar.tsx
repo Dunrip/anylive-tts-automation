@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Progress } from "@/components/ui/progress";
 
 interface ProgressBarProps {
   current: number;
@@ -36,40 +37,22 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
   }
 
   return (
-    <div data-testid="progress-bar" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+    <div data-testid="progress-bar" className="flex flex-col gap-1">
       {/* Progress track */}
-      <div
-        style={{
-          height: "4px",
-          backgroundColor: "var(--bg-elevated)",
-          borderRadius: "2px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          data-testid="progress-fill"
-          style={{
-            height: "100%",
-            width: `${percentage}%`,
-            backgroundColor: "var(--accent)",
-            borderRadius: "2px",
-            transition: "width 0.3s ease",
-          }}
-        />
-      </div>
+      <Progress value={percentage} className="h-1" data-testid="progress-fill" />
 
       {/* Progress text */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="flex justify-between items-center">
         <span
           data-testid="progress-text"
-          style={{ fontSize: "12px", color: "var(--text-secondary)" }}
+          className="text-xs text-[var(--text-secondary)]"
         >
           {current}/{total} versions ({percentage}%)
         </span>
         {estimatedRemaining && (
           <span
             data-testid="progress-eta"
-            style={{ fontSize: "11px", color: "var(--text-muted)" }}
+            className="text-[11px] text-[var(--text-muted)]"
           >
             ~{estimatedRemaining} remaining
           </span>
@@ -77,7 +60,7 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
         {elapsed > 0 && (
           <span
             data-testid="progress-elapsed"
-            style={{ fontSize: "11px", color: "var(--text-muted)" }}
+            className="text-[11px] text-[var(--text-muted)]"
           >
             {formatDuration(elapsed)} elapsed
           </span>

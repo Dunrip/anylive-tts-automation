@@ -1,5 +1,5 @@
 {
-  "base_url": "https://app.anylive.jp/live-assets/YOUR_ASSET_ID",
+  "base_url": "https://app.anylive.jp/live-assets/Y123",
   "version_template": "Version_Template",
   "voice_name": "Voice Clone Name",
   "max_scripts_per_version": 10,

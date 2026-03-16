@@ -93,6 +93,7 @@ export interface TTSConfig {
 }
 
 export interface LiveConfig {
+  base_url?: string;
   audio_dir?: string;
   audio_extensions?: string[];
   csv_columns?: Partial<CSVColumns>;

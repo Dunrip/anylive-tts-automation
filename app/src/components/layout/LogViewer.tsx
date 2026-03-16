@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { LogLevel, LogMessage, WSMessage } from "../../lib/types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface LogViewerProps {
   messages: WSMessage[];
@@ -61,50 +63,25 @@ export function LogViewer({
   return (
     <div
       data-testid="log-viewer"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        borderTop: "1px solid var(--border-default)",
-        backgroundColor: "var(--bg-base)",
-      }}
+      className="flex flex-col border-t border-[var(--border-default)] bg-[var(--bg-base)]"
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          padding: "6px 12px",
-          backgroundColor: "var(--bg-surface)",
-          borderBottom: "1px solid var(--border-default)",
-        }}
-      >
-        <button
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-surface)] border-b border-[var(--border-default)]">
+        <Button
+          variant="ghost"
+          size="icon-xs"
           data-testid="collapse-button"
           onClick={() => setIsCollapsed((value) => !value)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: "12px",
-            padding: "0 4px",
-          }}
         >
           {isCollapsed ? "▲" : "▼"}
-        </button>
+        </Button>
 
-        <span style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Logs</span>
+        <span className="text-xs text-[var(--text-secondary)] font-medium">Logs</span>
         <div
           aria-label={isConnected ? "connected" : "disconnected"}
-          style={{
-            width: "6px",
-            height: "6px",
-            borderRadius: "50%",
-            backgroundColor: isConnected ? "var(--success)" : "var(--text-muted)",
-          }}
+          className={cn("size-1.5 rounded-full", isConnected ? "bg-[var(--success)]" : "bg-[var(--text-muted)]")}
         />
 
-        <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+        <span className="text-[11px] text-[var(--text-muted)]">
           {filteredMessages.length} messages
         </span>
 
@@ -114,63 +91,37 @@ export function LogViewer({
           placeholder="Filter logs..."
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          style={{
-            flex: 1,
-            padding: "2px 8px",
-            backgroundColor: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "4px",
-            fontSize: "12px",
-          }}
+          className="flex-1 px-2 py-0.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded text-xs"
         />
 
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           data-testid="copy-logs-button"
           onClick={copyToClipboard}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: "11px",
-          }}
         >
           Copy
-        </button>
+        </Button>
 
         {onClear ? (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             data-testid="clear-logs-button"
             onClick={onClear}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: "11px",
-            }}
           >
             Clear
-          </button>
+          </Button>
         ) : null}
 
         {!autoScroll ? (
-          <button
+          <Button
+            size="xs"
             data-testid="resume-scroll-button"
             onClick={() => setAutoScroll(true)}
-            style={{
-              padding: "2px 8px",
-              backgroundColor: "var(--accent)",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              fontSize: "11px",
-              cursor: "pointer",
-            }}
           >
             Resume ↓
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -179,17 +130,11 @@ export function LogViewer({
           ref={scrollRef}
           data-testid="log-content"
           onScroll={handleScroll}
-          style={{
-            height,
-            overflowY: "auto",
-            padding: "8px 12px",
-            fontFamily: '"JetBrains Mono", "SF Mono", monospace',
-            fontSize: "12px",
-            lineHeight: "1.6",
-          }}
+          className="overflow-y-auto p-2 px-3 font-mono text-xs leading-relaxed"
+          style={{ height }}
         >
           {filteredMessages.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", margin: 0 }}>
+            <p className="text-[var(--text-muted)] m-0">
               {filter ? "No matching log messages" : "Waiting for logs..."}
             </p>
           ) : (
@@ -197,15 +142,14 @@ export function LogViewer({
               <div
                 key={`${message.timestamp}-${index}`}
                 data-testid={`log-line-${index}`}
+                className="mb-px break-all"
                 style={{
                   color: LEVEL_COLORS[message.level] ?? "var(--text-primary)",
-                  marginBottom: "1px",
-                  wordBreak: "break-all",
                 }}
               >
-                <span style={{ color: "var(--text-muted)", marginRight: "8px" }}>[{message.level}]</span>
+                <span className="text-[var(--text-muted)] mr-2">[{message.level}]</span>
                 {message.version ? (
-                  <span style={{ color: "var(--accent)", marginRight: "8px" }}>[{message.version}]</span>
+                  <span className="text-primary mr-2">[{message.version}]</span>
                 ) : null}
                 {message.message}
               </div>

@@ -5,6 +5,9 @@ import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { CSVPreviewResponse } from "../../lib/types";
+import { Button } from "@/components/ui/button";
+
+import { cn } from "@/lib/utils";
 
 interface ScriptsPanelProps {
   client: string;
@@ -15,10 +18,20 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
   const [csvPath, setCsvPath] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<CSVPreviewResponse | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [options, setOptions] = useState({
-    headless: true,
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [options, setOptions] = useState<{
+    headless: boolean;
+    dry_run: boolean;
+    debug: boolean;
+    start_product?: number;
+    limit?: number;
+    audio_dir: string;
+  }>({
+    headless: false,
     dry_run: false,
     debug: false,
+    audio_dir: "",
   });
 
   const automation = useAutomation();
@@ -40,7 +53,14 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
       endpoint: "/api/scripts/run",
       configPath,
       csvPath,
-      options: { headless: options.headless, dry_run: options.dry_run, debug: options.debug },
+      options: {
+        headless: options.headless,
+        dry_run: options.dry_run,
+        debug: options.debug,
+        start_product: options.start_product,
+        limit: options.limit,
+        audio_dir: options.audio_dir || undefined,
+      },
       estimatedVersions: csvPreview?.estimated_versions || 0,
     });
   };
@@ -48,6 +68,7 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
   const handleDelete = async (): Promise<void> => {
     if (!sidecarUrl || automation.isRunning) return;
     setShowDeleteConfirm(false);
+    setDeleteError(null);
 
     try {
       const resp = await fetch(`${sidecarUrl}/api/scripts/delete`, {
@@ -55,24 +76,29 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           config_path: configPath,
-          options: { headless: options.headless, dry_run: options.dry_run },
+          options: {
+            headless: options.headless,
+            dry_run: options.dry_run,
+            start_product: options.start_product,
+            limit: options.limit,
+          },
         }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: "Delete failed" }));
-        console.error("Delete failed:", err.detail);
+        setDeleteError(err.detail || "Delete failed");
       }
-    } catch (err) {
-      console.error("Delete request failed:", err);
+    } catch {
+      setDeleteError("Could not connect to sidecar");
     }
   };
 
   return (
     <div
       data-testid="scripts-panel"
-      style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "16px", height: "100%", overflowY: "auto" }}
+      className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
-      <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+      <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
         📜 Script Automation
       </h2>
 
@@ -85,109 +111,137 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
       />
 
       {/* Options */}
-      <div style={{ display: "flex", gap: "16px" }}>
+      <div className="flex gap-4">
         {[
           { key: "headless" as const, label: "Headless" },
           { key: "dry_run" as const, label: "Dry Run" },
           { key: "debug" as const, label: "Debug" },
         ].map(({ key, label }) => (
-          <label key={key} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "var(--text-secondary)", cursor: "pointer" }}>
-            <input
+          <label key={key} className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+            <input type="checkbox"
               data-testid={`scripts-option-${key}`}
-              type="checkbox"
-              checked={options[key]}
-              onChange={() => setOptions((prev) => ({ ...prev, [key]: !prev[key] }))}
+              checked={options[key] as boolean}
+              onChange={() => setOptions((prev) => ({ ...prev, [key]: !prev[key] as boolean }))}
+             
             />
             {label}
           </label>
         ))}
       </div>
 
-      {/* Action buttons */}
-      <div style={{ display: "flex", gap: "8px" }}>
+      <div>
         <button
+          data-testid="scripts-toggle-advanced"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+          className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+        >
+          <span className={cn("transition-transform text-[10px]", showAdvanced && "rotate-90")}>▶</span>
+          Advanced
+        </button>
+        {showAdvanced && (
+          <div className="mt-2 flex flex-col gap-3">
+            <div className="flex gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-[var(--text-muted)]">Start from product</label>
+                <input
+                  data-testid="scripts-option-start-product"
+                  type="number"
+                  min={1}
+                  placeholder="1"
+                  value={options.start_product ?? ""}
+                  onChange={(e) => setOptions((prev) => ({
+                    ...prev,
+                    start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                  }))}
+                  className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-[var(--text-muted)]">Limit products</label>
+                <input
+                  data-testid="scripts-option-limit"
+                  type="number"
+                  min={1}
+                  placeholder="All"
+                  value={options.limit ?? ""}
+                  onChange={(e) => setOptions((prev) => ({
+                    ...prev,
+                    limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                  }))}
+                  className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-[var(--text-muted)]">Audio directory</label>
+              <input
+                data-testid="scripts-option-audio-dir"
+                type="text"
+                placeholder="downloads/"
+                value={options.audio_dir}
+                onChange={(e) => setOptions((prev) => ({ ...prev, audio_dir: e.target.value }))}
+                className="w-full max-w-[300px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        <Button
           data-testid="scripts-run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          style={{
-            padding: "8px 24px",
-            backgroundColor: automation.isRunning ? "var(--bg-elevated)" : "var(--accent)",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: !csvPath || automation.isRunning || !sidecarUrl ? "not-allowed" : "pointer",
-            opacity: !csvPath || automation.isRunning || !sidecarUrl ? 0.6 : 1,
-          }}
+          className={cn(
+            automation.isRunning ? "bg-[var(--bg-elevated)] text-white" : "bg-[var(--accent)] text-white"
+          )}
         >
           {automation.isRunning ? "⟳ Running..." : "▶ Upload Scripts"}
-        </button>
+        </Button>
 
-        <button
+        <Button
           data-testid="delete-scripts-button"
+          variant="destructive"
           onClick={() => setShowDeleteConfirm(true)}
           disabled={automation.isRunning || !sidecarUrl}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "transparent",
-            color: "var(--error)",
-            border: "1px solid var(--error)",
-            borderRadius: "6px",
-            fontSize: "13px",
-            cursor: automation.isRunning || !sidecarUrl ? "not-allowed" : "pointer",
-            opacity: automation.isRunning || !sidecarUrl ? 0.5 : 1,
-          }}
         >
           🗑 Delete All Scripts
-        </button>
+        </Button>
       </div>
+
+      {deleteError && (
+        <div className="px-3 py-2 bg-red-500/10 border border-[var(--error)] rounded-md text-[13px] text-[var(--error)]">
+          {deleteError}
+        </div>
+      )}
 
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
         <div
           data-testid="delete-confirm-dialog"
-          style={{
-            padding: "16px",
-            backgroundColor: "var(--bg-elevated)",
-            border: "1px solid var(--error)",
-            borderRadius: "8px",
-          }}
+          className="p-4 bg-[var(--bg-elevated)] border border-[var(--error)] rounded-lg"
         >
-          <p style={{ fontSize: "14px", color: "var(--text-primary)", marginBottom: "12px" }}>
+          <p className="text-sm text-[var(--text-primary)] mb-3">
             Are you sure you want to delete ALL scripts from all products? This cannot be undone.
           </p>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
+          <div className="flex gap-2">
+            <Button
               data-testid="confirm-delete-button"
+              variant="destructive"
+             
               onClick={handleDelete}
-              style={{
-                padding: "6px 16px",
-                backgroundColor: "var(--error)",
-                color: "white",
-                border: "none",
-                borderRadius: "6px",
-                fontSize: "13px",
-                cursor: "pointer",
-              }}
             >
               Yes, Delete All
-            </button>
-            <button
+            </Button>
+            <Button
               data-testid="cancel-delete-button"
+              variant="outline"
+             
               onClick={() => setShowDeleteConfirm(false)}
-              style={{
-                padding: "6px 16px",
-                backgroundColor: "transparent",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "6px",
-                fontSize: "13px",
-                cursor: "pointer",
-              }}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -199,21 +253,18 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
 
       {/* Version list */}
       {automation.versions.length > 0 && (
-        <div data-testid="scripts-version-list" style={{ border: "1px solid var(--border-default)", borderRadius: "6px", overflow: "hidden" }}>
+        <div data-testid="scripts-version-list" className="border border-[var(--border-default)] rounded-md overflow-hidden">
           {automation.versions.map((v, i) => (
             <div
               key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 12px",
-                borderBottom: i < automation.versions.length - 1 ? "1px solid var(--border-default)" : "none",
-                backgroundColor: i % 2 === 0 ? "transparent" : "var(--bg-surface)",
-              }}
+              className={cn(
+                "flex items-center justify-between px-3 py-2",
+                i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",
+                i % 2 === 0 ? "bg-transparent" : "bg-[var(--bg-surface)]"
+              )}
             >
-              <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{v.name}</span>
-              <StatusBadge status={v.status} size="sm" />
+              <span className="text-[13px] text-[var(--text-primary)]">{v.name}</span>
+              <StatusBadge status={v.status} />
             </div>
           ))}
         </div>

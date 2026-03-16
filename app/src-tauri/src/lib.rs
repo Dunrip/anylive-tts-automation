@@ -15,6 +15,143 @@ struct SidecarProcess {
 }
 
 #[tauri::command]
+fn read_client_config(client: String) -> Result<String, String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let candidates = [
+        cwd.join("configs"),
+        cwd.join("../../configs"),
+        cwd.join("../../../configs"),
+        cwd.join("../../../../configs"),
+    ];
+    let configs_dir = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or("Could not find configs directory")?
+        .clone();
+    let client_dir = configs_dir.join(&client);
+    if !client_dir.exists() {
+        return Err(format!("Config '{}' not found", client));
+    }
+    let mut result = String::from("{");
+    let tts_path = client_dir.join("tts.json");
+    if tts_path.exists() {
+        let tts = std::fs::read_to_string(&tts_path).map_err(|e| e.to_string())?;
+        result.push_str(&format!("\"tts\":{}", tts));
+    }
+    let live_path = client_dir.join("live.json");
+    if live_path.exists() {
+        if tts_path.exists() {
+            result.push(',');
+        }
+        let live = std::fs::read_to_string(&live_path).map_err(|e| e.to_string())?;
+        result.push_str(&format!("\"live\":{}", live));
+    }
+    result.push('}');
+    Ok(result)
+}
+
+#[tauri::command]
+fn save_client_config(client: String, tts: Option<String>, live: Option<String>) -> Result<(), String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let candidates = [
+        cwd.join("configs"),
+        cwd.join("../../configs"),
+        cwd.join("../../../configs"),
+        cwd.join("../../../../configs"),
+    ];
+    let configs_dir = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or("Could not find configs directory")?
+        .clone();
+    let client_dir = configs_dir.join(&client);
+    if !client_dir.exists() {
+        return Err(format!("Config '{}' not found", client));
+    }
+    if let Some(tts_json) = tts {
+        std::fs::write(client_dir.join("tts.json"), tts_json).map_err(|e| e.to_string())?;
+    }
+    if let Some(live_json) = live {
+        std::fs::write(client_dir.join("live.json"), live_json).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn list_client_configs() -> Result<Vec<String>, String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let candidates = [
+        cwd.join("configs"),
+        cwd.join("../../configs"),
+        cwd.join("../../../configs"),
+        cwd.join("../../../../configs"),
+    ];
+    let configs_dir = match candidates.iter().find(|p| p.exists()) {
+        Some(p) => p.clone(),
+        None => return Ok(vec!["default".to_string()]),
+    };
+    let mut clients: Vec<String> = std::fs::read_dir(&configs_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            if entry.file_type().ok()?.is_dir() && !entry.file_name().to_str()?.starts_with('.') {
+                Some(entry.file_name().to_str()?.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    clients.sort();
+    if clients.is_empty() {
+        clients.push("default".to_string());
+    }
+    Ok(clients)
+}
+
+#[tauri::command]
+fn create_client_config(name: String) -> Result<(), String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let candidates = [
+        cwd.join("configs"),
+        cwd.join("../../configs"),
+        cwd.join("../../../configs"),
+        cwd.join("../../../../configs"),
+    ];
+    let configs_dir = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| format!("Could not find configs directory (cwd: {})", cwd.display()))?
+        .clone();
+    let configs_dir = configs_dir.as_path();
+    let default_dir = configs_dir.join("default");
+    let new_dir = configs_dir.join(&name);
+    if new_dir.exists() {
+        return Err(format!("Config '{}' already exists", name));
+    }
+    if default_dir.exists() {
+        fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+            std::fs::create_dir_all(dst)?;
+            for entry in std::fs::read_dir(src)? {
+                let entry = entry?;
+                let dest = dst.join(entry.file_name());
+                if entry.file_type()?.is_dir() {
+                    copy_dir(&entry.path(), &dest)?;
+                } else {
+                    std::fs::copy(entry.path(), dest)?;
+                }
+            }
+            Ok(())
+        }
+        copy_dir(&default_dir, &new_dir).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::create_dir_all(&new_dir).map_err(|e| e.to_string())?;
+        std::fs::write(new_dir.join("tts.json"), "{}").map_err(|e| e.to_string())?;
+        std::fs::write(new_dir.join("live.json"), "{}").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_sidecar_port(state: tauri::State<SidecarPort>) -> Result<u16, String> {
     let guard = state.port.lock().map_err(|e| e.to_string())?;
     guard.ok_or_else(|| "Sidecar not ready yet".to_string())
@@ -159,7 +296,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_sidecar_port])
+        .invoke_handler(tauri::generate_handler![get_sidecar_port, list_client_configs, read_client_config, save_client_config, create_client_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

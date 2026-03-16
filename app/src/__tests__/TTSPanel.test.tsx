@@ -4,6 +4,10 @@ import { StatusBadge } from "../components/common/StatusBadge";
 import { ProgressBar } from "../components/common/ProgressBar";
 import { TTSPanel } from "../components/tts/TTSPanel";
 
+vi.mock("../hooks/useNotification", () => ({
+  useNotification: () => ({ sendJobNotification: vi.fn() }),
+}));
+
 // Mock CSVPicker to avoid Tauri dialog dependency
 vi.mock("../components/common/CSVPicker", () => ({
   CSVPicker: ({ onFileSelected }: { onFileSelected?: (path: string, preview: unknown) => void }) => (
@@ -64,7 +68,7 @@ describe("TTSPanel", () => {
     render(<TTSPanel client="default" />);
     expect(screen.getByTestId("tts-panel")).toBeTruthy();
     expect(screen.getByTestId("run-button")).toBeTruthy();
-    expect(screen.getByTestId("stop-button")).toBeTruthy();
+    expect(screen.queryByTestId("stop-button")).toBeNull();
   });
 
   it("run button is disabled without CSV", () => {

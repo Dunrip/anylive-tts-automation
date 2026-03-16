@@ -15,14 +15,11 @@
         "title": "AnyLive TTS Automation",
         "width": 1024,
         "height": 720,
-        "visible": false
+        "visible": false,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true
       }
     ],
-    "trayIcon": {
-      "id": "main-tray",
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    },
     "security": {
       "csp": null
     }
