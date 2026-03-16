@@ -88,6 +88,7 @@ export function Sidebar({
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleCreate = async (): Promise<void> => {
     const name = newName.trim();
@@ -130,11 +131,12 @@ export function Sidebar({
 
   const handleDelete = async (): Promise<void> => {
     if (selectedClient === "default") return;
-    if (!confirm(`Delete client "${selectedClient}"? This removes its config files.`)) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setConfirmDelete(false);
     try {
-      if (sidecarUrl) {
-        // No sidecar delete endpoint yet — use Rust
-      }
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("delete_client_config", { name: selectedClient });
       onClientDeleted?.(selectedClient);
@@ -158,13 +160,31 @@ export function Sidebar({
           <label className="text-[11px] text-[var(--text-muted)]">CLIENT</label>
           <div className="flex gap-2">
             {selectedClient !== "default" && (
-              <button
-                data-testid="delete-client-button"
-                onClick={handleDelete}
-                className="text-[10px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
-              >
-                Delete
-              </button>
+              confirmDelete ? (
+                <div className="flex gap-1.5">
+                  <button
+                    data-testid="confirm-delete-client"
+                    onClick={handleDelete}
+                    className="text-[10px] text-[var(--error)] font-medium bg-transparent border-none cursor-pointer p-0"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-[10px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-0"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  data-testid="delete-client-button"
+                  onClick={handleDelete}
+                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
+                >
+                  Delete
+                </button>
+              )
             )}
             <button
               data-testid="new-client-button"
@@ -190,6 +210,7 @@ export function Sidebar({
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="client-name"
               autoFocus
+              autoComplete="off"
               className="w-full px-2 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-[13px]"
             />
             <Button data-testid="create-client-button" size="xs" onClick={handleCreate} disabled={!newName.trim()} className="w-full">
