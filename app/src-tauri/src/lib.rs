@@ -109,6 +109,31 @@ fn list_client_configs() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn delete_client_config(name: String) -> Result<(), String> {
+    if name == "default" {
+        return Err("Cannot delete the default config".to_string());
+    }
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let candidates = [
+        cwd.join("configs"),
+        cwd.join("../../configs"),
+        cwd.join("../../../configs"),
+        cwd.join("../../../../configs"),
+    ];
+    let configs_dir = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or("Could not find configs directory")?
+        .clone();
+    let target = configs_dir.join(&name);
+    if !target.exists() {
+        return Err(format!("Config '{}' not found", name));
+    }
+    std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn create_client_config(name: String) -> Result<(), String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     let candidates = [
@@ -296,7 +321,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_sidecar_port, list_client_configs, read_client_config, save_client_config, create_client_config])
+        .invoke_handler(tauri::generate_handler![get_sidecar_port, list_client_configs, read_client_config, save_client_config, delete_client_config, create_client_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

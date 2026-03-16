@@ -52,10 +52,18 @@ function App(): React.ReactElement {
   }, [sidecar.isReady, sidecar.sidecarUrl]);
 
   const handleRelogin = async (): Promise<void> => {
-    if (!sidecar.sidecarUrl) return;
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_login_window", { url: "https://app.anylive.jp" });
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const login = new WebviewWindow("login", {
+        url: "https://app.anylive.jp",
+        title: "AnyLive Login",
+        width: 900,
+        height: 700,
+        center: true,
+      });
+      login.once("tauri://error", () => {
+        window.open("https://app.anylive.jp", "_blank");
+      });
     } catch {
       window.open("https://app.anylive.jp", "_blank");
     }
@@ -83,6 +91,7 @@ function App(): React.ReactElement {
           sidecarUrl={sidecar.sidecarUrl}
           onRelogin={handleRelogin}
           onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
+          onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
         />
         <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
       </div>
