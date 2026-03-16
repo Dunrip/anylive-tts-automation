@@ -45,8 +45,8 @@
     "shell": {
       "open": true
     },
-    "single-instance": {},
-    "dialog": {},
-    "notification": {}
+    "single-instance": null,
+    "dialog": null,
+    "notification": null
   }
 }
