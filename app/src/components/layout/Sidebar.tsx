@@ -12,6 +12,8 @@ interface SidebarProps {
   sessionValid: boolean;
   sidecarUrl?: string | null;
   onRelogin?: () => void;
+  userEmail?: string | null;
+  userDisplayName?: string | null;
   onClientCreated?: (name: string) => void;
   onClientDeleted?: (name: string) => void;
 }
@@ -82,6 +84,8 @@ export function Sidebar({
   sessionValid,
   sidecarUrl,
   onRelogin,
+  userEmail,
+  userDisplayName,
   onClientCreated,
   onClientDeleted,
 }: SidebarProps): React.ReactElement {
@@ -89,6 +93,18 @@ export function Sidebar({
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const sidecarConnected = Boolean(sidecarUrl);
+  const overallHealthy = sidecarConnected && sessionValid;
+  const statusLabel = !sidecarConnected
+    ? "Sidecar Connecting"
+    : sessionValid
+      ? (userDisplayName ?? "Ready")
+      : "Session Expired";
+  const statusDetail = !sidecarConnected
+    ? "Waiting for local sidecar"
+    : sessionValid
+      ? (userEmail ?? "Sidecar and session are active")
+      : "Sidecar connected, login required";
 
   const handleCreate = async (): Promise<void> => {
     const name = newName.trim();
@@ -250,24 +266,33 @@ export function Sidebar({
       <div className="px-4 py-3 border-t border-[var(--border-default)]">
         <div className="flex items-center gap-2 mb-2">
           <div
-            data-testid="sidecar-dot"
-            className={cn("size-2 rounded-full shrink-0", sidecarUrl ? "bg-[var(--success)]" : "bg-[var(--warning)]")}
+            data-testid="status-dot"
+            className={cn(
+              "size-2 rounded-full shrink-0",
+              overallHealthy
+                ? "bg-[var(--success)]"
+                : sidecarConnected
+                  ? "bg-[var(--error)]"
+                  : "bg-[var(--warning)]"
+            )}
           />
-          <span className="text-xs text-[var(--text-secondary)]">
-            {sidecarUrl ? "Sidecar Connected" : "Sidecar Connecting"}
+          <span
+            className={cn(
+              "text-xs",
+              overallHealthy
+                ? "text-[var(--success)]"
+                : sidecarConnected
+                  ? "text-[var(--error)]"
+                  : "text-[var(--warning)]"
+            )}
+          >
+            {statusLabel}
           </span>
         </div>
-
-        <div className={cn("flex items-center gap-2", sessionValid ? "mb-0" : "mb-2")}>
-          <div
-            data-testid="session-dot"
-            className={cn("size-2 rounded-full shrink-0", sessionValid ? "bg-[var(--success)]" : "bg-[var(--error)]")}
-          />
-          <span className={cn("text-xs", sessionValid ? "text-[var(--success)]" : "text-[var(--error)]")}>
-            {sessionValid ? "Session Active" : "Session Expired"}
-          </span>
+        <div className={cn("text-[11px] text-[var(--text-secondary)]", sessionValid ? "mb-0" : "mb-2")}>
+          {statusDetail}
         </div>
-        {!sessionValid && onRelogin && (
+        {sidecarConnected && !sessionValid && onRelogin && (
           <Button data-testid="relogin-button" size="xs" onClick={onRelogin} className="w-full">Re-login</Button>
         )}
       </div>

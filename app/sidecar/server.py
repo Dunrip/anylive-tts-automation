@@ -16,6 +16,7 @@ from routes.csv_preview import router as csv_router
 from routes.faq import router as faq_router
 from routes.history import router as history_router
 from routes.jobs import router as jobs_router
+from routes.login import router as login_router
 from routes.scripts import router as scripts_router
 from routes.session import router as session_router
 from routes.setup import router as setup_router
@@ -61,6 +62,7 @@ app.include_router(faq_router, prefix="/api")
 app.include_router(scripts_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(setup_router, prefix="/api")
+app.include_router(login_router, prefix="/api")
 
 
 @app.get("/health")

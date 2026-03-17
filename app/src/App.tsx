@@ -6,19 +6,22 @@ import { SetupWizard } from "./components/common/SetupWizard";
 import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { PanelType } from "./lib/navigation";
+import { SessionStatus } from "./lib/types";
 
 function App(): React.ReactElement {
   const [activePanel, setActivePanel] = useState<PanelType>("tts");
   const [selectedClient, setSelectedClient] = useState<string>("default");
-  const [chromiumReady, setChromiumReady] = useState(true);
+  const [clients, setClients] = useState<string[]>(["default"]);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userDisplayName, setUserDisplayName] = useState<string | null>(null);
+  const [sessionValid, setSessionValid] = useState<boolean>(false);
+  const [chromiumInstalled, setChromiumInstalled] = useState<boolean | null>(null);
+  const [loginInProgress, setLoginInProgress] = useState<boolean>(false);
   const sidecar = useSidecar();
-  const sessionValid = sidecar.isReady;
 
   useKeyboardShortcuts({
     onPanelChange: setActivePanel,
   });
-
-  const [clients, setClients] = useState<string[]>(["default"]);
 
   useEffect(() => {
     const loadClientsFromRust = async (): Promise<void> => {
@@ -34,38 +37,69 @@ function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    if (!sidecar.isReady || !sidecar.sidecarUrl) return;
-
-    fetch(`${sidecar.sidecarUrl}/api/setup/status`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.chromium_installed === false) setChromiumReady(false);
-      })
-      .catch(() => {});
+    if (!sidecar.sidecarUrl) return;
 
     fetch(`${sidecar.sidecarUrl}/api/configs`)
       .then((r) => r.json())
       .then((data: string[]) => {
-        if (Array.isArray(data) && data.length > 0) setClients(data);
+        if (Array.isArray(data) && data.length > 0) {
+          setClients(data);
+          if (!data.includes(selectedClient)) {
+            setSelectedClient(data[0]);
+          }
+        }
       })
-      .catch(() => {});
-  }, [sidecar.isReady, sidecar.sidecarUrl]);
+      .catch(() => {
+      });
+  }, [sidecar.sidecarUrl, selectedClient]);
+
+  useEffect(() => {
+    if (!sidecar.sidecarUrl || !selectedClient) return;
+
+    fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`)
+      .then((r) => r.json())
+      .then((data: SessionStatus) => {
+        setSessionValid(data.valid);
+        if (data.valid) {
+          setUserDisplayName(data.display_name);
+          setUserEmail(data.email);
+        }
+      })
+      .catch(() => {
+      });
+  }, [sidecar.sidecarUrl, selectedClient]);
+
+  useEffect(() => {
+    if (!sidecar.sidecarUrl) return;
+
+    fetch(`${sidecar.sidecarUrl}/api/setup/chromium-status`)
+      .then((r) => r.json())
+      .then((data: { installed: boolean; path: string | null }) => {
+        setChromiumInstalled(data.installed);
+      })
+      .catch(() => {
+        setChromiumInstalled(true);
+      });
+  }, [sidecar.sidecarUrl]);
 
   const handleRelogin = async (): Promise<void> => {
+    if (!sidecar.sidecarUrl) return;
+    setLoginInProgress(true);
     try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const login = new WebviewWindow("login", {
-        url: "https://app.anylive.jp",
-        title: "AnyLive Login",
-        width: 900,
-        height: 700,
-        center: true,
-      });
-      login.once("tauri://error", () => {
-        window.open("https://app.anylive.jp", "_blank");
-      });
+      const resp = await fetch(`${sidecar.sidecarUrl}/api/session/login`, { method: "POST" });
+      const data = await resp.json();
+      if (data.status === "ok") {
+        const sessionResp = await fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`);
+        const sessionData: SessionStatus = await sessionResp.json();
+        setSessionValid(sessionData.valid);
+        if (sessionData.valid) {
+          setUserDisplayName(sessionData.display_name);
+          setUserEmail(sessionData.email);
+        }
+      }
     } catch {
-      window.open("https://app.anylive.jp", "_blank");
+    } finally {
+      setLoginInProgress(false);
     }
   };
 
@@ -89,14 +123,16 @@ function App(): React.ReactElement {
           onClientChange={setSelectedClient}
           sessionValid={sessionValid}
           sidecarUrl={sidecar.sidecarUrl}
-          onRelogin={handleRelogin}
+          userEmail={userEmail}
+          userDisplayName={userDisplayName}
+          onRelogin={loginInProgress ? undefined : handleRelogin}
           onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
           onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
         />
         <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
       </div>
-      {!chromiumReady && sidecar.sidecarUrl && (
-        <SetupWizard sidecarUrl={sidecar.sidecarUrl} onComplete={() => setChromiumReady(true)} />
+      {chromiumInstalled === false && sidecar.sidecarUrl && (
+        <SetupWizard sidecarUrl={sidecar.sidecarUrl} onComplete={() => setChromiumInstalled(true)} />
       )}
     </div>
   );

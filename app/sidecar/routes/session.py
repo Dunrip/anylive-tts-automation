@@ -21,12 +21,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _status(valid: bool, client: str, site: str) -> dict[str, Any]:
+def _status(
+    valid: bool,
+    client: str,
+    site: str,
+    display_name: str | None = None,
+    email: str | None = None,
+) -> dict[str, Any]:
     return {
         "valid": valid,
         "site": site,
         "client": client,
         "checked_at": _now(),
+        "display_name": display_name,
+        "email": email,
     }
 
 
@@ -41,5 +49,7 @@ async def check_session(client: str, site: str) -> dict[str, Any]:
     except (json.JSONDecodeError, OSError):
         return _status(False, client, site)
 
-    cookies = data.get("cookies", [])
-    return _status(bool(cookies), client, site)
+    valid = data.get("setup_complete", False)
+    display_name = data.get("display_name")
+    email = data.get("email")
+    return _status(valid, client, site, display_name=display_name, email=email)

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from shared import (
+    _scrape_user_profile,
     find_csv_file,
     load_csv,
     load_jsonc,
@@ -165,3 +166,68 @@ class TestLoadJsonc:
         f = tmp_path / "trailing.json"
         f.write_text('{\n  "key": "value"  // inline comment\n}')
         assert load_jsonc(str(f)) == {"key": "value"}
+
+
+class TestScrapeUserProfile:
+    def test_scrape_user_profile_exists(self) -> None:
+        assert callable(_scrape_user_profile)
+
+    def test_session_json_includes_profile_fields_when_scraping_succeeds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        mock_profile = {"display_name": "Test User", "email": "test@example.com"}
+
+        with patch(
+            "shared._scrape_user_profile", new_callable=AsyncMock
+        ) as mock_scrape:
+            mock_scrape.return_value = mock_profile
+
+            session_data = {
+                "setup_complete": True,
+                "timestamp": "2026-03-17T12:00:00",
+            }
+            session_data.update(mock_profile)
+
+            session_file = tmp_path / "session_state.json"
+            with open(session_file, "w") as f:
+                json.dump(session_data, f)
+
+            with open(session_file, "r") as f:
+                written_data = json.load(f)
+
+            assert written_data["setup_complete"] is True
+            assert written_data["display_name"] == "Test User"
+            assert written_data["email"] == "test@example.com"
+            assert "timestamp" in written_data
+
+    def test_session_json_written_when_scraping_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "shared._scrape_user_profile", new_callable=AsyncMock
+        ) as mock_scrape:
+            mock_scrape.return_value = {}
+
+            session_data = {
+                "setup_complete": True,
+                "timestamp": "2026-03-17T12:00:00",
+            }
+            session_data.update({})
+
+            session_file = tmp_path / "session_state.json"
+            with open(session_file, "w") as f:
+                json.dump(session_data, f)
+
+            with open(session_file, "r") as f:
+                written_data = json.load(f)
+
+            assert written_data["setup_complete"] is True
+            assert "timestamp" in written_data
+            assert "display_name" not in written_data
+            assert "email" not in written_data

@@ -508,6 +508,83 @@ class BrowserAutomation:
         return False
 
 
+async def _scrape_user_profile(page: "Page") -> dict[str, str]:
+    logger = logging.getLogger(__name__)
+
+    try:
+        avatar_selectors = [
+            'button[class*="avatar"]',
+            'button[class*="profile"]',
+            '[class*="avatar"] button',
+            '[class*="profile"] button',
+        ]
+
+        avatar_button = None
+        for selector in avatar_selectors:
+            try:
+                avatar_button = await page.wait_for_selector(
+                    selector, timeout=3000, state="visible"
+                )
+                if avatar_button:
+                    logger.debug(f"Found avatar button with selector: {selector}")
+                    break
+            except Exception:
+                continue
+
+        if not avatar_button:
+            logger.warning("Could not find avatar button in header")
+            return {}
+
+        await avatar_button.click()
+        await asyncio.sleep(0.5)
+
+        try:
+            dropdown = await page.wait_for_selector(
+                '[class*="dropdown"], [class*="menu"], [role="menu"]',
+                timeout=3000,
+                state="visible",
+            )
+        except Exception:
+            logger.warning("Avatar dropdown did not appear after clicking")
+            return {}
+
+        display_name = ""
+        email = ""
+
+        children = await dropdown.query_selector_all("*")
+        for child in children:
+            text = (await child.text_content() or "").strip()
+            if not text or text in ("ADMIN", "Logout"):
+                continue
+            child_children = await child.query_selector_all("*")
+            if len(child_children) > 0:
+                continue
+            if "@" in text and "." in text:
+                email = text
+            elif not display_name:
+                display_name = text
+
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+
+        result = {}
+        if display_name:
+            result["display_name"] = display_name
+        if email:
+            result["email"] = email
+
+        if result:
+            logger.debug(f"Scraped user profile: {result}")
+        else:
+            logger.warning("Could not extract display_name or email from dropdown")
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Error scraping user profile: {e}")
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Login setup (shared)
 # ---------------------------------------------------------------------------
@@ -556,6 +633,30 @@ async def setup_login(
                     current_url = page.url
                     if "login" not in current_url.lower():
                         logger.info("Existing session is still valid!")
+                        try:
+                            with open(session_file, "r") as f:
+                                session_data = json.load(f)
+                            needs_update = False
+                            if not session_data.get("setup_complete"):
+                                session_data["setup_complete"] = True
+                                session_data["timestamp"] = datetime.now().isoformat()
+                                needs_update = True
+                            if "email" not in session_data:
+                                logger.info(
+                                    "Email missing from session, scraping user profile..."
+                                )
+                                profile = await _scrape_user_profile(page)
+                                if profile:
+                                    session_data.update(profile)
+                                    needs_update = True
+                            if needs_update:
+                                with open(session_file, "w") as f:
+                                    json.dump(session_data, f)
+                                logger.info(
+                                    "Session updated with setup marker and profile"
+                                )
+                        except Exception as e:
+                            logger.debug(f"Could not update session with profile: {e}")
                         logger.info("Setup complete! You can now run without --setup")
                         await context.close()
                         return
@@ -608,14 +709,16 @@ async def setup_login(
         if "login" in current_url.lower():
             logger.warning("Not saving session marker because login was not completed")
         else:
+            profile = await _scrape_user_profile(page)
+
+            session_data = {
+                "setup_complete": True,
+                "timestamp": datetime.now().isoformat(),
+            }
+            session_data.update(profile)
+
             with open(session_file, "w") as f:
-                json.dump(
-                    {
-                        "setup_complete": True,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    f,
-                )
+                json.dump(session_data, f)
             logger.info("Session saved to browser_data directory")
             logger.info(f"Setup marker saved to {session_file}")
 

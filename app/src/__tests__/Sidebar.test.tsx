@@ -37,27 +37,40 @@ describe("Sidebar", () => {
     expect(onPanelChange).toHaveBeenCalledWith("faq");
   });
 
-  it("shows green session indicator when session is active", () => {
-    render(<Sidebar {...defaultProps} sessionValid={true} />);
-    expect(screen.getByText("Session Active")).toBeTruthy();
-    const dot = screen.getByTestId("session-dot");
+  it("shows ready status when sidecar and session are active", () => {
+    render(<Sidebar {...defaultProps} sessionValid={true} sidecarUrl="http://127.0.0.1:8765" />);
+    expect(screen.getByText("Ready")).toBeTruthy();
+    const dot = screen.getByTestId("status-dot");
     expect(dot.className).toContain("bg-[var(--success)]");
   });
 
-  it("shows red session indicator when session is expired", () => {
-    render(<Sidebar {...defaultProps} sessionValid={false} />);
+  it("shows expired status when sidecar connected but session is invalid", () => {
+    render(<Sidebar {...defaultProps} sessionValid={false} sidecarUrl="http://127.0.0.1:8765" />);
     expect(screen.getByText("Session Expired")).toBeTruthy();
-    const dot = screen.getByTestId("session-dot");
+    const dot = screen.getByTestId("status-dot");
     expect(dot.className).toContain("bg-[var(--error)]");
   });
 
   it("shows re-login button when session expired", () => {
     const onRelogin = vi.fn();
-    render(<Sidebar {...defaultProps} sessionValid={false} onRelogin={onRelogin} />);
+    render(
+      <Sidebar
+        {...defaultProps}
+        sessionValid={false}
+        sidecarUrl="http://127.0.0.1:8765"
+        onRelogin={onRelogin}
+      />,
+    );
     const reloginBtn = screen.getByTestId("relogin-button");
     expect(reloginBtn).toBeTruthy();
     fireEvent.click(reloginBtn);
     expect(onRelogin).toHaveBeenCalled();
+  });
+
+  it("hides re-login button when sidecar is not connected", () => {
+    const onRelogin = vi.fn();
+    render(<Sidebar {...defaultProps} sessionValid={false} onRelogin={onRelogin} />);
+    expect(screen.queryByTestId("relogin-button")).toBeNull();
   });
 
   it("calls onClientChange when client selected", () => {
@@ -68,5 +81,53 @@ describe("Sidebar", () => {
     const option = screen.getByText("mybrand");
     fireEvent.click(option);
     expect(onClientChange).toHaveBeenCalledWith("mybrand");
+  });
+
+  it("shows display name when userDisplayName prop provided and session valid", () => {
+    render(
+      <Sidebar
+        {...defaultProps}
+        sessionValid={true}
+        sidecarUrl="http://127.0.0.1:8765"
+        userDisplayName="Pattanun Chutisavang"
+      />,
+    );
+    expect(screen.getByText("Pattanun Chutisavang")).toBeTruthy();
+  });
+
+  it("shows email as detail text when userEmail prop provided and session valid", () => {
+    render(
+      <Sidebar
+        {...defaultProps}
+        sessionValid={true}
+        sidecarUrl="http://127.0.0.1:8765"
+        userEmail="pattanun@anymindgroup.com"
+      />,
+    );
+    expect(screen.getByText("pattanun@anymindgroup.com")).toBeTruthy();
+  });
+
+  it("falls back to Ready when neither userDisplayName nor userEmail provided", () => {
+    render(
+      <Sidebar
+        {...defaultProps}
+        sessionValid={true}
+        sidecarUrl="http://127.0.0.1:8765"
+      />,
+    );
+    expect(screen.getByText("Ready")).toBeTruthy();
+  });
+
+  it("does not show email when sidecar is disconnected even if userDisplayName prop is set", () => {
+    render(
+      <Sidebar
+        {...defaultProps}
+        sessionValid={true}
+        userDisplayName="Pattanun Chutisavang"
+        userEmail="pattanun@anymindgroup.com"
+      />,
+    );
+    expect(screen.getByText("Sidecar Connecting")).toBeTruthy();
+    expect(screen.queryByText("pattanun@anymindgroup.com")).toBeNull();
   });
 });
