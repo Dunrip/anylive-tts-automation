@@ -254,7 +254,7 @@ class BrowserAutomation:
         dry_run: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
-        browser_data_subdir: str = "browser_data",
+        browser_data_subdir: str = "state/browser_data",
         session_filename: str = SESSION_FILE,
         login_url: str = "https://app.anylive.jp",
         base_url: str = "",
@@ -592,7 +592,7 @@ async def setup_login(
     logger: logging.Logger,
     *,
     login_url: str = "https://app.anylive.jp",
-    browser_data_subdir: str = "browser_data",
+    browser_data_subdir: str = "state/browser_data",
     session_filename: str = SESSION_FILE,
     gui_mode: bool = False,
 ) -> None:
