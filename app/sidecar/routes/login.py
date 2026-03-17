@@ -33,8 +33,10 @@ async def trigger_login() -> dict:
     try:
         await setup_login(logger, gui_mode=True)
     except asyncio.TimeoutError:
+        logger.warning("Login timed out — user did not complete login in time")
         return {"status": "timeout"}
     except Exception as exc:
+        logger.error("Login failed: %s", exc, exc_info=True)
         return {"status": "error", "error": str(exc)}
 
     try:
