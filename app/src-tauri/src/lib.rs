@@ -289,6 +289,8 @@ pub fn run() {
                         if let Ok(mut guard) = state.child.lock() {
                             if let Some(mut child) = guard.take() {
                                 let _ = child.write("shutdown\n".as_bytes());
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                let _ = child.kill();
                             }
                         }
                         app.exit(0);
@@ -317,6 +319,8 @@ pub fn run() {
                 if let Ok(mut guard) = child_lock {
                     if let Some(mut child) = guard.take() {
                         let _ = child.write("shutdown\n".as_bytes());
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        let _ = child.kill();
                     }
                 }
             }

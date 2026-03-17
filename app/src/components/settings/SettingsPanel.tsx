@@ -65,7 +65,10 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
 
     if (sidecarUrl) {
       fetch(`${sidecarUrl}/api/configs/${client}`)
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
         .then(applyConfig)
         .catch(() => {});
     } else {

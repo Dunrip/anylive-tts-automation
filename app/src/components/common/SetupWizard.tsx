@@ -21,6 +21,7 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
       const resp = await fetch(`${sidecarUrl}/api/setup/install-chromium`, {
         method: "POST",
       });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
 
       if (data.status === "installed" || data.status === "already_installed") {

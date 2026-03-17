@@ -147,6 +147,12 @@ class JobManager:
                 save_run(job)
             except Exception as exc:
                 _logger.error("Failed to save run to history: %s", exc)
+            try:
+                from services.log_streamer import log_streamer
+
+                log_streamer.cleanup_job(job.job_id)
+            except Exception:
+                pass
 
 
 job_manager = JobManager()
