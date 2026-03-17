@@ -62,6 +62,7 @@ async def _run_faq_job(job: Job) -> None:
         limit=limit,
         audio_dir=audio_dir,
         log_callback=log_callback,
+        app_support_dir=str(_REPO_ROOT),
     )
 
     if not result.get("success", False):
