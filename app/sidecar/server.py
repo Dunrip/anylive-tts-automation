@@ -125,6 +125,10 @@ def main() -> None:
     args = parser.parse_args()
     _app_data_dir = args.app_data_dir
 
+    from services.history_store import init_db
+
+    init_db(_app_data_dir)
+
     port = _get_free_port()
 
     shutdown_event = threading.Event()

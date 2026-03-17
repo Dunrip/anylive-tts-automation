@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, Callable
 
 from fastapi import WebSocket
+
+_logger = logging.getLogger(__name__)
 
 
 class LogStreamer:
@@ -36,6 +39,7 @@ class LogStreamer:
             try:
                 await websocket.send_text(payload)
             except Exception:
+                _logger.debug("WebSocket send failed for job %s, marking dead", job_id)
                 dead.append(websocket)
 
         for websocket in dead:
@@ -47,7 +51,7 @@ class LogStreamer:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self.broadcast(job_id, message))
             except RuntimeError:
-                pass
+                _logger.debug("No event loop for log broadcast (job %s)", job_id)
 
         return callback
 

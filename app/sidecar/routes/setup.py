@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter
 
@@ -90,6 +93,8 @@ async def install_chromium() -> dict:
                 "error": result.stderr[-500:] if result.stderr else "Unknown error",
             }
     except subprocess.TimeoutExpired:
+        _logger.error("Chromium installation timed out")
         return {"status": "error", "error": "Installation timed out"}
     except Exception as exc:
+        _logger.error("Chromium installation failed: %s", exc, exc_info=True)
         return {"status": "error", "error": str(exc)}

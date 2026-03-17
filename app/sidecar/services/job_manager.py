@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
+
+_logger = logging.getLogger(__name__)
 
 from models.job import AutomationType, JobProgress, JobStatus, JobStatusResponse
 
@@ -142,8 +145,8 @@ class JobManager:
                 from services.history_store import save_run
 
                 save_run(job)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to save run to history: %s", exc)
 
 
 job_manager = JobManager()
