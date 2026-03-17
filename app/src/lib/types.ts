@@ -110,6 +110,8 @@ export interface SessionStatus {
   site: "tts" | "live";
   client: string;
   checked_at: string;
+  display_name: string | null;
+  email: string | null;
 }
 
 // ----- CSV Preview Types -----
