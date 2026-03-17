@@ -208,7 +208,7 @@ pub fn run() {
             let (mut rx, child) = if is_dev {
                 app.shell()
                     .command("python3")
-                    .args(["app/sidecar/server.py"])
+                    .args(["../sidecar/server.py"])
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
             } else {
