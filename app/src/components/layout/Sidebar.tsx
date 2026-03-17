@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { NAV_ITEMS, PanelType } from "../../lib/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -46,11 +47,13 @@ function ClientSelect({
       <button
         data-testid="client-switcher"
         type="button"
+        aria-label={`Select client: ${selected}`}
+        aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
-        className="w-full flex items-center justify-between bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md px-2 py-1.5 text-[13px] cursor-pointer text-left"
+        className="w-full flex items-center justify-between bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md px-2 py-1.5 text-sm cursor-pointer text-left"
       >
         <span>{selected}</span>
-        <span className={cn("text-[10px] text-[var(--text-muted)] transition-transform", open && "rotate-180")}>\u25BE</span>
+        <span className={cn("text-sm text-[var(--text-muted)] transition-transform leading-none", open && "rotate-180")}>▾</span>
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-md py-1 shadow-lg max-h-[200px] overflow-y-auto">
@@ -60,7 +63,7 @@ function ClientSelect({
               type="button"
               onClick={() => { onChange(client); setOpen(false); }}
               className={cn(
-                "w-full text-left px-2.5 py-1.5 text-[13px] border-none cursor-pointer transition-colors",
+                "w-full text-left px-2.5 py-1.5 text-sm border-none cursor-pointer transition-colors",
                 client === selected
                   ? "bg-primary/20 text-[var(--text-primary)] font-medium"
                   : "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
@@ -94,6 +97,12 @@ export function Sidebar({
   const [createError, setCreateError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const sidecarConnected = Boolean(sidecarUrl);
+
+  // Reset confirm state when client changes to prevent accidental deletion
+  useEffect(() => {
+    setConfirmDelete(false);
+    setCreateError(null);
+  }, [selectedClient]);
   const overallHealthy = sidecarConnected && sessionValid;
   const statusLabel = !sidecarConnected
     ? "Sidecar Connecting"
@@ -133,7 +142,6 @@ export function Sidebar({
       }
     } else {
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
         await invoke("create_client_config", { name });
       } catch (err: unknown) {
         setCreateError(String(err) || "Failed to create config directory");
@@ -152,17 +160,31 @@ export function Sidebar({
       return;
     }
     setConfirmDelete(false);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("delete_client_config", { name: selectedClient });
-      onClientDeleted?.(selectedClient);
-    } catch (err: unknown) {
-      setCreateError(String(err));
+    if (sidecarUrl) {
+      try {
+        const resp = await fetch(`${sidecarUrl}/api/configs/${selectedClient}`, { method: "DELETE" });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: "Failed" }));
+          setCreateError(err.detail || "Delete failed");
+          return;
+        }
+      } catch {
+        setCreateError("Could not connect to sidecar");
+        return;
+      }
+    } else {
+      try {
+        await invoke("delete_client_config", { name: selectedClient });
+      } catch (err: unknown) {
+        setCreateError(String(err));
+        return;
+      }
     }
+    onClientDeleted?.(selectedClient);
   };
 
   return (
-    <aside className="w-[220px] min-w-[220px] h-full bg-[var(--bg-surface)] border-r border-[var(--border-default)] flex flex-col py-3">
+    <aside className="w-[var(--sidebar-width)] min-w-[var(--sidebar-width)] h-full bg-[var(--bg-surface)] border-r border-[var(--border-default)] flex flex-col py-3">
       {/* App title */}
       <div className="px-4 pb-3 border-b border-[var(--border-default)] mb-2">
         <h1 className="text-sm font-semibold text-[var(--text-primary)] m-0">
@@ -173,7 +195,7 @@ export function Sidebar({
       {/* Client switcher */}
       <div className="px-3 pb-3">
         <div className="flex items-center justify-between mb-1">
-          <label className="text-[11px] text-[var(--text-muted)]">CLIENT</label>
+          <label className="text-xs text-[var(--text-muted)]">CLIENT</label>
           <div className="flex gap-2">
             {selectedClient !== "default" && (
               confirmDelete ? (
@@ -181,13 +203,13 @@ export function Sidebar({
                   <button
                     data-testid="confirm-delete-client"
                     onClick={handleDelete}
-                    className="text-[10px] text-[var(--error)] font-medium bg-transparent border-none cursor-pointer p-0"
+                    className="text-xs text-[var(--error)] font-medium bg-transparent border-none cursor-pointer p-0"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
-                    className="text-[10px] text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-0"
+                    className="text-xs text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-0"
                   >
                     Cancel
                   </button>
@@ -196,7 +218,7 @@ export function Sidebar({
                 <button
                   data-testid="delete-client-button"
                   onClick={handleDelete}
-                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
+                  className="text-xs text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
                 >
                   Delete
                 </button>
@@ -205,7 +227,7 @@ export function Sidebar({
             <button
               data-testid="new-client-button"
               onClick={() => setIsCreating((prev) => !prev)}
-              className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer p-0 transition-colors"
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer p-0 transition-colors"
             >
               {isCreating ? "Cancel" : "+ New"}
             </button>
@@ -227,13 +249,13 @@ export function Sidebar({
               placeholder="client-name"
               autoFocus
               autoComplete="off"
-              className="w-full px-2 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-[13px]"
+              className="w-full px-2 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
             />
             <Button data-testid="create-client-button" size="xs" onClick={handleCreate} disabled={!newName.trim()} className="w-full">
               Create
             </Button>
             {createError && (
-              <span className="text-[10px] text-[var(--error)]">{createError}</span>
+              <span className="text-xs text-[var(--error)]">{createError}</span>
             )}
           </div>
         )}
@@ -247,9 +269,10 @@ export function Sidebar({
             <button
               key={item.id}
               data-testid={`nav-${item.id}`}
+              aria-current={isActive ? "page" : undefined}
               onClick={() => onPanelChange(item.panel)}
               className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-2 rounded-md border-none cursor-pointer text-[13px] text-left mb-0.5 border-l-2",
+                "w-full flex items-center gap-2.5 px-3 py-2 rounded-md border-none cursor-pointer text-sm text-left mb-0.5 border-l-2",
                 isActive
                   ? "bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium border-l-primary"
                   : "bg-transparent text-[var(--text-secondary)] font-normal border-l-transparent"
@@ -289,7 +312,7 @@ export function Sidebar({
             {statusLabel}
           </span>
         </div>
-        <div className={cn("text-[11px] text-[var(--text-secondary)]", sessionValid ? "mb-0" : "mb-2")}>
+        <div className={cn("text-xs text-[var(--text-secondary)]", sessionValid ? "mb-0" : "mb-2")}>
           {statusDetail}
         </div>
         {sidecarConnected && !sessionValid && onRelogin && (

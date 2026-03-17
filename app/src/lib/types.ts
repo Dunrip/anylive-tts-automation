@@ -78,6 +78,7 @@ export type WSMessage = LogMessage | ProgressMessage | StatusMessage;
 export interface CSVColumns {
   product_number: string;
   product_name: string;
+  question?: string;
   script_content: string;
   audio_code: string;
 }
@@ -127,6 +128,7 @@ export interface CSVPreviewResponse {
   rows: number;
   products: number;
   estimated_versions: number;
+  version_names?: string[];
   preview: CSVPreviewRow[];
   errors: string[];
 }

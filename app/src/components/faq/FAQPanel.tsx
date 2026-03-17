@@ -4,7 +4,7 @@ import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
-import type { CSVPreviewResponse } from "../../lib/types";
+import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 import { Button } from "@/components/ui/button";
 
 import { cn } from "@/lib/utils";
@@ -12,9 +12,16 @@ import { cn } from "@/lib/utils";
 interface FAQPanelProps {
   client: string;
   sidecarUrl?: string | null;
+  baseUrl?: string;
+  onBaseUrlChange?: (url: string) => void;
+  onLogStateChange?: (logState: {
+    messages: WSMessage[];
+    isConnected: boolean;
+    clearMessages: () => void;
+  }) => void;
 }
 
-export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElement {
+export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, onLogStateChange }: FAQPanelProps): React.ReactElement {
   const [csvPath, setCsvPath] = useState<string | null>(null);
   const [csvPreview, setCsvPreview] = useState<CSVPreviewResponse | null>(null);
   const [audioDir, setAudioDir] = useState<string>("");
@@ -41,6 +48,24 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
     newMessages.forEach(automation.handleMessage);
     processedCountRef.current = ws.messages.length;
   }, [ws.messages, automation.handleMessage]);
+
+  // Poll job status every 2s as fallback for WS progress
+  React.useEffect(() => {
+    if (!automation.isRunning || !automation.jobId || !sidecarUrl) return;
+    const interval = setInterval(() => {
+      automation.pollJobStatus(sidecarUrl, automation.jobId!);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [automation.isRunning, automation.jobId, sidecarUrl, automation.pollJobStatus]);
+
+  React.useEffect(() => {
+    if (!onLogStateChange) return;
+    onLogStateChange({
+      messages: ws.messages,
+      isConnected: ws.isConnected,
+      clearMessages: ws.clearMessages,
+    });
+  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange]);
 
   const configPath = `configs/${client}/live.json`;
 
@@ -74,8 +99,21 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        ❓ FAQ Automation
+        FAQ Automation
       </h2>
+
+      {/* Base URL (shared with Scripts) */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
+        <input
+          data-testid="input-faq-base-url"
+          type="text"
+          value={baseUrl}
+          onChange={(e) => onBaseUrlChange?.(e.target.value)}
+          placeholder="https://live.app.anylive.jp/live/SESSION_ID"
+          className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
+        />
+      </div>
 
       {/* CSV Picker */}
       <CSVPicker
@@ -96,7 +134,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
           value={audioDir}
           onChange={(e) => setAudioDir(e.target.value)}
           placeholder="downloads/"
-          className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-[13px] box-border"
+          className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border"
         />
       </div>
 
@@ -107,7 +145,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
           { key: "dry_run" as const, label: "Dry Run" },
           { key: "debug" as const, label: "Debug" },
         ].map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+          <label key={key} className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
             <input type="checkbox"
               data-testid={`faq-option-${key}`}
               checked={options[key] as boolean}
@@ -124,15 +162,15 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
         <button
           data-testid="faq-toggle-advanced"
           onClick={() => setShowAdvanced((prev) => !prev)}
-          className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
         >
-          <span className={cn("transition-transform text-[10px]", showAdvanced && "rotate-90")}>▶</span>
-          Advanced
+          <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
+          Advanced (Optional)
         </button>
         {showAdvanced && (
           <div className="mt-2 flex gap-4">
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[var(--text-muted)]">Start from product</label>
+              <label className="text-xs text-[var(--text-muted)]">Start from product</label>
               <input
                 data-testid="faq-option-start-product"
                 type="number"
@@ -147,7 +185,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-[var(--text-muted)]">Limit products</label>
+              <label className="text-xs text-[var(--text-muted)]">Limit products</label>
               <input
                 data-testid="faq-option-limit"
                 type="number"
@@ -171,15 +209,15 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
           data-testid="faq-run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          className={cn(automation.isRunning && "bg-[var(--bg-elevated)]")}
+          variant={automation.isRunning ? "secondary" : "default"}
         >
-          {automation.isRunning ? "⟳ Running..." : "▶ Run"}
+          {automation.isRunning ? "Running..." : "Run"}
         </Button>
       </div>
 
       {/* Error banner */}
       {automation.error && (
-        <div data-testid="faq-error" className="px-3 py-2 bg-red-500/10 border border-[var(--error)] rounded-md text-[13px] text-[var(--error)]">
+        <div data-testid="faq-error" className="px-3 py-2 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[var(--error)] rounded-md text-sm text-[var(--error)]">
           {automation.error}
         </div>
       )}
@@ -201,7 +239,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
                 i % 2 !== 0 && "bg-[var(--bg-surface)]"
               )}
             >
-              <span className="text-[13px] text-[var(--text-primary)]">{v.name}</span>
+              <span className="text-sm text-[var(--text-primary)]">{v.name}</span>
               <StatusBadge status={v.status} />
             </div>
           ))}

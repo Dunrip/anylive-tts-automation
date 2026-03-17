@@ -26,3 +26,7 @@ app/sidecar/__pycache__/
 app/sidecar/.pytest_cache/
 app/sidecar/build/
 app/sidecar/dist/
+app/sidecar/logs/
+
+browser_data/
+history/

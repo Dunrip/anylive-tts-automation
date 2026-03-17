@@ -44,6 +44,9 @@ async def _run_tts_job(job: Job) -> None:
     def log_callback(message: str) -> None:
         job.emit_log(message)
 
+    def progress_callback(current: int, total: int, version_name: str) -> None:
+        job.emit_progress(current, total, version_name)
+
     opts = job.options or {}
     headless: bool = bool(opts.get("headless", True))
     dry_run: bool = bool(opts.get("dry_run", False))
@@ -79,6 +82,7 @@ async def _run_tts_job(job: Job) -> None:
         no_save=no_save,
         verify=verify,
         log_callback=log_callback,
+        progress_callback=progress_callback,
         app_support_dir=str(_REPO_ROOT),
     )
 

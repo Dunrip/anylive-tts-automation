@@ -2495,6 +2495,7 @@ async def run_job(
     verify: bool = False,
     app_support_dir: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
     debug_callback: Optional[Callable[[], None]] = None,
 ) -> dict:
     """
@@ -2639,8 +2640,10 @@ async def run_job(
         try:
             await automation.start_browser()
 
-            for version in versions:
+            for idx, version in enumerate(versions):
                 print_version_info(version, logger)
+                if progress_callback:
+                    progress_callback(idx + 1, len(versions), version.name)
                 result = await automation.process_version(version)
                 if not result and _effective_debug:
                     logger.info(f"🐛 DEBUG: '{version.name}' failed. Browser paused.")

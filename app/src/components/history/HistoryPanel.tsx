@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StatusBadge } from "../common/StatusBadge";
 import { useHistory } from "../../hooks/useHistory";
 import type { AutomationType, JobStatus } from "../../lib/types";
@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 interface HistoryPanelProps {
   sidecarUrl?: string | null;
+  isActive?: boolean;
 }
 
 type FilterType = "all" | AutomationType;
@@ -36,10 +37,15 @@ function formatDate(iso: string): string {
   }
 }
 
-export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElement {
+export function HistoryPanel({ sidecarUrl, isActive }: HistoryPanelProps): React.ReactElement {
   const { runs, loading, error, refresh } = useHistory(sidecarUrl);
   const [filter, setFilter] = useState<FilterType>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Auto-refresh when panel becomes active
+  useEffect(() => {
+    if (isActive) refresh();
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredRuns = filter === "all"
     ? runs
@@ -56,7 +62,7 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
     >
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-          📊 History
+          History
         </h2>
         <Button
           data-testid="refresh-button"
@@ -77,9 +83,9 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
         ].map(({ label, value }) => (
           <div
             key={label}
-            className="flex-1 px-3.5 py-2.5 bg-[var(--bg-surface)] rounded-md border border-[var(--border-default)]"
+            className="flex-1 px-4 py-3 bg-[var(--bg-surface)] rounded-md border border-[var(--border-default)]"
           >
-            <p className="text-[11px] text-[var(--text-muted)] m-0 mb-1">{label}</p>
+            <p className="text-xs text-[var(--text-muted)] m-0 mb-1">{label}</p>
             <p className="text-lg font-semibold text-[var(--text-primary)] m-0">{value}</p>
           </div>
         ))}
@@ -104,23 +110,23 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
       </div>
 
       {/* Loading / Error */}
-      {loading && <p className="text-[var(--text-muted)] text-[13px]">Loading...</p>}
+      {loading && <p className="text-[var(--text-muted)] text-sm">Loading...</p>}
       {error && (
-        <p className="text-[var(--text-muted)] text-[13px]">
+        <p className="text-[var(--text-muted)] text-sm">
           {sidecarUrl ? error : "Sidecar not connected. Start the sidecar to view run history."}
         </p>
       )}
 
       {/* History table */}
       {!loading && filteredRuns.length === 0 ? (
-        <p data-testid="empty-history" className="text-[var(--text-muted)] text-[13px]">
+        <p data-testid="empty-history" className="text-[var(--text-muted)] text-sm">
           No runs yet. Start an automation to see history here.
         </p>
       ) : (
         <div className="border border-[var(--border-default)] rounded-md overflow-hidden">
           {/* Table header */}
           <div
-            className="grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-[11px] text-[var(--text-muted)] font-semibold"
+            className="grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-xs text-[var(--text-muted)] font-semibold"
           >
             <span>Date</span>
             <span>Type</span>
@@ -136,19 +142,19 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
                 data-testid={`history-row-${run.id}`}
                 onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
                 className={cn(
-                  "grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2.5 border-b border-[var(--border-default)] cursor-pointer text-[13px]",
+                  "grid grid-cols-[1fr_80px_80px_100px_80px] px-3 py-2.5 border-b border-[var(--border-default)] cursor-pointer text-sm",
                   expandedId === run.id ? "bg-[var(--bg-surface)]" : "bg-transparent"
                 )}
               >
                 <span className="text-[var(--text-secondary)]">{formatDate(run.started_at)}</span>
-                <span className="text-[var(--text-primary)] uppercase text-[11px]">
+                <span className="text-[var(--text-primary)] uppercase text-xs">
                   {run.automation_type}
                 </span>
                 <StatusBadge status={run.status as JobStatus} size="sm" />
-                <span className="text-[var(--text-muted)] text-[12px]">
+                <span className="text-[var(--text-muted)] text-xs">
                   {formatDuration(run.started_at, run.finished_at)}
                 </span>
-                <span className="text-[var(--text-secondary)] text-[12px]">
+                <span className="text-[var(--text-secondary)] text-xs">
                   {run.versions_success}/{run.versions_total}
                 </span>
               </div>
@@ -157,7 +163,7 @@ export function HistoryPanel({ sidecarUrl }: HistoryPanelProps): React.ReactElem
               {expandedId === run.id && (
                 <div
                   data-testid={`history-detail-${run.id}`}
-                  className="px-4 py-3 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-[12px] text-[var(--text-secondary)]"
+                  className="px-4 py-3 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-xs text-[var(--text-secondary)]"
                 >
                   <p className="m-0 mb-1">Job ID: <span className="text-[var(--text-primary)] font-mono">{run.id}</span></p>
                   <p className="m-0 mb-1">Client: {run.client}</p>

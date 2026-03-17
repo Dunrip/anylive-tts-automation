@@ -52,7 +52,7 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
         {estimatedRemaining && (
           <span
             data-testid="progress-eta"
-            className="text-[11px] text-[var(--text-muted)]"
+            className="text-xs text-[var(--text-muted)]"
           >
             ~{estimatedRemaining} remaining
           </span>
@@ -60,7 +60,7 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
         {elapsed > 0 && (
           <span
             data-testid="progress-elapsed"
-            className="text-[11px] text-[var(--text-muted)]"
+            className="text-xs text-[var(--text-muted)]"
           >
             {formatDuration(elapsed)} elapsed
           </span>
