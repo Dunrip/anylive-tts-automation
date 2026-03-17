@@ -45,11 +45,11 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
       data-testid="setup-wizard"
       className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70"
     >
-      <div className="w-[90%] max-w-[400px] rounded-xl border border-border-default bg-bg-elevated p-8">
-        <h2 className="mb-3 text-[18px] font-semibold text-text-primary">
+      <div className="w-[90%] max-w-[400px] rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-8">
+        <h2 className="mb-3 text-[length:var(--text-xl)] font-semibold text-[var(--text-primary)]">
           Browser Setup Required
         </h2>
-        <p className="mb-6 text-sm text-text-secondary">
+        <p className="mb-6 text-sm text-[var(--text-secondary)]">
           Chromium browser is required for automation. Install it now to get started.
         </p>
 
@@ -57,8 +57,8 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
           <p
             data-testid="setup-message"
             className={cn(
-              "mb-4 text-[13px]",
-              status === "error" ? "text-error" : status === "done" ? "text-success" : "text-text-secondary"
+              "mb-4 text-sm",
+              status === "error" ? "text-[var(--error)]" : status === "done" ? "text-[var(--success)]" : "text-[var(--text-secondary)]"
             )}
           >
             {message}
@@ -70,12 +70,8 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
             data-testid="install-button"
             onClick={handleInstall}
             disabled={installing || status === "done"}
-            className={cn(
-              "border-none bg-accent px-6 py-2.5 text-sm font-semibold text-white",
-              (installing || status === "done") ? "cursor-not-allowed opacity-70" : "cursor-pointer"
-            )}
           >
-            {installing ? "Installing..." : status === "done" ? "Done ✓" : "Install Chromium"}
+            {installing ? "Installing..." : status === "done" ? "Done" : "Install Chromium"}
           </Button>
         </div>
       </div>

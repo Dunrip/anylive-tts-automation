@@ -13,6 +13,8 @@ import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 interface TTSPanelProps {
   client: string;
   sidecarUrl?: string | null;
+  baseUrl?: string;
+  onBaseUrlChange?: (url: string) => void;
   onRunStart?: (jobId: string) => void;
   onLogStateChange?: (logState: {
     messages: WSMessage[];
@@ -40,11 +42,14 @@ type BooleanOptionKey = "headless" | "dry_run" | "debug" | "download" | "replace
 export function TTSPanel({
   client,
   sidecarUrl,
+  baseUrl = "",
+  onBaseUrlChange,
   onRunStart,
   onLogStateChange,
 }: TTSPanelProps): React.ReactElement {
   const [csvPath, setCsvPath] = useState<string | null>(null);
   const [estimatedVersions, setEstimatedVersions] = useState(0);
+  const [versionNames, setVersionNames] = useState<string[]>([]);
   const [options, setOptions] = useState<RunOptions>({
     headless: false,
     dry_run: false,
@@ -70,6 +75,7 @@ export function TTSPanel({
   const handleCsvSelected = (path: string, preview: CSVPreviewResponse): void => {
     setCsvPath(path);
     setEstimatedVersions(preview.estimated_versions);
+    setVersionNames(preview.version_names || []);
   };
 
   useEffect(() => {
@@ -88,6 +94,15 @@ export function TTSPanel({
     newMessages.forEach(automation.handleMessage);
     processedCountRef.current = ws.messages.length;
   }, [ws.messages, automation.handleMessage]);
+
+  // Poll job status every 2s as fallback for WS progress
+  useEffect(() => {
+    if (!automation.isRunning || !automation.jobId || !sidecarUrl) return;
+    const interval = setInterval(() => {
+      automation.pollJobStatus(sidecarUrl, automation.jobId!);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [automation.isRunning, automation.jobId, sidecarUrl, automation.pollJobStatus]);
 
   useEffect(() => {
     if (!onLogStateChange) {
@@ -148,6 +163,7 @@ export function TTSPanel({
         version_filter: options.version_filter || undefined,
       },
       estimatedVersions,
+      versionNames,
     });
   };
 
@@ -161,14 +177,28 @@ export function TTSPanel({
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        🎙️ TTS Automation
+        TTS Automation
       </h2>
+
+      {/* Base URL */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
+        <input
+          data-testid="input-tts-base-url"
+          type="text"
+          value={baseUrl}
+          onChange={(e) => onBaseUrlChange?.(e.target.value)}
+          placeholder="https://app.anylive.jp/live-assets/XXX"
+          className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
+        />
+      </div>
 
       <CSVPicker
         onFileSelected={handleCsvSelected}
         onClear={() => {
           setCsvPath(null);
           setEstimatedVersions(0);
+          setVersionNames([]);
           automation.reset();
           ws.clearMessages();
           processedCountRef.current = 0;
@@ -196,7 +226,7 @@ export function TTSPanel({
       ) : null}
 
       <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[var(--bg-surface)] border border-[var(--border-default)]">
-        <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer font-medium">
+        <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer font-medium">
           <input type="checkbox"
             data-testid="option-download"
             checked={options.download}
@@ -205,7 +235,7 @@ export function TTSPanel({
           />
           Download Mode
         </label>
-        <span className="text-[11px] text-[var(--text-muted)]">
+        <span className="text-xs text-[var(--text-muted)]">
           {options.download ? "Download files from existing versions" : "Create and fill new versions"}
         </span>
       </div>
@@ -213,21 +243,21 @@ export function TTSPanel({
       {options.download ? (
         <div className="flex flex-col gap-3">
           <div className="flex gap-4 flex-wrap">
-            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
               <input type="checkbox" data-testid="option-headless"  checked={options.headless} onChange={() => toggleOption("headless")} />
               Headless
             </label>
-            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
               <input type="checkbox" data-testid="option-replace"  checked={options.replace} onChange={() => toggleOption("replace")} />
               Replace existing
             </label>
-            <label className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer">
+            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
               <input type="checkbox" data-testid="option-verify"  checked={options.verify} onChange={() => toggleOption("verify")} />
               Verify after
             </label>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-[var(--text-muted)]">Version filter</label>
+            <label className="text-xs text-[var(--text-muted)]">Version filter</label>
             <input
               data-testid="option-version-filter"
               type="text"
@@ -248,7 +278,7 @@ export function TTSPanel({
             ].map(({ key, label }) => (
               <label
                 key={key}
-                className="flex items-center gap-1.5 text-[13px] text-[var(--text-secondary)] cursor-pointer"
+                className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer"
               >
                 <input type="checkbox"
                   data-testid={`option-${key}`}
@@ -265,16 +295,16 @@ export function TTSPanel({
             <button
               data-testid="toggle-advanced"
               onClick={() => setShowAdvanced((prev) => !prev)}
-              className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+              className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
             >
-              <span className={cn("transition-transform text-[10px]", showAdvanced && "rotate-90")}>▶</span>
-              Advanced
+              <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
+              Advanced (Optional)
             </button>
             {showAdvanced && (
               <div className="mt-2 flex flex-col gap-3">
                 <div className="flex gap-4">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[var(--text-muted)]">Start from version</label>
+                    <label className="text-xs text-[var(--text-muted)]">Start from version</label>
                     <input
                       data-testid="option-start-version"
                       type="number"
@@ -289,7 +319,7 @@ export function TTSPanel({
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[var(--text-muted)]">Limit versions</label>
+                    <label className="text-xs text-[var(--text-muted)]">Limit versions</label>
                     <input
                       data-testid="option-limit"
                       type="number"
@@ -305,11 +335,11 @@ export function TTSPanel({
                   </div>
                 </div>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
                     <input type="checkbox" data-testid="option-flat_mode"  checked={options.flat_mode} onChange={() => toggleOption("flat_mode")} />
                     Flat mode
                   </label>
-                  <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
                     <input type="checkbox" data-testid="option-no_save"  checked={options.no_save} onChange={() => toggleOption("no_save")} />
                     No save
                   </label>
@@ -326,9 +356,9 @@ export function TTSPanel({
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
           title={!sidecarUrl ? "Sidecar not connected" : !csvPath ? "Select a CSV file first" : ""}
-          className={cn(automation.isRunning && "bg-[var(--bg-elevated)]")}
+          variant={automation.isRunning ? "secondary" : "default"}
         >
-          {automation.isRunning ? "⟳ Running..." : options.download ? "⬇ Download" : "▶ Run"}
+          {automation.isRunning ? "Running..." : options.download ? "Download" : "Run"}
         </Button>
       </div>
 
@@ -359,11 +389,11 @@ export function TTSPanel({
                   i % 2 !== 0 && "bg-[var(--bg-surface)]"
                 )}
               >
-                <span className="text-[13px] text-[var(--text-primary)]">{v.name}</span>
+                <span className="text-sm text-[var(--text-primary)]">{v.name}</span>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={v.status} />
                   {v.status === "failed" && (
-                    <Button variant="outline" size="xs" className="text-[11px]">Retry</Button>
+                    <Button variant="outline" size="xs" className="text-xs">Retry</Button>
                   )}
                 </div>
               </div>

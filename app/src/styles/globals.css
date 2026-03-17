@@ -1,56 +1,89 @@
 @import "tailwindcss";
 
-/* ========== Raycast-inspired dark theme ========== */
-/* Always dark — no light mode toggle */
+/* ========== OKLCH Design System (H=250 cool blue) ========== */
+/* Dark-only theme — no light mode toggle */
 :root {
-  /* Surfaces */
-  --bg-base: #1C1C1E;
-  --bg-surface: #242424;
-  --bg-elevated: #2C2C2E;
-  --bg-hover: #363638;
+  /* Surfaces — depth via lightness (darker = lower) */
+  --bg-base:     oklch(0.145 0.014 250);
+  --bg-surface:  oklch(0.185 0.014 250);
+  --bg-elevated: oklch(0.225 0.014 250);
+  --bg-hover:    oklch(0.275 0.014 250);
 
   /* Borders */
-  --border-default: rgba(255, 255, 255, 0.08);
-  --border-active: rgba(255, 255, 255, 0.16);
+  --border-default: oklch(0.35 0.014 250 / 0.5);
+  --border-active:  oklch(0.45 0.014 250 / 0.6);
 
   /* Text */
-  --text-primary: #FFFFFF;
-  --text-secondary: rgba(255, 255, 255, 0.55);
-  --text-muted: rgba(255, 255, 255, 0.35);
+  --text-primary:   oklch(0.985 0.005 250);
+  --text-secondary: oklch(0.72 0.010 250);
+  --text-muted:     oklch(0.52 0.010 250);
 
-  /* Accent / Status */
-  --success: #22C55E;
-  --error: #EF4444;
-  --warning: #F59E0B;
-  --running: #3B82F6;
+  /* Status / Accent */
+  --success: oklch(0.72 0.19 145);
+  --error:   oklch(0.63 0.21 25);
+  --warning: oklch(0.80 0.18 80);
+  --running: oklch(0.62 0.19 250);
 
-  /* ======= shadcn/ui overrides ======= */
-  --background: 0 0% 11%;           /* #1C1C1E */
-  --foreground: 0 0% 100%;          /* #FFFFFF */
-  --card: 0 0% 14%;                 /* #242424 */
-  --card-foreground: 0 0% 100%;
-  --popover: 0 0% 14%;
-  --popover-foreground: 0 0% 100%;
-  --primary: 217 91% 60%;           /* #3B82F6 */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 17%;            /* #2C2C2E */
-  --secondary-foreground: 0 0% 100%;
-  --muted: 0 0% 17%;
-  --muted-foreground: 0 0% 55%;
-  --accent: 217 91% 60%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;         /* #EF4444 */
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 20%;
-  --input: 0 0% 17%;
-  --ring: 217 91% 60%;
+  /* Typography Scale (1.25 major third, base 14px) */
+  --text-xs:   0.714rem;
+  --text-sm:   0.857rem;
+  --text-base: 1rem;
+  --text-lg:   1.286rem;
+  --text-xl:   1.571rem;
+
+  /* Spacing Scale (4pt grid) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Motion Tokens */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast:   150ms;
+  --duration-normal: 250ms;
+  --duration-slow:   400ms;
+
+  /* Layout */
+  --sidebar-width: 220px;
   --radius: 0.5rem;
+
+  /* shadcn/ui token overrides (OKLCH native) */
+  --background: oklch(0.145 0.014 250);
+  --foreground: oklch(0.985 0.005 250);
+  --card: oklch(0.185 0.014 250);
+  --card-foreground: oklch(0.985 0.005 250);
+  --popover: oklch(0.185 0.014 250);
+  --popover-foreground: oklch(0.985 0.005 250);
+  --primary: oklch(0.62 0.19 250);
+  --primary-foreground: oklch(0.985 0.005 250);
+  --secondary: oklch(0.225 0.014 250);
+  --secondary-foreground: oklch(0.985 0.005 250);
+  --muted: oklch(0.225 0.014 250);
+  --muted-foreground: oklch(0.52 0.010 250);
+  --accent: oklch(0.62 0.19 250);
+  --accent-foreground: oklch(0.985 0.005 250);
+  --destructive: oklch(0.63 0.21 25);
+  --destructive-foreground: oklch(0.985 0.005 250);
+  --border: oklch(0.30 0.014 250);
+  --input: oklch(0.225 0.014 250);
+  --ring: oklch(0.62 0.19 250);
 }
 
-/* Force dark class on html */
+/* Base styles with Onest font */
 html {
+  font-family: 'Onest Variable', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
   background-color: var(--bg-base);
   color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom scrollbar */
@@ -69,10 +102,15 @@ html {
   background: var(--text-muted);
 }
 
-/* Monospace metadata */
+/* Monospace utility */
 .mono {
   font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
+}
+
+/* Tabular numbers for data tables */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Toggle switch styling for native checkboxes */
@@ -86,7 +124,8 @@ input[type="checkbox"] {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-out-quart),
+              border-color var(--duration-fast) var(--ease-out-quart);
   flex-shrink: 0;
 }
 
@@ -99,12 +138,13 @@ input[type="checkbox"]::after {
   height: 10px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform var(--duration-fast) var(--ease-out-quart),
+              background var(--duration-fast) var(--ease-out-quart);
 }
 
 input[type="checkbox"]:checked {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
+  background: var(--primary);
+  border-color: var(--primary);
 }
 
 input[type="checkbox"]:checked::after {
@@ -113,11 +153,49 @@ input[type="checkbox"]:checked::after {
 }
 
 input[type="checkbox"]:focus-visible {
-  outline: 2px solid hsl(var(--ring));
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
 input[type="checkbox"]:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+
+/* Disabled buttons need visible container on dark backgrounds */
+button:disabled[data-slot="button"],
+button:disabled[data-slot="button"][data-variant="default"] {
+  opacity: 0.4;
+  border: 1px solid var(--border-active);
+}
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-panel-enter {
+  animation: slide-up-fade var(--duration-normal) var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

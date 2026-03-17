@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { CSVPreviewResponse } from "../../lib/types";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { FileSpreadsheet, X } from "lucide-react";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 
 interface CSVPickerProps {
@@ -72,35 +72,40 @@ export function CSVPicker({
 
   return (
     <div data-testid="csv-picker" className="flex flex-col gap-2">
-      <div className="flex gap-2 items-center">
-        <Button
+      {selectedPath ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)]">
+          <FileSpreadsheet className="size-4 text-[var(--success)] shrink-0" />
+          <span
+            data-testid="selected-file-name"
+            className="text-sm text-[var(--text-primary)] flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+          >
+            {selectedPath.split("/").pop() || selectedPath}
+          </span>
+          <button
+            data-testid="clear-csv-button"
+            onClick={handleClear}
+            aria-label="Clear selected file"
+            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer bg-transparent border-none"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : (
+        <button
           data-testid="select-csv-button"
           onClick={handleSelectFile}
           disabled={loading}
-          size="sm"
+          className={cn(
+            "inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer bg-transparent border-none p-0",
+            loading && "opacity-50 cursor-wait"
+          )}
         >
-          {loading ? "Loading..." : "Select CSV"}
-        </Button>
-
-        {selectedPath && (
-          <>
-            <span
-              data-testid="selected-file-name"
-              className="text-[13px] text-[var(--text-secondary)] flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-            >
-              {selectedPath.split("/").pop() || selectedPath}
-            </span>
-            <Button
-              data-testid="clear-csv-button"
-              onClick={handleClear}
-              variant="outline"
-              size="xs"
-            >
-              Clear
-            </Button>
-          </>
-        )}
-      </div>
+          <FileSpreadsheet className="size-4" />
+          <span className="underline underline-offset-2 decoration-[var(--border-active)]">
+            {loading ? "Loading..." : "Select CSV file"}
+          </span>
+        </button>
+      )}
 
       {error && (
         <p data-testid="csv-error" className="text-xs text-[var(--error)]">

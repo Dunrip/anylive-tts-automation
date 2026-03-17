@@ -11,7 +11,6 @@ describe("SettingsPanel", () => {
   it("renders all TTS config form fields", () => {
     render(<SettingsPanel client="default" />);
     expect(screen.getByTestId("settings-panel")).toBeTruthy();
-    expect(screen.getByTestId("input-base-url")).toBeTruthy();
     expect(screen.getByTestId("input-version-template")).toBeTruthy();
     expect(screen.getByTestId("input-voice-name")).toBeTruthy();
     expect(screen.getByTestId("input-max-scripts")).toBeTruthy();
@@ -48,8 +47,8 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
 
     await waitFor(() => {
-      const input = screen.getByTestId("input-base-url") as HTMLInputElement;
-      expect(input.value).toBe("https://example.com");
+      const input = screen.getByTestId("input-version-template") as HTMLInputElement;
+      expect(input.value).toBe("MyTemplate");
     });
   });
 
@@ -76,26 +75,26 @@ describe("SettingsPanel", () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
-        tts: { base_url: "https://original.com", version_template: "", voice_name: "", max_scripts_per_version: 10, csv_columns: {} },
+        tts: { base_url: "", version_template: "MyTemplate", voice_name: "", max_scripts_per_version: 10, csv_columns: {} },
       }),
     });
 
     render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
 
     await waitFor(() => {
-      const input = screen.getByTestId("input-base-url") as HTMLInputElement;
-      expect(input.value).toBe("https://original.com");
+      const input = screen.getByTestId("input-version-template") as HTMLInputElement;
+      expect(input.value).toBe("MyTemplate");
     });
 
     // Change value
-    fireEvent.change(screen.getByTestId("input-base-url"), { target: { value: "https://changed.com" } });
+    fireEvent.change(screen.getByTestId("input-version-template"), { target: { value: "ChangedTemplate" } });
 
     // Reset
     fireEvent.click(screen.getByTestId("reset-button"));
 
     await waitFor(() => {
-      const input = screen.getByTestId("input-base-url") as HTMLInputElement;
-      expect(input.value).toBe("https://original.com");
+      const input = screen.getByTestId("input-version-template") as HTMLInputElement;
+      expect(input.value).toBe("MyTemplate");
     });
   });
 });

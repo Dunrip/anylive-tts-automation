@@ -120,3 +120,20 @@ async def create_config(body: dict[str, Any]) -> dict[str, str]:
         (client_dir / "live.json").write_text("{}", encoding="utf-8")
 
     return {"status": "created", "client": name}
+
+
+@router.delete("/configs/{client}")
+async def delete_config(client: str) -> dict[str, str]:
+    """Delete a client config directory."""
+    import shutil
+
+    if client == "default":
+        raise HTTPException(status_code=400, detail="Cannot delete the default config")
+
+    configs_dir = _get_configs_dir()
+    client_dir = configs_dir / client
+    if not client_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Config '{client}' not found")
+
+    shutil.rmtree(client_dir)
+    return {"status": "deleted", "client": client}

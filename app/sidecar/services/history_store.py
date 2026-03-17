@@ -87,6 +87,28 @@ def save_run(job: object) -> str:
         else str(getattr(job, "status", ""))
     )
     progress = getattr(job, "progress", None)
+    total = progress.total if progress else 0
+    current = progress.current if progress else 0
+    # If job succeeded, all versions that were processed are successes
+    # If failed, current - 1 succeeded and 1 failed (the one that caused the error)
+    if status == "success":
+        versions_success = total
+        versions_failed = 0
+    elif status == "failed" and current > 0:
+        versions_success = max(0, current - 1)
+        versions_failed = 1
+    else:
+        versions_success = current
+        versions_failed = 0
+
+    # Use actual client from job options if available
+    client_name = getattr(job, "config_path", "default")
+    if "/" in client_name:
+        parts = client_name.replace("\\", "/").split("/")
+        for i, part in enumerate(parts):
+            if part == "configs" and i + 1 < len(parts):
+                client_name = parts[i + 1]
+                break
 
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(
@@ -98,13 +120,13 @@ def save_run(job: object) -> str:
             (
                 run_id,
                 automation_type,
-                "default",
+                client_name,
                 status,
                 getattr(job, "started_at", datetime.now(timezone.utc).isoformat()),
                 getattr(job, "finished_at", None),
-                progress.total if progress else 0,
-                progress.current if progress else 0,
-                0,
+                total,
+                versions_success,
+                versions_failed,
                 getattr(job, "error", None),
                 json.dumps(report),
             ),

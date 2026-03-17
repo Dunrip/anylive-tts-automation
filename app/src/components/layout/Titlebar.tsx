@@ -49,7 +49,7 @@ export function Titlebar(): React.ReactElement | null {
           <button
             data-testid="titlebar-close"
             onClick={handleClose}
-            className="h-8 w-11 flex items-center justify-center text-[var(--text-secondary)] hover:bg-red-500 hover:text-white transition-colors text-xs border-none bg-transparent cursor-pointer"
+            className="h-8 w-11 flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--error)] hover:text-white transition-colors text-xs border-none bg-transparent cursor-pointer"
             aria-label="Close"
           >
             ✕

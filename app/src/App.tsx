@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Sidebar } from "./components/layout/Sidebar";
 import { MainContent } from "./components/layout/MainContent";
 import { Titlebar } from "./components/layout/Titlebar";
-import { SetupWizard } from "./components/common/SetupWizard";
+import { Onboarding } from "./components/common/Onboarding";
 import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { PanelType } from "./lib/navigation";
@@ -26,7 +27,6 @@ function App(): React.ReactElement {
   useEffect(() => {
     const loadClientsFromRust = async (): Promise<void> => {
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
         const list = await invoke<string[]>("list_client_configs");
         if (Array.isArray(list) && list.length > 0) setClients(list);
       } catch {
@@ -133,8 +133,18 @@ function App(): React.ReactElement {
         />
         <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
       </div>
-      {chromiumInstalled === false && sidecar.sidecarUrl && (
-        <SetupWizard sidecarUrl={sidecar.sidecarUrl} onComplete={() => setChromiumInstalled(true)} />
+      {sidecar.sidecarUrl && chromiumInstalled !== null && (chromiumInstalled === false || !sessionValid) && !loginInProgress && (
+        <Onboarding
+          sidecarUrl={sidecar.sidecarUrl}
+          chromiumInstalled={chromiumInstalled}
+          sessionValid={sessionValid}
+          onComplete={({ sessionValid: valid, displayName, email }) => {
+            setChromiumInstalled(true);
+            setSessionValid(valid);
+            if (displayName) setUserDisplayName(displayName);
+            if (email) setUserEmail(email);
+          }}
+        />
       )}
     </div>
   );

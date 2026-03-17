@@ -7,7 +7,6 @@ interface LogViewerProps {
   messages: WSMessage[];
   isConnected: boolean;
   onClear?: () => void;
-  height?: string;
 }
 
 const LEVEL_COLORS: Record<LogLevel, string> = {
@@ -17,6 +16,24 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
   DEBUG: "var(--text-muted)",
 };
 
+const STORAGE_KEY = "logviewer-height";
+const DEFAULT_HEIGHT = 220;
+const MIN_HEIGHT = 100;
+const MAX_HEIGHT = 500;
+
+function getStoredHeight(): number {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= MIN_HEIGHT && parsed <= MAX_HEIGHT) return parsed;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return DEFAULT_HEIGHT;
+}
+
 function isLogMessage(msg: WSMessage): msg is LogMessage {
   return msg.type === "log";
 }
@@ -25,12 +42,15 @@ export function LogViewer({
   messages,
   isConnected,
   onClear,
-  height = "200px",
 }: LogViewerProps): React.ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filter, setFilter] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [height, setHeight] = useState(getStoredHeight);
+  const isDragging = useRef(false);
+  const dragStartY = useRef(0);
+  const dragStartHeight = useRef(0);
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
@@ -39,14 +59,48 @@ export function LogViewer({
   }, [messages, autoScroll]);
 
   const handleScroll = useCallback(() => {
-    if (!scrollRef.current) {
-      return;
-    }
-
+    if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 20;
     setAutoScroll(isAtBottom);
   }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    dragStartY.current = e.clientY;
+    dragStartHeight.current = height;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+  }, [height]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!isDragging.current) return;
+      const delta = dragStartY.current - e.clientY;
+      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, dragStartHeight.current + delta));
+      setHeight(newHeight);
+    };
+
+    const handleMouseUp = (): void => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      try {
+        localStorage.setItem(STORAGE_KEY, String(height));
+      } catch {
+        // localStorage unavailable
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [height]);
 
   const logMessages = messages.filter(isLogMessage);
   const filteredMessages = filter
@@ -65,12 +119,19 @@ export function LogViewer({
       data-testid="log-viewer"
       className="flex flex-col border-t border-[var(--border-default)] bg-[var(--bg-base)]"
     >
+      <div
+        data-testid="log-resize-handle"
+        onMouseDown={handleMouseDown}
+        className="h-1 cursor-row-resize bg-transparent hover:bg-[var(--border-active)] transition-colors shrink-0"
+      />
+
       <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-surface)] border-b border-[var(--border-default)]">
         <Button
           variant="ghost"
           size="icon-xs"
           data-testid="collapse-button"
           onClick={() => setIsCollapsed((value) => !value)}
+          aria-label={isCollapsed ? "Expand logs" : "Collapse logs"}
         >
           {isCollapsed ? "▲" : "▼"}
         </Button>
@@ -81,7 +142,7 @@ export function LogViewer({
           className={cn("size-1.5 rounded-full", isConnected ? "bg-[var(--success)]" : "bg-[var(--text-muted)]")}
         />
 
-        <span className="text-[11px] text-[var(--text-muted)]">
+        <span className="text-[length:var(--text-xs)] text-[var(--text-muted)]">
           {filteredMessages.length} messages
         </span>
 
@@ -94,33 +155,19 @@ export function LogViewer({
           className="flex-1 px-2 py-0.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded text-xs"
         />
 
-        <Button
-          variant="ghost"
-          size="xs"
-          data-testid="copy-logs-button"
-          onClick={copyToClipboard}
-        >
+        <Button variant="ghost" size="xs" data-testid="copy-logs-button" onClick={copyToClipboard}>
           Copy
         </Button>
 
         {onClear ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            data-testid="clear-logs-button"
-            onClick={onClear}
-          >
+          <Button variant="ghost" size="xs" data-testid="clear-logs-button" onClick={onClear}>
             Clear
           </Button>
         ) : null}
 
         {!autoScroll ? (
-          <Button
-            size="xs"
-            data-testid="resume-scroll-button"
-            onClick={() => setAutoScroll(true)}
-          >
-            Resume ↓
+          <Button size="xs" data-testid="resume-scroll-button" onClick={() => setAutoScroll(true)}>
+            Resume
           </Button>
         ) : null}
       </div>
@@ -129,9 +176,11 @@ export function LogViewer({
         <div
           ref={scrollRef}
           data-testid="log-content"
+          role="log"
+          aria-live="polite"
           onScroll={handleScroll}
           className="overflow-y-auto p-2 px-3 font-mono text-xs leading-relaxed"
-          style={{ height }}
+          style={{ height: `${height}px` }}
         >
           {filteredMessages.length === 0 ? (
             <p className="text-[var(--text-muted)] m-0">

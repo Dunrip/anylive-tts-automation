@@ -66,6 +66,7 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
             "rows": sum(len(version.scripts) for version in versions),
             "products": len({version.product_number for version in versions}),
             "estimated_versions": len(versions),
+            "version_names": [v.name for v in versions],
             "preview": preview_rows,
             "errors": [],
         }

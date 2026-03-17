@@ -55,11 +55,11 @@ describe("App - SetupWizard", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("setup-wizard")).toBeTruthy();
+      expect(screen.getByTestId("onboarding")).toBeTruthy();
     });
   });
 
-  it("does not show SetupWizard when Chromium is installed", async () => {
+  it("shows onboarding login step when chromium installed but session invalid", async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
       if (url.includes("/api/setup/chromium-status")) {
         return Promise.resolve({
@@ -93,7 +93,7 @@ describe("App - SetupWizard", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.queryByTestId("setup-wizard")).toBeNull();
+      expect(screen.getByTestId("onboarding")).toBeTruthy();
     });
   });
 });

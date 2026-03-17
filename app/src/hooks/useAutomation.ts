@@ -22,6 +22,7 @@ interface RunParams {
   csvPath: string;
   options: Record<string, unknown>;
   estimatedVersions?: number;
+  versionNames?: string[];
 }
 
 function isProgressMessage(msg: WSMessage): msg is ProgressMessage {
@@ -59,6 +60,7 @@ export function useAutomation() {
       csvPath,
       options,
       estimatedVersions = 0,
+      versionNames = [],
     } = params;
 
     abortRef.current = false;
@@ -69,7 +71,7 @@ export function useAutomation() {
       jobId: null,
       progress: { current: 0, total: estimatedVersions },
       versions: Array.from({ length: estimatedVersions }, (_, i) => ({
-        name: `Version ${i + 1}`,
+        name: versionNames[i] || `Version ${i + 1}`,
         status: "pending" as JobStatus,
       })),
       error: null,
@@ -155,6 +157,56 @@ export function useAutomation() {
     }
   }, []);
 
+  // Poll job status as fallback when WS doesn't deliver progress
+  const pollJobStatus = useCallback(async (sidecarUrl: string, jobId: string): Promise<void> => {
+    try {
+      const resp = await fetch(`${sidecarUrl}/api/jobs/${jobId}`);
+      if (!resp.ok) return;
+      const data = (await resp.json()) as {
+        status: string;
+        progress: { current: number; total: number };
+        error?: string | null;
+      };
+
+      setState((prev) => {
+        const newProgress = data.progress;
+        // Only update if progress actually changed
+        if (newProgress.current === prev.progress.current && newProgress.total === prev.progress.total) {
+          return prev;
+        }
+        return {
+          ...prev,
+          progress: newProgress,
+          versions: prev.versions.map((version, index) => ({
+            ...version,
+            status:
+              index < newProgress.current
+                ? "success"
+                : index === newProgress.current
+                  ? "running"
+                  : version.status,
+          })),
+        };
+      });
+
+      // Check if job finished
+      if (data.status === "success" || data.status === "failed" || data.status === "cancelled") {
+        setState((prev) => ({
+          ...prev,
+          isRunning: false,
+          error: data.error || null,
+          progress: data.progress,
+          versions: prev.versions.map((version) => ({
+            ...version,
+            status: version.status === "running" ? data.status as "success" | "failed" | "cancelled" : version.status,
+          })),
+        }));
+      }
+    } catch {
+      // Silently ignore poll errors
+    }
+  }, []);
+
   const reset = useCallback((): void => {
     abortRef.current = true;
     setState({
@@ -171,6 +223,7 @@ export function useAutomation() {
     ...state,
     startRun,
     handleMessage,
+    pollJobStatus,
     reset,
   };
 }
