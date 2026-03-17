@@ -45,6 +45,9 @@ class LogStreamer:
         for websocket in dead:
             self.disconnect(job_id, websocket)
 
+    def cleanup_job(self, job_id: str) -> None:
+        self._connections.pop(job_id, None)
+
     def make_log_callback(self, job_id: str) -> Callable[[dict[str, Any]], None]:
         def callback(message: dict[str, Any]) -> None:
             try:

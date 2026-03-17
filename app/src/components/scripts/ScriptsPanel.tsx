@@ -42,7 +42,7 @@ export function ScriptsPanel({ client, sidecarUrl }: ScriptsPanelProps): React.R
     const newMessages = ws.messages.slice(processedCountRef.current);
     newMessages.forEach(automation.handleMessage);
     processedCountRef.current = ws.messages.length;
-  }, [ws.messages.length]);
+  }, [ws.messages, automation.handleMessage]);
 
   const configPath = `configs/${client}/live.json`;
 

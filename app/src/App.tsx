@@ -87,9 +87,11 @@ function App(): React.ReactElement {
     setLoginInProgress(true);
     try {
       const resp = await fetch(`${sidecar.sidecarUrl}/api/session/login`, { method: "POST" });
+      if (!resp.ok) throw new Error(`Login request failed: ${resp.status}`);
       const data = await resp.json();
       if (data.status === "ok") {
         const sessionResp = await fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`);
+        if (!sessionResp.ok) throw new Error(`Session fetch failed: ${sessionResp.status}`);
         const sessionData: SessionStatus = await sessionResp.json();
         setSessionValid(sessionData.valid);
         if (sessionData.valid) {

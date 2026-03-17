@@ -40,7 +40,7 @@ export function FAQPanel({ client, sidecarUrl }: FAQPanelProps): React.ReactElem
     const newMessages = ws.messages.slice(processedCountRef.current);
     newMessages.forEach(automation.handleMessage);
     processedCountRef.current = ws.messages.length;
-  }, [ws.messages.length]);
+  }, [ws.messages, automation.handleMessage]);
 
   const configPath = `configs/${client}/live.json`;
 
