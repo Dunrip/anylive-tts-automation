@@ -28,6 +28,13 @@ class TTSRunRequest(BaseModel):
 
 
 async def _run_tts_job(job: Job) -> None:
+    import logging
+    import os
+
+    _log = logging.getLogger(__name__)
+    _log.info(f"[TTS] CWD={os.getcwd()}, REPO_ROOT={_REPO_ROOT}")
+    _log.info(f"[TTS] config={job.config_path}, csv={job.csv_path}, opts={job.options}")
+
     from auto_tts import run_job  # type: ignore[import]
 
     config_path = Path(job.config_path)
@@ -79,6 +86,7 @@ async def _run_tts_job(job: Job) -> None:
         no_save=no_save,
         verify=verify,
         log_callback=log_callback,
+        app_support_dir=str(_REPO_ROOT),
     )
 
     if not result.get("success", False):
