@@ -23,7 +23,7 @@ router = APIRouter()
 
 class TTSRunRequest(BaseModel):
     config_path: str
-    csv_path: str
+    csv_path: Optional[str] = None
     options: dict[str, Any] = {}
 
 
@@ -93,9 +93,10 @@ async def _run_tts_job(job: Job) -> None:
 @router.post("/tts/run", status_code=202)
 async def run_tts(request: TTSRunRequest) -> dict[str, str]:
     """Start a TTS automation job."""
-    if not request.csv_path:
+    is_download = bool(request.options.get("download", False)) if isinstance(request.options, dict) else False
+    if not request.csv_path and not is_download:
         raise HTTPException(
-            status_code=422, detail="csv_path is required for TTS automation"
+            status_code=422, detail="csv_path is required for TTS automation (except download mode)"
         )
 
     try:

@@ -139,7 +139,7 @@ export function TTSPanel({
   }, [automation.isRunning]);
 
   const handleRun = async (): Promise<void> => {
-    if (!csvPath || !sidecarUrl || automation.isRunning) {
+    if ((!csvPath && !options.download) || !sidecarUrl || automation.isRunning) {
       return;
     }
 
@@ -151,7 +151,7 @@ export function TTSPanel({
       sidecarUrl,
       endpoint: "/api/tts/run",
       configPath,
-      csvPath,
+      csvPath: csvPath ?? "",
       options: {
         headless: options.headless,
         dry_run: options.dry_run,
@@ -357,8 +357,8 @@ export function TTSPanel({
         <Button
           data-testid="run-button"
           onClick={handleRun}
-          disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          title={!sidecarUrl ? "Sidecar not connected" : !csvPath ? "Select a CSV file first" : ""}
+          disabled={(!csvPath && !options.download) || automation.isRunning || !sidecarUrl}
+          title={!sidecarUrl ? "Sidecar not connected" : (!csvPath && !options.download) ? "Select a CSV file first" : ""}
           variant={automation.isRunning ? "secondary" : "default"}
         >
           {automation.isRunning ? "Running..." : options.download ? "Download" : "Run"}
