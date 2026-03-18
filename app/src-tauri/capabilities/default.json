@@ -10,6 +10,7 @@
     "core:tray:default",
     "notification:default",
     "dialog:default",
+    "fs:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
