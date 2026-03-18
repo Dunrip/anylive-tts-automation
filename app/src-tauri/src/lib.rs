@@ -327,6 +327,17 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![get_sidecar_port, list_client_configs, read_client_config, save_client_config, delete_client_config, create_client_config])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Ok(mut guard) = app_handle.state::<SidecarProcess>().child.lock() {
+                    if let Some(mut child) = guard.take() {
+                        let _ = child.write("shutdown\n".as_bytes());
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        let _ = child.kill();
+                    }
+                }
+            }
+        });
 }
