@@ -144,7 +144,12 @@ export function HistoryPanel({ sidecarUrl, isActive }: HistoryPanelProps): React
                     expandedId === run.id ? "bg-[var(--bg-surface)]" : "hover:bg-[var(--bg-hover)]"
                   )}
                 >
-                  <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-secondary)]">{formatDate(run.started_at)}</td>
+                  <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-secondary)]">
+                    {formatDate(run.started_at)}
+                    {run.csv_file && (
+                      <span className="ml-2 text-xs text-[var(--text-muted)]">{run.csv_file}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-primary)] uppercase text-xs">{run.automation_type}</td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)]"><StatusBadge status={run.status as JobStatus} size="sm" /></td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-muted)] text-xs">{formatDuration(run.started_at, run.finished_at)}</td>

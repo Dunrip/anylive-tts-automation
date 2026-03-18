@@ -47,11 +47,19 @@ def _create_tables() -> None:
                 versions_success INTEGER DEFAULT 0,
                 versions_failed INTEGER DEFAULT 0,
                 error TEXT,
-                report_json TEXT
+                report_json TEXT,
+                csv_file TEXT
             )
         """
         )
         conn.commit()
+
+        # Migrate existing databases: add csv_file column if missing
+        try:
+            conn.execute("ALTER TABLE runs ADD COLUMN csv_file TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 
 def save_run(job: object) -> str:
@@ -110,12 +118,17 @@ def save_run(job: object) -> str:
                 client_name = parts[i + 1]
                 break
 
+    csv_file = None
+    raw_csv_path = getattr(job, "csv_path", None)
+    if raw_csv_path:
+        csv_file = Path(raw_csv_path).name
+
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(
             """
             INSERT INTO runs (id, automation_type, client, status, started_at, finished_at,
-                              versions_total, versions_success, versions_failed, error, report_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              versions_total, versions_success, versions_failed, error, report_json, csv_file)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -129,6 +142,7 @@ def save_run(job: object) -> str:
                 versions_failed,
                 getattr(job, "error", None),
                 json.dumps(report),
+                csv_file,
             ),
         )
         conn.commit()

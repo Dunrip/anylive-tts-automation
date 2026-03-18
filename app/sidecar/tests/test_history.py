@@ -29,6 +29,7 @@ class TestHistoryStore:
         mock_job.finished_at = "2026-01-01T00:01:00Z"
         mock_job.progress = JobProgress(current=5, total=5)
         mock_job.error = None
+        mock_job.csv_path = "/path/to/data.csv"
 
         run_id = save_run(mock_job)
         assert isinstance(run_id, str)

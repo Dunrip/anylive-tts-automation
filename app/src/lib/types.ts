@@ -146,4 +146,5 @@ export interface HistoryRun {
   versions_success: number;
   versions_failed: number;
   error?: string;
+  csv_file?: string;
 }
