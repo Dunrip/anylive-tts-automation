@@ -140,7 +140,7 @@ export function CSVPicker({
               </button>
 
               {previewExpanded && (
-                <ScrollArea className="max-h-[300px]">
+                <ScrollArea className="max-h-[300px] overflow-hidden rounded-md">
                   <Table data-testid="csv-preview-table" className="border border-[var(--border-default)] rounded-md">
                     <TableHeader className="bg-[var(--bg-elevated)]">
                       <TableRow>
