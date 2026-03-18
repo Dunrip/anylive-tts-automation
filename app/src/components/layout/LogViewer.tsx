@@ -143,6 +143,25 @@ export function LogViewer({
     void navigator.clipboard.writeText(text).catch(() => undefined);
   };
 
+  const handleExport = async (): Promise<void> => {
+    if (filteredMessages.length === 0) return;
+    const content = filteredMessages
+      .map((message) => `[${formatLogTime(message.timestamp)}] [${message.level}] ${message.message}`)
+      .join("\n");
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({
+        defaultPath: "logs.txt",
+        filters: [{ name: "Text", extensions: ["txt"] }],
+      });
+      if (!path) return; // user cancelled
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+      await writeTextFile(path, content);
+    } catch {
+      // silently ignore export errors
+    }
+  };
+
   return (
     <div
       data-testid="log-viewer"
@@ -208,6 +227,16 @@ export function LogViewer({
 
         <Button variant="ghost" size="xs" data-testid="copy-logs-button" onClick={copyToClipboard}>
           Copy
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="xs"
+          data-testid="export-logs-button"
+          onClick={() => { void handleExport(); }}
+          disabled={filteredMessages.length === 0}
+        >
+          Export
         </Button>
 
         {onClear ? (
