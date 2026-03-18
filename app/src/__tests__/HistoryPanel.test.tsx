@@ -6,29 +6,31 @@ vi.mock("../hooks/useHistory", () => ({
   useHistory: () => ({
     runs: [
       {
-        id: "run-1",
-        automation_type: "tts",
-        client: "default",
-        status: "success",
-        started_at: "2026-01-01T10:00:00Z",
-        finished_at: "2026-01-01T10:05:00Z",
-        versions_total: 10,
-        versions_success: 10,
-        versions_failed: 0,
-        error: null,
-      },
-      {
-        id: "run-2",
-        automation_type: "faq",
-        client: "default",
-        status: "failed",
-        started_at: "2026-01-01T09:00:00Z",
-        finished_at: "2026-01-01T09:02:00Z",
-        versions_total: 5,
-        versions_success: 3,
-        versions_failed: 2,
-        error: "Connection timeout",
-      },
+         id: "run-1",
+         automation_type: "tts",
+         client: "default",
+         status: "success",
+         started_at: "2026-01-01T10:00:00Z",
+         finished_at: "2026-01-01T10:05:00Z",
+         versions_total: 10,
+         versions_success: 10,
+         versions_failed: 0,
+         error: null,
+         csv_file: "product_scripts.csv",
+       },
+       {
+         id: "run-2",
+         automation_type: "faq",
+         client: "default",
+         status: "failed",
+         started_at: "2026-01-01T09:00:00Z",
+         finished_at: "2026-01-01T09:02:00Z",
+         versions_total: 5,
+         versions_success: 3,
+         versions_failed: 2,
+         error: "Connection timeout",
+         csv_file: "faq_data.csv",
+       },
     ],
     loading: false,
     error: null,
@@ -74,5 +76,11 @@ describe("HistoryPanel", () => {
     expect(screen.getByTestId("history-detail-run-1")).toBeTruthy();
     fireEvent.click(screen.getByTestId("history-row-run-1"));
     expect(screen.queryByTestId("history-detail-run-1")).toBeNull();
+  });
+
+  it("displays CSV filename next to the date", () => {
+    render(<HistoryPanel />);
+    expect(screen.getByText("product_scripts.csv")).toBeInTheDocument();
+    expect(screen.getByText("faq_data.csv")).toBeInTheDocument();
   });
 });
