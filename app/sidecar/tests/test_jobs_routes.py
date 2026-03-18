@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -127,3 +128,27 @@ def test_websocket_stream_emits_log_messages() -> None:
 
             received = websocket.receive_text()
             assert json.loads(received) == payload
+
+
+@pytest.mark.asyncio
+async def test_cancel_job() -> None:
+    from models.job import JobStatus
+    from server import app
+
+    mock_job = MagicMock()
+    mock_job.job_id = "cancel-test-job"
+    mock_job.status = JobStatus.RUNNING
+    mock_job.finished_at = None
+    mock_job.emit_log = MagicMock()
+    mock_job.emit_status = MagicMock()
+
+    with patch("routes.jobs.job_manager") as mock_jm:
+        mock_jm.get_job.return_value = mock_job
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/api/jobs/cancel-test-job/cancel")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "cancelled"

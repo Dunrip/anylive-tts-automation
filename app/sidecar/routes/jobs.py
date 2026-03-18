@@ -4,7 +4,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from models.job import JobStartRequest, JobStatusResponse
+from models.job import JobStartRequest, JobStatusResponse, JobStatus
 from services.job_manager import Job, job_manager
 from services.log_streamer import log_streamer
 
@@ -52,9 +52,20 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
     return job.to_response()
 
 
-@router.delete("/jobs/{job_id}", status_code=501)
+@router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str) -> dict[str, str]:
-    return {"detail": "Cancellation not implemented in MVP"}
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+    if job.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+        raise HTTPException(status_code=409, detail="Job is not active")
+    from datetime import datetime, timezone
+
+    job.status = JobStatus.CANCELLED
+    job.finished_at = datetime.now(timezone.utc).isoformat()
+    job.emit_log("Job cancelled by user", level="WARN")
+    job.emit_status()
+    return {"status": "cancelled"}
 
 
 @router.websocket("/jobs/{job_id}/ws")

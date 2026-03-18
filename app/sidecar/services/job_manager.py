@@ -36,6 +36,10 @@ class Job:
         self.error: Optional[str] = None
         self._log_callbacks: list[Callable[[dict[str, Any]], None]] = []
 
+    @property
+    def is_cancelled(self) -> bool:
+        return self.status == JobStatus.CANCELLED
+
     def add_log_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:
         self._log_callbacks.append(callback)
 

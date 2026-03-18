@@ -360,6 +360,15 @@ export function TTSPanel({
         >
           {automation.isRunning ? "Running..." : options.download ? "Download" : "Run"}
         </Button>
+        {automation.isRunning && (
+          <Button
+            data-testid="cancel-button"
+            variant="outline"
+            onClick={() => { if (sidecarUrl) void automation.cancelJob(sidecarUrl); }}
+          >
+            Cancel
+          </Button>
+        )}
       </div>
 
       {(automation.isRunning || automation.progress.current > 0) && (

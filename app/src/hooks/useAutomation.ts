@@ -239,11 +239,21 @@ export function useAutomation() {
     });
   }, []);
 
+  const cancelJob = useCallback(async (sidecarUrl: string): Promise<void> => {
+    if (!state.jobId) return;
+    try {
+      await fetch(`${sidecarUrl}/api/jobs/${state.jobId}/cancel`, { method: "POST" });
+    } catch {
+      // silently ignore cancel errors
+    }
+  }, [state.jobId]);
+
   return {
     ...state,
     startRun,
     handleMessage,
     pollJobStatus,
     reset,
+    cancelJob,
   };
 }

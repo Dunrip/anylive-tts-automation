@@ -162,4 +162,34 @@ describe("useAutomation", () => {
     expect(result.current.versions).toHaveLength(0);
     expect(result.current.wsUrl).toBeNull();
   });
+
+  it("cancelJob calls cancel endpoint", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ job_id: "test-job" }),
+    } as Response);
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.startRun({
+        sidecarUrl: "http://127.0.0.1:8080",
+        endpoint: "/api/tts/run",
+        configPath: "configs/default/tts.json",
+        csvPath: "/test.csv",
+        options: {},
+      });
+    });
+
+    vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, json: () => Promise.resolve({}) } as Response);
+
+    await act(async () => {
+      await result.current.cancelJob("http://127.0.0.1:8080");
+    });
+
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/jobs/test-job/cancel",
+      { method: "POST" }
+    );
+  });
 });
