@@ -392,9 +392,6 @@ export function TTSPanel({
                 <span className="text-sm text-[var(--text-primary)]">{v.name}</span>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={v.status} />
-                  {v.status === "failed" && (
-                    <Button variant="outline" size="xs" className="text-xs">Retry</Button>
-                  )}
                 </div>
               </div>
             ))}
