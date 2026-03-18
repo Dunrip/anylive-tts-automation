@@ -45,6 +45,14 @@ class JobProgress(BaseModel):
     total: int = 0
 
 
+class LogMessagePayload(BaseModel):
+    type: str = "log"
+    level: str = "INFO"
+    message: str = ""
+    timestamp: str = ""
+    version: Optional[str] = None
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: JobStatus
@@ -52,3 +60,4 @@ class JobStatusResponse(BaseModel):
     started_at: str
     finished_at: Optional[str] = None
     error: Optional[str] = None
+    messages: list[LogMessagePayload] = []
