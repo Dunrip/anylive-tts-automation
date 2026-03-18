@@ -1,5 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  writeTextFile: vi.fn(),
+}));
 import { LogViewer } from "../components/layout/LogViewer";
 import type { WSMessage } from "../lib/types";
 
@@ -11,6 +19,10 @@ const mockMessages: WSMessage[] = [
 ];
 
 describe("LogViewer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders log viewer", () => {
     render(<LogViewer messages={[]} isConnected={false} />);
     expect(screen.getByTestId("log-viewer")).toBeInTheDocument();
@@ -117,5 +129,49 @@ describe("LogViewer", () => {
     expect(screen.getByText("Starting automation")).toBeInTheDocument();
     expect(screen.queryByText("Slow response")).not.toBeInTheDocument();
     expect(screen.getByText("1 messages")).toBeInTheDocument();
+  });
+
+  it("export button is disabled when no messages", () => {
+    render(<LogViewer messages={[]} isConnected={false} />);
+    const exportBtn = screen.getByTestId("export-logs-button");
+    expect(exportBtn).toBeDisabled();
+  });
+
+  it("export writes filtered logs to file", async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+    (save as ReturnType<typeof vi.fn>).mockResolvedValue("/tmp/logs.txt");
+    (writeTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.change(screen.getByTestId("log-filter"), { target: { value: "failed" } });
+    fireEvent.click(screen.getByTestId("export-logs-button"));
+
+    await waitFor(() => {
+      expect(writeTextFile).toHaveBeenCalledTimes(1);
+    });
+    expect(writeTextFile).toHaveBeenCalledWith(
+      "/tmp/logs.txt",
+      expect.stringContaining("[ERROR] Failed to click")
+    );
+    expect(writeTextFile).toHaveBeenCalledWith(
+      "/tmp/logs.txt",
+      expect.stringMatching(/\d{2}:\d{2}:\d{2}/)
+    );
+  });
+
+  it("export is a no-op when user cancels save dialog", async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+    (save as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (writeTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.click(screen.getByTestId("export-logs-button"));
+
+    await waitFor(() => {
+      expect(save).toHaveBeenCalledTimes(1);
+    });
+    expect(writeTextFile).not.toHaveBeenCalled();
   });
 });
