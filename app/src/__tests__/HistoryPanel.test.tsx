@@ -78,7 +78,7 @@ describe("HistoryPanel", () => {
     expect(screen.queryByTestId("history-detail-run-1")).toBeNull();
   });
 
-  it("displays CSV filename next to the date", () => {
+  it("displays CSV filename in CSV column", () => {
     render(<HistoryPanel />);
     expect(screen.getByText("product_scripts.csv")).toBeInTheDocument();
     expect(screen.getByText("faq_data.csv")).toBeInTheDocument();

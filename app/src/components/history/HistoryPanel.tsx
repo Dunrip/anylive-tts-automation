@@ -127,6 +127,7 @@ export function HistoryPanel({ sidecarUrl, isActive }: HistoryPanelProps): React
           <thead>
             <tr className="bg-[var(--bg-elevated)] text-xs text-[var(--text-muted)] font-semibold text-left">
               <th className="px-4 py-2 border-b border-[var(--border-default)]">Date</th>
+              <th className="px-4 py-2 border-b border-[var(--border-default)]">CSV</th>
               <th className="px-4 py-2 border-b border-[var(--border-default)]">Type</th>
               <th className="px-4 py-2 border-b border-[var(--border-default)]">Status</th>
               <th className="px-4 py-2 border-b border-[var(--border-default)]">Duration</th>
@@ -144,12 +145,8 @@ export function HistoryPanel({ sidecarUrl, isActive }: HistoryPanelProps): React
                     expandedId === run.id ? "bg-[var(--bg-surface)]" : "hover:bg-[var(--bg-hover)]"
                   )}
                 >
-                  <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-secondary)]">
-                    {formatDate(run.started_at)}
-                    {run.csv_file && (
-                      <span className="ml-2 text-xs text-[var(--text-muted)]">{run.csv_file}</span>
-                    )}
-                  </td>
+                  <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-secondary)]">{formatDate(run.started_at)}</td>
+                  <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-muted)] text-xs max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap" title={run.csv_file}>{run.csv_file ?? "—"}</td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-primary)] uppercase text-xs">{run.automation_type}</td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)]"><StatusBadge status={run.status as JobStatus} size="sm" /></td>
                   <td className="px-4 py-2.5 border-b border-[var(--border-default)] text-[var(--text-muted)] text-xs">{formatDuration(run.started_at, run.finished_at)}</td>
@@ -157,7 +154,7 @@ export function HistoryPanel({ sidecarUrl, isActive }: HistoryPanelProps): React
                 </tr>
                 {expandedId === run.id && (
                   <tr data-testid={`history-detail-${run.id}`}>
-                    <td colSpan={5} className="px-4 py-3 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-xs text-[var(--text-secondary)]">
+                    <td colSpan={6} className="px-4 py-3 bg-[var(--bg-elevated)] border-b border-[var(--border-default)] text-xs text-[var(--text-secondary)]">
                       <p className="m-0 mb-1">Job ID: <span className="text-[var(--text-primary)] font-mono">{run.id}</span></p>
                       <p className="m-0 mb-1">Client: {run.client}</p>
                       {run.error && <p className="m-0 text-[var(--error)]">Error: {run.error}</p>}
