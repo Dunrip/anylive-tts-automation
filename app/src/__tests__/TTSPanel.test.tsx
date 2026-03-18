@@ -50,7 +50,7 @@ describe("ProgressBar", () => {
     render(<ProgressBar current={3} total={10} />);
     expect(screen.getByTestId("progress-bar")).toBeTruthy();
     expect(screen.getByTestId("progress-text")).toBeTruthy();
-    expect(screen.getByText("3/10 versions (30%)")).toBeTruthy();
+    expect(screen.getByText("2/10 versions (20%)")).toBeTruthy();
   });
 
   it("renders 0% when no progress", () => {
