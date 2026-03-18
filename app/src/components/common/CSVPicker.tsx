@@ -3,6 +3,7 @@ import type { CSVPreviewResponse } from "../../lib/types";
 import { cn } from "@/lib/utils";
 import { FileSpreadsheet, X } from "lucide-react";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface CSVPickerProps {
   onFileSelected?: (path: string, preview: CSVPreviewResponse) => void;
@@ -21,6 +22,7 @@ export function CSVPicker({
   const [preview, setPreview] = useState<CSVPreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   const handleSelectFile = async (): Promise<void> => {
     try {
@@ -117,38 +119,57 @@ export function CSVPicker({
         <div data-testid="csv-preview">
           <p
             data-testid="csv-summary"
-            className="text-xs text-[var(--text-secondary)] mb-2"
+            className="text-xs text-[var(--text-secondary)] mb-1"
           >
             {preview.rows} rows · {preview.products} products · ~{preview.estimated_versions} versions
+            {(preview as { capped?: boolean }).capped && (
+              <span className="text-[var(--text-muted)] ml-1">(showing first 200)</span>
+            )}
           </p>
 
           {preview.preview.length > 0 && (
-            <Table data-testid="csv-preview-table" className="border border-[var(--border-default)] rounded-md">
-              <TableHeader className="bg-[var(--bg-elevated)]">
-                <TableRow>
-                  {["No.", "Product", "Script", "Audio Code"].map((h) => (
-                    <TableHead key={h} className="text-[var(--text-muted)]">
-                      {h}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {preview.preview.map((row, i) => (
-                  <TableRow
-                    key={i}
-                    className={cn(i % 2 !== 0 && "bg-[var(--bg-surface)]")}
-                  >
-                    <TableCell className="text-[var(--text-secondary)]">{row.no}</TableCell>
-                    <TableCell className="text-[var(--text-primary)]">{row.product_name}</TableCell>
-                    <TableCell className="text-[var(--text-secondary)] max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap">
-                      {row.script}
-                    </TableCell>
-                    <TableCell className="text-[var(--text-muted)]">{row.audio_code}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <>
+              <button
+                data-testid="toggle-csv-preview"
+                type="button"
+                onClick={() => setPreviewExpanded((prev) => !prev)}
+                className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0 mb-1"
+              >
+                <span className={cn("transition-transform text-xs", previewExpanded && "rotate-90")}>▶</span>
+                {previewExpanded ? "Hide preview" : `Show preview (${preview.preview.length} rows)`}
+              </button>
+
+              {previewExpanded && (
+                <ScrollArea className="max-h-[300px]">
+                  <Table data-testid="csv-preview-table" className="border border-[var(--border-default)] rounded-md">
+                    <TableHeader className="bg-[var(--bg-elevated)]">
+                      <TableRow>
+                        {["No.", "Product", "Script", "Audio Code"].map((h) => (
+                          <TableHead key={h} className="text-[var(--text-muted)]">
+                            {h}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {preview.preview.map((row, i) => (
+                        <TableRow
+                          key={i}
+                          className={cn(i % 2 !== 0 && "bg-[var(--bg-surface)]")}
+                        >
+                          <TableCell className="text-[var(--text-secondary)]">{row.no}</TableCell>
+                          <TableCell className="text-[var(--text-primary)]">{row.product_name}</TableCell>
+                          <TableCell className="text-[var(--text-secondary)] max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap">
+                            {row.script}
+                          </TableCell>
+                          <TableCell className="text-[var(--text-muted)]">{row.audio_code}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              )}
+            </>
           )}
         </div>
       )}
