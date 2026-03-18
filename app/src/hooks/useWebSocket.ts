@@ -28,7 +28,7 @@ function isWSMessage(value: unknown): value is WSMessage {
       isLogLevel(value.level) &&
       typeof value.message === "string" &&
       typeof value.timestamp === "string" &&
-      (value.version === undefined || typeof value.version === "string")
+      (value.version == null || typeof value.version === "string")
     );
   }
 
