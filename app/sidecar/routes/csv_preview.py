@@ -49,18 +49,26 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
         df = load_csv(str(csv_path), _logger)
         versions = parse_csv_data(df, config, _logger)
 
-        preview_rows: list[dict[str, str]] = []
-        for version in versions[:5]:
-            if not version.scripts:
-                continue
-            preview_rows.append(
-                {
-                    "no": version.product_number,
-                    "product_name": version.products[0] if version.products else "",
-                    "script": version.scripts[0][:100] if version.scripts else "",
-                    "audio_code": version.audio_codes[0] if version.audio_codes else "",
-                }
-            )
+        max_preview_rows = 200
+        all_rows: list[dict[str, str]] = []
+        for version in versions:
+            for i, script in enumerate(version.scripts):
+                all_rows.append(
+                    {
+                        "no": version.product_number,
+                        "product_name": version.products[0] if version.products else "",
+                        "script": script[:100],
+                        "audio_code": (
+                            version.audio_codes[i]
+                            if i < len(version.audio_codes)
+                            else ""
+                        ),
+                    }
+                )
+
+        total_collected = len(all_rows)
+        capped = total_collected > max_preview_rows
+        preview_rows = all_rows[:max_preview_rows]
 
         return {
             "rows": sum(len(version.scripts) for version in versions),
@@ -68,6 +76,7 @@ async def preview_csv(request: CSVPreviewRequest) -> dict:
             "estimated_versions": len(versions),
             "version_names": [v.name for v in versions],
             "preview": preview_rows,
+            "capped": capped,
             "errors": [],
         }
     except HTTPException:
