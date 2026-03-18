@@ -11,7 +11,9 @@ from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
-import shared as _shared_preload  # noqa: F401, E402
+pytest.importorskip(
+    "shared", reason="shared module requires playwright which is not installed"
+)
 
 
 @pytest.mark.asyncio
