@@ -38,6 +38,18 @@ function isLogMessage(msg: WSMessage): msg is LogMessage {
   return msg.type === "log";
 }
 
+function formatLogTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export function LogViewer({
   messages,
   isConnected,
@@ -48,6 +60,9 @@ export function LogViewer({
   const [filter, setFilter] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [height, setHeight] = useState(getStoredHeight);
+  const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(
+    new Set(["INFO", "WARN", "ERROR", "DEBUG"] as LogLevel[])
+  );
   const isDragging = useRef(false);
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
@@ -102,15 +117,29 @@ export function LogViewer({
     };
   }, [height]);
 
+  const toggleLevel = (level: LogLevel): void => {
+    setEnabledLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next;
+    });
+  };
+
   const logMessages = messages.filter(isLogMessage);
-  const filteredMessages = filter
-    ? logMessages.filter((message) =>
-        message.message.toLowerCase().includes(filter.toLowerCase())
-      )
-    : logMessages;
+  const filteredMessages = logMessages
+    .filter((message) => enabledLevels.has(message.level))
+    .filter((message) =>
+      filter ? message.message.toLowerCase().includes(filter.toLowerCase()) : true
+    );
 
   const copyToClipboard = (): void => {
-    const text = filteredMessages.map((message) => `[${message.level}] ${message.message}`).join("\n");
+    const text = filteredMessages
+      .map((message) => `[${formatLogTime(message.timestamp)}] [${message.level}] ${message.message}`)
+      .join("\n");
     void navigator.clipboard.writeText(text).catch(() => undefined);
   };
 
@@ -145,6 +174,28 @@ export function LogViewer({
         <span className="text-[length:var(--text-xs)] text-[var(--text-muted)]">
           {filteredMessages.length} messages
         </span>
+
+        <div className="flex items-center gap-0.5">
+          {(["INFO", "WARN", "ERROR", "DEBUG"] as LogLevel[]).map((level) => {
+            const isActive = enabledLevels.has(level);
+            return (
+              <Button
+                key={level}
+                data-testid={`level-toggle-${level}`}
+                variant="ghost"
+                size="xs"
+                onClick={() => toggleLevel(level)}
+                className={cn(
+                  "text-xs px-1.5 h-5",
+                  isActive ? "opacity-100" : "opacity-30"
+                )}
+                style={isActive ? { color: LEVEL_COLORS[level] } : undefined}
+              >
+                {level}
+              </Button>
+            );
+          })}
+        </div>
 
         <input
           data-testid="log-filter"
@@ -196,6 +247,7 @@ export function LogViewer({
                   color: LEVEL_COLORS[message.level] ?? "var(--text-primary)",
                 }}
               >
+                <span className="text-[var(--text-muted)] mr-1.5 select-none">{formatLogTime(message.timestamp)}</span>
                 <span className="text-[var(--text-muted)] mr-2">[{message.level}]</span>
                 {message.version ? (
                   <span className="text-primary mr-2">[{message.version}]</span>

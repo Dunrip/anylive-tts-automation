@@ -76,6 +76,46 @@ describe("LogViewer", () => {
     fireEvent.click(screen.getByTestId("copy-logs-button"));
 
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(writeText).toHaveBeenCalledWith("[ERROR] Failed to click");
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("[ERROR] Failed to click"));
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\d{2}:\d{2}:\d{2}/));
+  });
+
+  it("renders level toggle buttons for all 4 levels", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    expect(screen.getByTestId("level-toggle-INFO")).toBeInTheDocument();
+    expect(screen.getByTestId("level-toggle-WARN")).toBeInTheDocument();
+    expect(screen.getByTestId("level-toggle-ERROR")).toBeInTheDocument();
+    expect(screen.getByTestId("level-toggle-DEBUG")).toBeInTheDocument();
+  });
+
+  it("toggling off a level hides messages of that level", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    expect(screen.getByText("Starting automation")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("level-toggle-INFO"));
+    expect(screen.queryByText("Starting automation")).not.toBeInTheDocument();
+    expect(screen.getByText("3 messages")).toBeInTheDocument();
+  });
+
+  it("toggling a level back on restores its messages", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.click(screen.getByTestId("level-toggle-INFO"));
+    expect(screen.queryByText("Starting automation")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("level-toggle-INFO"));
+    expect(screen.getByText("Starting automation")).toBeInTheDocument();
+  });
+
+  it("displays timestamps on each log line", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    const logContent = screen.getByTestId("log-content");
+    expect(logContent.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("level and text filters compose with AND logic", () => {
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.click(screen.getByTestId("level-toggle-WARN"));
+    fireEvent.change(screen.getByTestId("log-filter"), { target: { value: "start" } });
+    expect(screen.getByText("Starting automation")).toBeInTheDocument();
+    expect(screen.queryByText("Slow response")).not.toBeInTheDocument();
+    expect(screen.getByText("1 messages")).toBeInTheDocument();
   });
 });
