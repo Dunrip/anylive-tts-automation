@@ -35,6 +35,7 @@ class Job:
         self.finished_at: Optional[str] = None
         self.error: Optional[str] = None
         self._log_callbacks: list[Callable[[dict[str, Any]], None]] = []
+        self._log_messages: list[dict[str, Any]] = []
 
     @property
     def is_cancelled(self) -> bool:
@@ -56,6 +57,7 @@ class Job:
             "timestamp": _now(),
             "version": version,
         }
+        self._log_messages.append(msg)
         for callback in self._log_callbacks:
             callback(msg)
 
@@ -67,6 +69,7 @@ class Job:
             "total": total,
             "version_name": version_name,
         }
+        self._log_messages.append(msg)
         for callback in self._log_callbacks:
             callback(msg)
 
@@ -76,10 +79,12 @@ class Job:
             "job_id": self.job_id,
             "status": self.status.value,
         }
+        self._log_messages.append(msg)
         for callback in self._log_callbacks:
             callback(msg)
 
     def to_response(self) -> JobStatusResponse:
+        from models.job import LogMessagePayload
         return JobStatusResponse(
             job_id=self.job_id,
             status=self.status,
@@ -87,6 +92,7 @@ class Job:
             started_at=self.started_at,
             finished_at=self.finished_at,
             error=self.error,
+            messages=[LogMessagePayload(**m) for m in self._log_messages],
         )
 
 

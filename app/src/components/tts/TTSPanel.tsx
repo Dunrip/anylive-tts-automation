@@ -108,12 +108,15 @@ export function TTSPanel({
     if (!onLogStateChange) {
       return;
     }
+    // Merge WS messages with polled log messages (fallback when WS fails)
+    const wsLogCount = ws.messages.filter((m) => m.type === "log").length;
+    const messages = wsLogCount > 0 ? ws.messages : [...ws.messages, ...automation.polledMessages];
     onLogStateChange({
-      messages: ws.messages,
+      messages,
       isConnected: ws.isConnected,
       clearMessages: ws.clearMessages,
     });
-  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange]);
+  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange, automation.polledMessages]);
 
   useEffect(() => {
     if (automation.jobId) {

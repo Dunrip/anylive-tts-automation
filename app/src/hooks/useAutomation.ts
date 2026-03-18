@@ -13,6 +13,7 @@ interface AutomationState {
   versions: VersionStatus[];
   error: string | null;
   wsUrl: string | null;
+  polledMessages: WSMessage[];
 }
 
 interface RunParams {
@@ -48,6 +49,7 @@ export function useAutomation() {
     versions: [],
     error: null,
     wsUrl: null,
+    polledMessages: [],
   });
 
   const abortRef = useRef<boolean>(false);
@@ -175,6 +177,7 @@ export function useAutomation() {
         status: string;
         progress: { current: number; total: number };
         error?: string | null;
+        messages?: Array<{ type: string; level: string; message: string; timestamp: string; version?: string | null }>;
       };
 
       setState((prev) => {
@@ -197,6 +200,15 @@ export function useAutomation() {
           })),
         };
       });
+
+      // Update polled log messages (fallback when WS is not connected)
+      if (data.messages && data.messages.length > 0) {
+        const logMessages: WSMessage[] = data.messages
+          .filter((m): m is { type: "log"; level: "INFO" | "WARN" | "ERROR" | "DEBUG"; message: string; timestamp: string; version?: string | null } =>
+            m.type === "log" && ["INFO", "WARN", "ERROR", "DEBUG"].includes(m.level))
+          .map((m) => ({ ...m, version: m.version ?? undefined }));
+        setState((prev) => ({ ...prev, polledMessages: logMessages }));
+      }
 
       // Check if job finished
       if (data.status === "success") {
@@ -236,6 +248,7 @@ export function useAutomation() {
       versions: [],
       error: null,
       wsUrl: null,
+      polledMessages: [],
     });
   }, []);
 
