@@ -26,14 +26,17 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
     return () => clearInterval(interval);
   }, [startTime, current]);
 
-  const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+  // current = "about to process item N" (1-indexed), so completed = current - 1
+  // Exception: when current >= total, all items have been emitted (last one processing or done)
+  const completedItems = current >= total ? total : Math.max(0, current - 1);
+  const percentage = total > 0 ? Math.round((completedItems / total) * 100) : 0;
 
-  // Estimate remaining time
+  // Estimate remaining time based on completed items
   let estimatedRemaining: string | null = null;
-  if (current > 0 && total > current && elapsed > 0) {
-    const msPerItem = elapsed / current;
-    const remaining = msPerItem * (total - current);
-    estimatedRemaining = formatDuration(remaining);
+  if (completedItems > 0 && completedItems < total && elapsed > 0) {
+    const msPerItem = elapsed / completedItems;
+    const remainingItems = total - completedItems;
+    estimatedRemaining = formatDuration(msPerItem * remainingItems);
   }
 
   return (
@@ -47,7 +50,7 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
           data-testid="progress-text"
           className="text-xs text-[var(--text-secondary)]"
         >
-          {current}/{total} versions ({percentage}%)
+          {completedItems}/{total} versions ({percentage}%)
         </span>
         {estimatedRemaining && (
           <span
