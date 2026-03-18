@@ -145,7 +145,16 @@ export function useAutomation() {
       return;
     }
 
-    if (msg.status === "success" || msg.status === "failed" || msg.status === "cancelled") {
+    if (msg.status === "success") {
+      setState((prev) => ({
+        ...prev,
+        isRunning: false,
+        versions: prev.versions.map((version) => ({
+          ...version,
+          status: version.status === "failed" ? "failed" : "success",
+        })),
+      }));
+    } else if (msg.status === "failed" || msg.status === "cancelled") {
       setState((prev) => ({
         ...prev,
         isRunning: false,
@@ -190,7 +199,7 @@ export function useAutomation() {
       });
 
       // Check if job finished
-      if (data.status === "success" || data.status === "failed" || data.status === "cancelled") {
+      if (data.status === "success") {
         setState((prev) => ({
           ...prev,
           isRunning: false,
@@ -198,7 +207,18 @@ export function useAutomation() {
           progress: data.progress,
           versions: prev.versions.map((version) => ({
             ...version,
-            status: version.status === "running" ? data.status as "success" | "failed" | "cancelled" : version.status,
+            status: version.status === "failed" ? "failed" : "success",
+          })),
+        }));
+      } else if (data.status === "failed" || data.status === "cancelled") {
+        setState((prev) => ({
+          ...prev,
+          isRunning: false,
+          error: data.error || null,
+          progress: data.progress,
+          versions: prev.versions.map((version) => ({
+            ...version,
+            status: version.status === "running" ? data.status as "failed" | "cancelled" : version.status,
           })),
         }));
       }
