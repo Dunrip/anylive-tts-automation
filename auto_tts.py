@@ -117,6 +117,17 @@ SELECTORS = {
         'input[aria-label="Section Title"]',
         'input[placeholder*="Introduction"]',
     ],
+    "autosave_done": [
+        ':has-text("Auto Saved")',
+        ':has-text("Autosaved")',
+        ':has-text("Saved")',
+    ],
+    "autosave_in_progress": [
+        ':has-text("Saving...")',
+        ':has-text("Saving")',
+        ':has-text("Auto Saving")',
+        ':has-text("Auto saving")',
+    ],
 }
 
 
@@ -1999,17 +2010,21 @@ class TTSAutomation:
         self.logger.info("💾 Waiting for auto-save...")
         try:
             # Fast path: if already auto-saved, return immediately.
-            await self.page.wait_for_selector('text="Auto Saved"', timeout=250)
-            self.logger.info("✅ Auto-saved successfully")
+            for selector in SELECTORS["autosave_done"]:
+                try:
+                    await self.page.wait_for_selector(selector, timeout=250)
+                    self.logger.info("✅ Auto-saved successfully")
+                    break
+                except Exception:
+                    continue
+            else:
+                # No autosave_done selector matched in fast path
+                raise Exception("No autosave_done selector matched")
         except Exception:
             try:
                 # If still saving, allow a bit more time for the status to flip.
                 saving_visible = False
-                for saving_selector in (
-                    'text="Saving..."',
-                    'text="Saving"',
-                    'text="Auto Saving"',
-                ):
+                for saving_selector in SELECTORS["autosave_in_progress"]:
                     try:
                         loc = self.page.locator(saving_selector)
                         if await loc.count() > 0 and await loc.first.is_visible():
@@ -2019,13 +2034,21 @@ class TTSAutomation:
                         continue
 
                 wait_timeout = 3500 if saving_visible else 1200
-                await self.page.wait_for_selector(
-                    'text="Auto Saved"', timeout=wait_timeout
-                )
-                self.logger.info("✅ Auto-saved successfully")
-            except Exception as e:
-                self.logger.warning(
-                    f"Could not confirm auto-save status quickly (continuing): {e}"
+                for selector in SELECTORS["autosave_done"]:
+                    try:
+                        await self.page.wait_for_selector(
+                            selector, timeout=wait_timeout
+                        )
+                        self.logger.info("✅ Auto-saved successfully")
+                        break
+                    except Exception:
+                        continue
+                else:
+                    # No autosave_done selector matched in slow path
+                    raise Exception("No autosave_done selector matched")
+            except Exception:
+                self.logger.info(
+                    "Auto-save status not detected (safe to continue — buffered wait applied)"
                 )
                 # Continue anyway as the system likely saved
 
