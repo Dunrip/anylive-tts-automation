@@ -122,6 +122,9 @@ def main() -> None:
         default=_REPO_ROOT,
         help="App data directory for configs and sessions",
     )
+    parser.add_argument(
+        "--port", type=int, default=None, help="Override port (for testing)"
+    )
     args = parser.parse_args()
     _app_data_dir = args.app_data_dir
 
@@ -129,7 +132,7 @@ def main() -> None:
 
     init_db(_app_data_dir)
 
-    port = _get_free_port()
+    port = args.port if args.port is not None else _get_free_port()
 
     shutdown_event = threading.Event()
     stdin_thread = threading.Thread(

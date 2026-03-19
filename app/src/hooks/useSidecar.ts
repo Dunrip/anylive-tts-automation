@@ -17,6 +17,13 @@ export function useSidecar(): SidecarState {
   });
 
   useEffect(() => {
+    // E2E / dev-mode: bypass Tauri invoke when env var is set
+    const envUrl = import.meta.env.VITE_SIDECAR_URL as string | undefined;
+    if (envUrl) {
+      setState({ port: null, sidecarUrl: envUrl, isReady: true, error: null });
+      return;
+    }
+
     let cancelled = false;
     let attempts = 0;
     const maxAttempts = 30;
