@@ -33,16 +33,25 @@ test.describe("Settings Panel", () => {
 
   test("editing version template and saving shows success", async ({ page }) => {
     const input = page.getByTestId("input-version-template");
+    const original = await input.inputValue();
     await input.fill("My_Template");
     await page.getByTestId("save-button").click();
     await expect(page.getByTestId("save-success")).toBeVisible({ timeout: 5_000 });
+    // Restore original value
+    await input.fill(original);
+    await page.getByTestId("save-button").click();
   });
 
   test("save success feedback auto-hides after 2 seconds", async ({ page }) => {
-    await page.getByTestId("input-voice-name").fill("TestVoice");
+    const input = page.getByTestId("input-voice-name");
+    const original = await input.inputValue();
+    await input.fill("TestVoice");
     await page.getByTestId("save-button").click();
     await expect(page.getByTestId("save-success")).toBeVisible({ timeout: 5_000 });
     // After 2s the panel resets to idle and the success message disappears
     await expect(page.getByTestId("save-success")).not.toBeVisible({ timeout: 5_000 });
+    // Restore original value
+    await input.fill(original);
+    await page.getByTestId("save-button").click();
   });
 });
