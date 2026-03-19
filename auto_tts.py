@@ -2517,7 +2517,7 @@ async def run_job(
     no_save: bool = False,
     verify: bool = False,
     app_support_dir: Optional[str] = None,
-    log_callback: Optional[Callable[[str], None]] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     debug_callback: Optional[Callable[[], None]] = None,
 ) -> dict:

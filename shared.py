@@ -142,8 +142,11 @@ class EmojiFormatter(logging.Formatter):
         return f"{self.formatTime(record, '%H:%M:%S')} | {record.levelname} | {record.getMessage()}"
 
 
+_LEVEL_MAP: dict[str, str] = {"WARNING": "WARN", "CRITICAL": "ERROR"}
+
+
 class CallbackLogHandler(logging.Handler):
-    def __init__(self, callback: Callable[[str], None]) -> None:
+    def __init__(self, callback: Callable[[str, str], None]) -> None:
         super().__init__()
         self.callback = callback
         self.setFormatter(EmojiFormatter())
@@ -151,7 +154,8 @@ class CallbackLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            self.callback(msg)
+            level = _LEVEL_MAP.get(record.levelname, record.levelname)
+            self.callback(msg, level)
         except Exception:
             self.handleError(record)
 
@@ -162,7 +166,7 @@ def setup_logging(
     logger_name: str = "auto_tts",
     log_prefix: str = "auto_tts",
     logs_dir: Optional[str] = None,
-    log_callback: Optional[Callable[[str], None]] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None,
 ) -> logging.Logger:
     if logs_dir is None:
         logs_path = Path("logs")
@@ -190,7 +194,7 @@ def setup_logging(
 
     if log_callback:
         callback_handler = CallbackLogHandler(log_callback)
-        callback_handler.setLevel(logging.INFO)
+        callback_handler.setLevel(logging.DEBUG)
         logger.addHandler(callback_handler)
 
     return logger

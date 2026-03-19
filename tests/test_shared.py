@@ -110,7 +110,7 @@ class TestSetupLogging:
             logger_name="test_callback",
             log_prefix="cb",
             logs_dir=str(tmp_path),
-            log_callback=messages.append,
+            log_callback=lambda msg, level: messages.append(msg),
         )
         logger.info("hello callback")
         assert any("hello callback" in m for m in messages)
