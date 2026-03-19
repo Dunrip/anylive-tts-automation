@@ -46,8 +46,8 @@ async def _run_script_job(job: Job) -> None:
             csv_path_obj = _REPO_ROOT / csv_path_obj
         csv_path_str = str(csv_path_obj)
 
-    def log_callback(message: str) -> None:
-        job.emit_log(message)
+    def log_callback(message: str, level: str = "INFO") -> None:
+        job.emit_log(message, level=level)
 
     opts = job.options or {}
     headless: bool = bool(opts.get("headless", True))

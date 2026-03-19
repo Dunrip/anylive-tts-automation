@@ -1431,7 +1431,7 @@ async def run_job(
     limit: int | None = None,
     audio_dir: str | None = None,
     app_support_dir: str | None = None,
-    log_callback: Callable[[str], None] | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
 ) -> dict:
     """Run Script automation as a job.
 

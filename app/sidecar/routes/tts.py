@@ -41,8 +41,8 @@ async def _run_tts_job(job: Job) -> None:
             csv_path_obj = _REPO_ROOT / csv_path_obj
         csv_path_str = str(csv_path_obj)
 
-    def log_callback(message: str) -> None:
-        job.emit_log(message)
+    def log_callback(message: str, level: str = "INFO") -> None:
+        job.emit_log(message, level=level)
 
     def progress_callback(current: int, total: int, version_name: str) -> None:
         job.emit_progress(current, total, version_name)
@@ -93,10 +93,15 @@ async def _run_tts_job(job: Job) -> None:
 @router.post("/tts/run", status_code=202)
 async def run_tts(request: TTSRunRequest) -> dict[str, str]:
     """Start a TTS automation job."""
-    is_download = bool(request.options.get("download", False)) if isinstance(request.options, dict) else False
+    is_download = (
+        bool(request.options.get("download", False))
+        if isinstance(request.options, dict)
+        else False
+    )
     if not request.csv_path and not is_download:
         raise HTTPException(
-            status_code=422, detail="csv_path is required for TTS automation (except download mode)"
+            status_code=422,
+            detail="csv_path is required for TTS automation (except download mode)",
         )
 
     try:
