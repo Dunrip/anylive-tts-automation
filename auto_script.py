@@ -10,6 +10,7 @@ audio files from CSV.
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import logging
 import os
@@ -1101,24 +1102,445 @@ class ScriptAutomation(BrowserAutomation):
 
             products_since_refresh += 1
 
+    async def _detect_empty_thumbnail(self, product_number: int) -> bool:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        num_str = str(product_number)
+        try:
+            return bool(
+                await self.page.evaluate(
+                    """(targetNum) => {
+                        const row = document.querySelector(
+                            `[data-script-product="${targetNum}"]`
+                        );
+                        if (!row) return false;
+
+                        const card = row.querySelector('.product-card') || row;
+                        const host = card.closest('.product-card') || row;
+                        const img = host.querySelector('img') || row.querySelector('img');
+                        return !img;
+                    }""",
+                    num_str,
+                )
+            )
+        except Exception as e:
+            self.logger.debug(
+                f"Could not detect empty thumbnail for product #{product_number}: {e}"
+            )
+            return False
+
+    async def _read_product_name_from_card(self, product_number: int) -> Optional[str]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        num_str = str(product_number)
+        try:
+            name: Optional[str] = await self.page.evaluate(
+                """(targetNum) => {
+                    const row = document.querySelector(
+                        `[data-script-product="${targetNum}"]`
+                    );
+                    if (!row) return null;
+
+                    const blocked = new Set([
+                        targetNum,
+                        'more',
+                        'replace',
+                        'delete',
+                        'upload audio script',
+                        'add audio',
+                        'no product script',
+                    ]);
+
+                    const candidates = [];
+                    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                        const raw = walker.currentNode.textContent || '';
+                        const text = raw.trim();
+                        if (!text) continue;
+
+                        const normalized = text.toLowerCase();
+                        if (blocked.has(normalized)) continue;
+                        if (/^\\d{1,3}$/.test(text)) continue;
+                        if (/^\\d+\\s*\\/\\s*\\d+$/.test(text)) continue;
+                        if (/^\\d+\\s+product\\s+scripts?$/i.test(text)) continue;
+                        if (text.length < 2 || text.length > 140) continue;
+
+                        const parent = walker.currentNode.parentElement;
+                        if (!parent) continue;
+                        const tag = parent.tagName;
+                        if (tag === 'BUTTON') continue;
+
+                        const weight = text.length + (tag === 'P' || tag === 'SPAN' ? 3 : 0);
+                        candidates.push({ text, weight });
+                    }
+
+                    if (candidates.length === 0) return null;
+                    candidates.sort((a, b) => b.weight - a.weight);
+                    return candidates[0].text;
+                }""",
+                num_str,
+            )
+            return name.strip() if name else None
+        except Exception as e:
+            self.logger.debug(
+                f"Could not read card product name for #{product_number}: {e}"
+            )
+            return None
+
+    async def _scan_sidebar_empty_status(self) -> dict[int, str]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        payload: dict[str, Any] = await self.page.evaluate(
+            """() => {
+                const cards = document.querySelectorAll('.product-card');
+                const empty = {};
+                let total = 0;
+
+                for (const card of cards) {
+                    total += 1;
+                    const row = card.parentElement || card;
+
+                    let productNumber = null;
+                    const numWalker = document.createTreeWalker(
+                        row, NodeFilter.SHOW_TEXT
+                    );
+                    while (numWalker.nextNode()) {
+                        const t = numWalker.currentNode.textContent?.trim() || '';
+                        if (!/^\\d{1,3}$/.test(t)) continue;
+
+                        let isCounter = false;
+                        let check = numWalker.currentNode.parentElement;
+                        for (let c = 0; c < 3 && check; c++) {
+                            if (/^\\d+\\s*\\/\\s*\\d+$/.test(check.textContent?.trim() || '')) {
+                                isCounter = true;
+                                break;
+                            }
+                            check = check.parentElement;
+                        }
+                        if (isCounter) continue;
+                        productNumber = parseInt(t, 10);
+                        break;
+                    }
+                    if (!productNumber || productNumber < 1) continue;
+
+                    const hasImg = !!(card.querySelector('img') || row.querySelector('img'));
+                    if (hasImg) continue;
+
+                    const blocked = new Set([
+                        String(productNumber),
+                        'more',
+                        'replace',
+                        'delete',
+                        'upload audio script',
+                        'add audio',
+                        'no product script',
+                    ]);
+                    const names = [];
+                    const nameWalker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+                    while (nameWalker.nextNode()) {
+                        const txt = nameWalker.currentNode.textContent?.trim() || '';
+                        if (!txt) continue;
+                        const normalized = txt.toLowerCase();
+                        if (blocked.has(normalized)) continue;
+                        if (/^\\d{1,3}$/.test(txt)) continue;
+                        if (/^\\d+\\s*\\/\\s*\\d+$/.test(txt)) continue;
+                        if (/^\\d+\\s+product\\s+scripts?$/i.test(txt)) continue;
+                        if (txt.length < 2 || txt.length > 140) continue;
+
+                        const parent = nameWalker.currentNode.parentElement;
+                        if (!parent || parent.tagName === 'BUTTON') continue;
+                        const score = txt.length + (parent.tagName === 'P' ? 4 : 0);
+                        names.push({ txt, score });
+                    }
+
+                    let productName = '';
+                    if (names.length > 0) {
+                        names.sort((a, b) => b.score - a.score);
+                        productName = names[0].txt;
+                    }
+
+                    empty[String(productNumber)] = productName;
+                }
+
+                return { empty, total };
+            }"""
+        )
+
+        raw_empty = payload.get("empty", {}) if isinstance(payload, dict) else {}
+        total = int(payload.get("total", 0)) if isinstance(payload, dict) else 0
+        empty_cards: dict[int, str] = {
+            int(k): str(v).strip() for k, v in raw_empty.items() if str(k).isdigit()
+        }
+
+        self.logger.info(
+            f"Pre-scan: {len(empty_cards)} empty product cards out of {total} total"
+        )
+        return empty_cards
+
+    async def _close_replace_popup(self) -> None:
+        if self.page is None:
+            return
+
+        try:
+            await self.page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+
+            close_btn = self.page.locator(
+                'button:has-text("×"), button[aria-label="Close"], .ant-modal-close'
+            ).first
+            if await close_btn.count() > 0:
+                try:
+                    await close_btn.click(timeout=CLICK_TIMEOUT)
+                except Exception:
+                    pass
+
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+    async def _pick_best_product_match(self, product_name: str) -> Optional[int]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        names: list[str] = await self.page.evaluate(
+            """(selectors) => {
+                let elements = [];
+                for (const sel of selectors) {
+                    const found = Array.from(document.querySelectorAll(sel)).filter((el) => {
+                        const style = window.getComputedStyle(el);
+                        return style && style.display !== 'none' && style.visibility !== 'hidden';
+                    });
+                    if (found.length > 0) {
+                        elements = found;
+                        break;
+                    }
+                }
+
+                return elements.map((el) => {
+                    const nameNode =
+                        el.querySelector('p, span, h3, h4, [class*="name"], [class*="title"]') ||
+                        el;
+                    return (nameNode.textContent || '').trim();
+                }).filter((txt) => txt.length > 0);
+            }""",
+            SCRIPT_SELECTORS["replace_product_item"],
+        )
+
+        if not names:
+            self.logger.warning("No product results found in replace popup")
+            return None
+
+        if len(names) == 1:
+            self.logger.info(f"Found exact match: '{names[0]}'")
+            return 0
+
+        target = product_name.lower().strip()
+        scored: list[tuple[int, str, float]] = []
+        for idx, candidate in enumerate(names):
+            score = difflib.SequenceMatcher(
+                None, target, candidate.lower().strip()
+            ).ratio()
+            scored.append((idx, candidate, score))
+
+        best_index, best_name, best_score = max(scored, key=lambda item: item[2])
+        self.logger.info(
+            f"Found {len(names)} results, selected '{best_name}' "
+            f"(similarity: {best_score:.0%})"
+        )
+        if best_score < 0.5:
+            self.logger.warning(f"Low confidence match ({best_score:.0%})")
+
+        return best_index
+
     async def replace_all_products(
         self,
         start_product: int = 1,
         limit: Optional[int] = None,
+        *,
         dry_run: bool = False,
     ) -> list[dict]:
-        """Replace empty product cards with Shopee products. Not implemented yet."""
-        self.logger.info("replace_all_products: Not implemented yet")
-        return []
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        await self.navigate_to_set_live_content()
+        total = await self.get_product_count()
+        end_product = min(start_product + (limit or total) - 1, total)
+
+        empty_status = await self._scan_sidebar_empty_status()
+        in_range_empty = {
+            number: name
+            for number, name in empty_status.items()
+            if start_product <= number <= end_product
+        }
+
+        if not in_range_empty:
+            self.logger.info("No empty product cards found")
+            return []
+
+        results: list[dict] = []
+        target_numbers = sorted(in_range_empty.keys())
+
+        for product_number in target_numbers:
+            fallback_name = in_range_empty.get(product_number, "")
+            if not await self.select_product(product_number):
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": fallback_name,
+                        "replaced": False,
+                        "success": False,
+                        "error": f"Could not select product #{product_number}",
+                    }
+                )
+                continue
+
+            name = await self._read_product_name_from_card(product_number)
+            product_name = (
+                name or fallback_name or f"Product {product_number}"
+            ).strip()
+
+            success = await self.replace_single_product(
+                product_number,
+                product_name,
+                dry_run=dry_run,
+            )
+
+            results.append(
+                {
+                    "product_number": product_number,
+                    "product_name": product_name,
+                    "replaced": success,
+                    "success": success,
+                    "error": None if success else "Failed to replace product",
+                }
+            )
+
+        return results
 
     async def replace_single_product(
         self, product_number: int, product_name: str, *, dry_run: bool = False
     ) -> bool:
-        """Replace a single empty product card. Not implemented yet."""
-        self.logger.info(
-            f"replace_single_product #{product_number}: Not implemented yet"
-        )
-        return False
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        if dry_run:
+            self.logger.info(
+                f"DRY RUN: Would replace product #{product_number} '{product_name}'"
+            )
+            return True
+
+        try:
+            await self._dismiss_open_menus()
+
+            tagged_row = self.page.locator(f'[data-script-product="{product_number}"]')
+            if await tagged_row.count() == 0:
+                self.logger.warning(
+                    f"Tagged row not found for product #{product_number}, re-selecting"
+                )
+                if not await self.select_product(product_number):
+                    return False
+                tagged_row = self.page.locator(
+                    f'[data-script-product="{product_number}"]'
+                )
+
+            more_btn = tagged_row.locator('button[aria-label="more"]').first
+            if await more_btn.count() == 0:
+                more_btn = tagged_row.locator('button:has([aria-label="more"])').first
+
+            if await more_btn.count() == 0:
+                self.logger.error(
+                    f"Could not find card menu button for product #{product_number}"
+                )
+                return False
+
+            await more_btn.scroll_into_view_if_needed()
+            await more_btn.click(timeout=CLICK_TIMEOUT)
+            await asyncio.sleep(0.5)
+
+            replace_item = self.page.get_by_role("menuitem", name="Replace").first
+            try:
+                await replace_item.wait_for(state="visible", timeout=CLICK_TIMEOUT)
+            except Exception:
+                replace_item = self.page.locator(
+                    '[role="menuitem"]:has-text("Replace")'
+                ).first
+            await replace_item.click(timeout=CLICK_TIMEOUT)
+
+            await self.page.wait_for_selector(
+                'text="Replace Product"', timeout=CLICK_TIMEOUT
+            )
+
+            room_input = self.page.locator("input").first
+            try:
+                if await room_input.count() > 0 and await room_input.is_visible():
+                    value = await room_input.input_value()
+                    if value.strip() == "":
+                        self.logger.debug("Room ID input appears empty before confirm")
+            except Exception:
+                pass
+
+            room_confirm = self.page.locator('button:has-text("Confirm")').first
+            await room_confirm.click(timeout=CLICK_TIMEOUT)
+
+            search_selector = 'input[placeholder*="Search"]'
+            await self.page.wait_for_selector(
+                search_selector, timeout=NAVIGATION_TIMEOUT
+            )
+
+            await self.page.fill(search_selector, product_name)
+            await asyncio.sleep(2)
+
+            best_index = await self._pick_best_product_match(product_name)
+            if best_index is None:
+                self.logger.warning(
+                    f"No product match found in popup for '{product_name}'"
+                )
+                await self._close_replace_popup()
+                return False
+
+            items = self.page.locator(
+                f"{SCRIPT_SELECTORS['replace_product_item'][0]}:visible"
+            )
+            for sel in SCRIPT_SELECTORS["replace_product_item"]:
+                loc = self.page.locator(f"{sel}:visible")
+                if await loc.count() > 0:
+                    items = loc
+                    break
+
+            visible_count = await items.count()
+            if best_index >= visible_count:
+                self.logger.warning(
+                    f"Best match index {best_index} out of range ({visible_count})"
+                )
+                await self._close_replace_popup()
+                return False
+
+            await items.nth(best_index).click(timeout=CLICK_TIMEOUT)
+            await asyncio.sleep(0.5)
+
+            await self.page.locator('button:has-text("Confirm")').last.click(
+                timeout=CLICK_TIMEOUT
+            )
+
+            try:
+                await self.page.wait_for_selector(
+                    'text="Replace Product"', state="hidden", timeout=CLICK_TIMEOUT
+                )
+            except Exception:
+                await asyncio.sleep(0.8)
+
+            await asyncio.sleep(1)
+            return True
+
+        except Exception as e:
+            await self._close_replace_popup()
+            self.logger.error(
+                f"Error replacing product #{product_number} '{product_name}': {e}"
+            )
+            return False
 
 
 # ---------------------------------------------------------------------------
