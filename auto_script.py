@@ -1970,6 +1970,7 @@ async def run_job(
     start_product: int | None = None,
     limit: int | None = None,
     audio_dir: str | None = None,
+    base_url: str | None = None,
     app_support_dir: str | None = None,
     log_callback: Callable[[str, str], None] | None = None,
 ) -> dict:
@@ -2020,22 +2021,29 @@ async def run_job(
 
     try:
         # Load configuration
-        if not os.path.exists(config_path):
+        if config_path != "inline" and not os.path.exists(config_path):
             error_msg = f"Config file not found: {config_path}"
             logger.error(f"❌ {error_msg}")
             return {"success": False, "report": {}, "error": error_msg}
 
-        try:
-            config = load_script_config(
-                config_path, {"audio_dir": audio_dir} if audio_dir else None
-            )
-            logger.info(f"Loaded config: {config_path}")
-        except FileNotFoundError as e:
-            logger.error(f"{e}")
-            return {"success": False, "report": {}, "error": str(e)}
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            return {"success": False, "report": {}, "error": str(e)}
+        if config_path == "inline":
+            config = ScriptConfig(base_url=base_url or "")
+            if audio_dir:
+                config.audio_dir = audio_dir
+            logger.info(f"Using inline config with base_url: {config.base_url}")
+        else:
+            try:
+                config = load_script_config(
+                    config_path,
+                    {"audio_dir": audio_dir} if audio_dir else None,
+                )
+                logger.info(f"Loaded config: {config_path}")
+            except FileNotFoundError as e:
+                logger.error(f"{e}")
+                return {"success": False, "report": {}, "error": str(e)}
+            except Exception as e:
+                logger.error(f"Failed to load config: {e}")
+                return {"success": False, "report": {}, "error": str(e)}
 
         if debug:
             logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
@@ -2309,6 +2317,7 @@ async def main() -> None:
         start_product=args.start_product if args.start_product > 1 else None,
         limit=args.limit,
         audio_dir=args.audio_dir,
+        base_url=getattr(args, "base_url", None),
     )
 
     if not result["success"]:
