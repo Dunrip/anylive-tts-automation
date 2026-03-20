@@ -79,15 +79,12 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
     #   - The '...' button on product cards may share aria-label="more"
     #     with script-row buttons — scope via parent card context.
     "card_more_button": [
-        # VERIFY: '...' button on sidebar product cards (NOT script rows)
-        # Scoped at runtime via data-script-product tagged row
-        'button[aria-label="more"]',
-        'button:has([aria-label="more"])',
+        'button[aria-label="More Operations"]',
+        ".chakra-menu__menu-button",
     ],
     "replace_menuitem": [
-        # VERIFY: "Replace" option in the card '...' dropdown
-        '[role="menuitem"]:has-text("Replace")',
-        'li:has-text("Replace")',
+        '[role="menuitem"]:has-text("Replace Product")',
+        '.chakra-menu__menuitem:has-text("Replace")',
     ],
     "replace_popup_confirm": [
         # VERIFY: Blue "Confirm" button in "Replace Product" popup (Room ID step)
@@ -99,14 +96,9 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
         'input[placeholder*="Search"]',
     ],
     "replace_product_item": [
-        # VERIFY: Product card/row in the selection grid
-        # From screenshots: numbered cards with radio buttons in a grid
-        ".product-item",
-        '[class*="product-card"]',
-        '[class*="product-list"] > div',
+        'input[type="radio"]',
     ],
     "replace_final_confirm": [
-        # VERIFY: "Confirm" button at bottom of product selection grid
         'button:has-text("Confirm")',
     ],
 }
@@ -1119,7 +1111,8 @@ class ScriptAutomation(BrowserAutomation):
                         const card = row.querySelector('.product-card') || row;
                         const host = card.closest('.product-card') || row;
                         const img = host.querySelector('img') || row.querySelector('img');
-                        return !img;
+                        if (!img) return true;
+                        return img.src && img.src.includes('default_product_image');
                     }""",
                     num_str,
                 )
@@ -1226,8 +1219,9 @@ class ScriptAutomation(BrowserAutomation):
                     }
                     if (!productNumber || productNumber < 1) continue;
 
-                    const hasImg = !!(card.querySelector('img') || row.querySelector('img'));
-                    if (hasImg) continue;
+                    const img = card.querySelector('img') || row.querySelector('img');
+                    const isPopulated = img && img.src && !img.src.includes('default_product_image');
+                    if (isPopulated) continue;
 
                     const blocked = new Set([
                         String(productNumber),
@@ -1306,27 +1300,28 @@ class ScriptAutomation(BrowserAutomation):
             raise RuntimeError("Browser page is not initialized")
 
         names: list[str] = await self.page.evaluate(
-            """(selectors) => {
-                let elements = [];
-                for (const sel of selectors) {
-                    const found = Array.from(document.querySelectorAll(sel)).filter((el) => {
-                        const style = window.getComputedStyle(el);
-                        return style && style.display !== 'none' && style.visibility !== 'hidden';
-                    });
-                    if (found.length > 0) {
-                        elements = found;
-                        break;
-                    }
-                }
+            """() => {
+                const radios = Array.from(
+                    document.querySelectorAll('input[type="radio"]')
+                ).filter(el => {
+                    const style = window.getComputedStyle(el);
+                    return style && style.display !== 'none' && style.visibility !== 'hidden';
+                });
 
-                return elements.map((el) => {
-                    const nameNode =
-                        el.querySelector('p, span, h3, h4, [class*="name"], [class*="title"]') ||
-                        el;
-                    return (nameNode.textContent || '').trim();
-                }).filter((txt) => txt.length > 0);
-            }""",
-            SCRIPT_SELECTORS["replace_product_item"],
+                return radios.map(radio => {
+                    let container = radio.parentElement;
+                    for (let i = 0; i < 5 && container; i++) {
+                        const text = container.textContent || '';
+                        if (text.length > 20) {
+                            const lines = text.split(/[\\n\\r]+/).map(s => s.trim()).filter(s => s.length > 5);
+                            const name = lines.find(l => !/^[¥\\d,\\.]+$/.test(l) && !/^ID:/.test(l));
+                            if (name) return name.trim();
+                        }
+                        container = container.parentElement;
+                    }
+                    return '';
+                }).filter(txt => txt.length > 0);
+            }"""
         )
 
         if not names:
@@ -1460,9 +1455,9 @@ class ScriptAutomation(BrowserAutomation):
                     f'[data-script-product="{product_number}"]'
                 )
 
-            more_btn = tagged_row.locator('button[aria-label="more"]').first
+            more_btn = tagged_row.locator('button[aria-label="More Operations"]').first
             if await more_btn.count() == 0:
-                more_btn = tagged_row.locator('button:has([aria-label="more"])').first
+                more_btn = tagged_row.locator(".chakra-menu__menu-button").first
 
             if await more_btn.count() == 0:
                 self.logger.error(
@@ -1474,35 +1469,32 @@ class ScriptAutomation(BrowserAutomation):
             await more_btn.click(timeout=CLICK_TIMEOUT)
             await asyncio.sleep(0.5)
 
-            replace_item = self.page.get_by_role("menuitem", name="Replace").first
+            replace_item = self.page.get_by_role(
+                "menuitem", name="Replace Product"
+            ).first
             try:
                 await replace_item.wait_for(state="visible", timeout=CLICK_TIMEOUT)
             except Exception:
                 replace_item = self.page.locator(
-                    '[role="menuitem"]:has-text("Replace")'
+                    '[role="menuitem"]:has-text("Replace Product")'
                 ).first
             await replace_item.click(timeout=CLICK_TIMEOUT)
 
             await self.page.wait_for_selector(
-                'text="Replace Product"', timeout=CLICK_TIMEOUT
+                'text="Add Platform Product"', timeout=CLICK_TIMEOUT
             )
+            self.logger.info(f"Replace popup opened for product #{product_number}")
+            await asyncio.sleep(1)
 
-            room_input = self.page.locator("input").first
-            try:
-                if await room_input.count() > 0 and await room_input.is_visible():
-                    value = await room_input.input_value()
-                    if value.strip() == "":
-                        self.logger.debug("Room ID input appears empty before confirm")
-            except Exception:
-                pass
-
-            room_confirm = self.page.locator('button:has-text("Confirm")').first
+            room_confirm = self.page.locator('button:has-text("Confirm"):visible').first
             await room_confirm.click(timeout=CLICK_TIMEOUT)
 
             search_selector = 'input[placeholder*="Search"]'
             await self.page.wait_for_selector(
                 search_selector, timeout=NAVIGATION_TIMEOUT
             )
+            self.logger.info("Product grid loaded, searching...")
+            await asyncio.sleep(1)
 
             await self.page.fill(search_selector, product_name)
             await asyncio.sleep(2)
@@ -1515,38 +1507,31 @@ class ScriptAutomation(BrowserAutomation):
                 await self._close_replace_popup()
                 return False
 
-            items = self.page.locator(
-                f"{SCRIPT_SELECTORS['replace_product_item'][0]}:visible"
-            )
-            for sel in SCRIPT_SELECTORS["replace_product_item"]:
-                loc = self.page.locator(f"{sel}:visible")
-                if await loc.count() > 0:
-                    items = loc
-                    break
-
-            visible_count = await items.count()
-            if best_index >= visible_count:
-                self.logger.warning(
-                    f"Best match index {best_index} out of range ({visible_count})"
-                )
+            radios = self.page.locator('input[type="radio"]:visible')
+            visible_count = await radios.count()
+            if visible_count == 0:
+                self.logger.warning("No selectable radio buttons in product grid")
                 await self._close_replace_popup()
                 return False
 
-            await items.nth(best_index).click(timeout=CLICK_TIMEOUT)
+            target_index = min(best_index, visible_count - 1)
+            await radios.nth(target_index).click(force=True, timeout=CLICK_TIMEOUT)
             await asyncio.sleep(0.5)
 
-            await self.page.locator('button:has-text("Confirm")').last.click(
-                timeout=CLICK_TIMEOUT
-            )
+            final_confirm = self.page.locator('button:has-text("Confirm"):visible').last
+            await final_confirm.click(timeout=CLICK_TIMEOUT)
 
             try:
                 await self.page.wait_for_selector(
-                    'text="Replace Product"', state="hidden", timeout=CLICK_TIMEOUT
+                    'text="Add Platform Product"',
+                    state="hidden",
+                    timeout=NAVIGATION_TIMEOUT,
                 )
             except Exception:
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(3)
 
             await asyncio.sleep(1)
+            self.logger.info(f"Successfully replaced product #{product_number}")
             return True
 
         except Exception as e:
