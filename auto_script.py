@@ -67,6 +67,24 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
     "script_row_name": [
         '[aria-label="more"]',  # Each script row has a "more" button — used as anchor to find row text
     ],
+    "card_more_button": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
+    "replace_menuitem": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
+    "replace_popup_confirm": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
+    "replace_search_input": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
+    "replace_product_item": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
+    "replace_final_confirm": [
+        # TODO: discover via --debug mode (Task 2)
+    ],
 }
 
 
@@ -1060,9 +1078,29 @@ class ScriptAutomation(BrowserAutomation):
 
             products_since_refresh += 1
 
+    async def replace_all_products(
+        self,
+        start_product: int = 1,
+        limit: Optional[int] = None,
+        dry_run: bool = False,
+    ) -> list[dict]:
+        """Replace empty product cards with Shopee products. Not implemented yet."""
+        self.logger.info("replace_all_products: Not implemented yet")
+        return []
+
+    async def replace_single_product(
+        self, product_number: int, product_name: str, *, dry_run: bool = False
+    ) -> bool:
+        """Replace a single empty product card. Not implemented yet."""
+        self.logger.info(
+            f"replace_single_product #{product_number}: Not implemented yet"
+        )
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Config loading
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def load_script_config(
     config_path: str, cli_overrides: Optional[dict] = None
@@ -1427,6 +1465,7 @@ async def run_job(
     dry_run: bool = False,
     debug: bool = False,
     delete_scripts: bool = False,
+    replace_products: bool = False,
     start_product: int | None = None,
     limit: int | None = None,
     audio_dir: str | None = None,
@@ -1452,7 +1491,7 @@ async def run_job(
         dict with keys: success (bool), report (dict), error (str or None)
     """
     # Validate csv_path requirement
-    if not delete_scripts and not csv_path:
+    if not delete_scripts and not replace_products and not csv_path:
         return {
             "success": False,
             "report": {},
@@ -1527,7 +1566,30 @@ async def run_job(
                 logger.error(error_msg)
                 return {"success": False, "report": {}, "error": error_msg}
 
-            if delete_scripts:
+            if replace_products:
+                logger.info(
+                    f"REPLACE MODE: Replacing empty product cards "
+                    f"starting at #{start_product or 1}"
+                )
+                if dry_run:
+                    logger.info("DRY RUN MODE: No products will be replaced")
+
+                replace_results = await automation.replace_all_products(
+                    start_product=start_product or 1,
+                    limit=limit,
+                    dry_run=dry_run,
+                )
+                report = generate_script_report(
+                    products=[],
+                    config=config,
+                    timestamp=timestamp,
+                    logger=logger,
+                    mode="replace",
+                    delete_results=replace_results,
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+            elif delete_scripts:
                 logger.info(
                     f"DELETE MODE: Deleting scripts from products "
                     f"starting at #{start_product or 1}"
@@ -1631,6 +1693,11 @@ async def main() -> None:
         help="Delete all scripts from all products (CSV not required)",
     )
     parser.add_argument(
+        "--replace-products",
+        action="store_true",
+        help="Replace empty product cards with Shopee products (CSV not required)",
+    )
+    parser.add_argument(
         "--start-product",
         type=int,
         default=1,
@@ -1654,6 +1721,9 @@ async def main() -> None:
     parser.add_argument("--audio-dir", type=str, help="Override audio directory path")
 
     args = parser.parse_args()
+
+    if args.replace_products and args.delete_scripts:
+        parser.error("--replace-products and --delete-scripts cannot be used together")
 
     if args.debug and args.headless:
         args.debug = False
@@ -1701,9 +1771,13 @@ async def main() -> None:
     elif args.config:
         config_path = args.config
 
-    if config_path is None and args.delete_scripts and args.base_url:
+    if (
+        config_path is None
+        and (args.delete_scripts or args.replace_products)
+        and args.base_url
+    ):
         config_path = "inline"
-    elif config_path is None and not args.delete_scripts:
+    elif config_path is None and not args.delete_scripts and not args.replace_products:
         logger.error("Please specify --client or --config for upload mode")
         logger.info("   python auto_script.py --client example --csv scripts.csv")
         return
@@ -1712,7 +1786,7 @@ async def main() -> None:
         return
 
     csv_path = None
-    if not args.delete_scripts:
+    if not args.delete_scripts and not args.replace_products:
         try:
             csv_from_config = None
             if config_path != "inline":
@@ -1730,6 +1804,7 @@ async def main() -> None:
         dry_run=args.dry_run,
         debug=args.debug,
         delete_scripts=args.delete_scripts,
+        replace_products=args.replace_products,
         start_product=args.start_product if args.start_product > 1 else None,
         limit=args.limit,
         audio_dir=args.audio_dir,
