@@ -67,23 +67,46 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
     "script_row_name": [
         '[aria-label="more"]',  # Each script row has a "more" button — used as anchor to find row text
     ],
+    # ── Replace Product selectors ──────────────────────────────────────
+    # Derived from existing codebase patterns + user screenshots.
+    # VERIFY: Run with --debug to confirm each selector on the live page.
+    #
+    # Product card detection:
+    #   - Populated cards have an <img> inside .product-card
+    #   - Empty cards have NO <img> (or a placeholder without src)
+    #   - Product name text is in a child element of the sidebar row
+    #   - The '...' button on product cards may share aria-label="more"
+    #     with script-row buttons — scope via parent card context.
     "card_more_button": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: '...' button on sidebar product cards (NOT script rows)
+        # Scoped at runtime via data-script-product tagged row
+        'button[aria-label="more"]',
+        'button:has([aria-label="more"])',
     ],
     "replace_menuitem": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: "Replace" option in the card '...' dropdown
+        '[role="menuitem"]:has-text("Replace")',
+        'li:has-text("Replace")',
     ],
     "replace_popup_confirm": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: Blue "Confirm" button in "Replace Product" popup (Room ID step)
+        'button:has-text("Confirm")',
     ],
     "replace_search_input": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: "Search product by name/ID" input in Replace popup
+        'input[placeholder*="Search product"]',
+        'input[placeholder*="Search"]',
     ],
     "replace_product_item": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: Product card/row in the selection grid
+        # From screenshots: numbered cards with radio buttons in a grid
+        ".product-item",
+        '[class*="product-card"]',
+        '[class*="product-list"] > div',
     ],
     "replace_final_confirm": [
-        # TODO: discover via --debug mode (Task 2)
+        # VERIFY: "Confirm" button at bottom of product selection grid
+        'button:has-text("Confirm")',
     ],
 }
 
