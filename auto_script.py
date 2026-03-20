@@ -1402,21 +1402,35 @@ class ScriptAutomation(BrowserAutomation):
                 name or fallback_name or f"Product {product_number}"
             ).strip()
 
-            success = await self.replace_single_product(
-                product_number,
-                product_name,
-                dry_run=dry_run,
-            )
-
-            results.append(
-                {
-                    "product_number": product_number,
-                    "product_name": product_name,
-                    "replaced": success,
-                    "success": success,
-                    "error": None if success else "Failed to replace product",
-                }
-            )
+            try:
+                success = await self.replace_single_product(
+                    product_number,
+                    product_name,
+                    dry_run=dry_run,
+                )
+                if not success and not dry_run:
+                    await self.take_screenshot(f"replace_product_{product_number}")
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": product_name,
+                        "replaced": success,
+                        "success": success,
+                        "error": None if success else "Failed to replace product",
+                    }
+                )
+            except Exception as e:
+                self.logger.error(f"Error replacing product #{product_number}: {e}")
+                await self.take_screenshot(f"replace_product_{product_number}")
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": product_name,
+                        "replaced": False,
+                        "success": False,
+                        "error": str(e),
+                    }
+                )
 
         return results
 
