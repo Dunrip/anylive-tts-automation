@@ -1827,6 +1827,48 @@ def generate_script_report(
             f"Deleted: {total_scripts_deleted} | Time: {elapsed_str}"
         )
         logger.info("=" * 70)
+    elif mode == "replace" and delete_results is not None:
+        successful = sum(1 for r in delete_results if r["success"])
+        replaced = sum(1 for r in delete_results if r.get("replaced", False))
+        failed = sum(1 for r in delete_results if not r["success"])
+        already_populated = sum(
+            1 for r in delete_results if r["success"] and not r.get("replaced", False)
+        )
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "replace",
+            "total_products": len(delete_results),
+            "replaced": replaced,
+            "already_populated": already_populated,
+            "failed": failed,
+            "elapsed_seconds": elapsed_seconds,
+            "products": delete_results,
+        }
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("FINAL SCRIPT REPORT (REPLACE MODE)")
+        logger.info("=" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Replaced: {replaced} | Failed: {failed}"
+        )
+        if already_populated > 0:
+            logger.info(f"Already populated (skipped): {already_populated}")
+        logger.info(f"Time: {elapsed_str}")
+        for r in delete_results:
+            status = "OK" if r["success"] else "FAILED"
+            if r.get("replaced"):
+                detail = "Replaced"
+            elif r["success"]:
+                detail = "Already populated"
+            else:
+                detail = r.get("error", "Unknown")
+            logger.info(f"  {status} Product #{r['product_number']}: {detail}")
+        logger.info("-" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Replaced: {replaced} | "
+            f"Failed: {failed} | Time: {elapsed_str}"
+        )
+        logger.info("=" * 70)
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
