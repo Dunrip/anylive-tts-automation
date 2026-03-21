@@ -1277,20 +1277,13 @@ class ScriptAutomation(BrowserAutomation):
     async def _close_replace_popup(self) -> None:
         if self.page is None:
             return
-
         try:
+            cancel_btn = self.page.locator('button:has-text("Cancel"):visible').first
+            if await cancel_btn.count() > 0:
+                await cancel_btn.click(timeout=CLICK_TIMEOUT)
+                await asyncio.sleep(0.5)
+                return
             await self.page.keyboard.press("Escape")
-            await asyncio.sleep(0.2)
-
-            close_btn = self.page.locator(
-                'button:has-text("×"), button[aria-label="Close"], .ant-modal-close'
-            ).first
-            if await close_btn.count() > 0:
-                try:
-                    await close_btn.click(timeout=CLICK_TIMEOUT)
-                except Exception:
-                    pass
-
             await asyncio.sleep(0.5)
         except Exception:
             pass
