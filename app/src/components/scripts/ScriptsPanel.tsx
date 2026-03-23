@@ -146,6 +146,7 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
         onClear={() => { setCsvPath(null); setCsvPreview(null); }}
         sidecarUrl={sidecarUrl}
         configPath={configPath}
+        automationType="script"
       />
 
       {/* Options */}
