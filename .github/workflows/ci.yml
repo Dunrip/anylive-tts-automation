@@ -78,7 +78,9 @@ jobs:
 
       - name: Create placeholder sidecar binary
         run: |
-          touch app/src-tauri/binaries/sidecar-server-x86_64-unknown-linux-gnu
+          mkdir -p app/src-tauri/binaries/sidecar-server
+          mkdir -p app/src-tauri/binaries/sidecar-server/_internal
+          touch app/src-tauri/binaries/sidecar-server/sidecar-server-x86_64-unknown-linux-gnu
 
       - name: Run Clippy
         run: |

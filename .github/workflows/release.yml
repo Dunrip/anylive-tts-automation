@@ -43,18 +43,22 @@ jobs:
         shell: bash
         run: |
           cd app/sidecar
+          STAGING_DIR="dist/sidecar-bundle-${{ matrix.target-triple }}"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR"
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
-            cp dist/sidecar-server/sidecar-server.exe dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}.exe
+            cp dist/sidecar-server/sidecar-server.exe "$STAGING_DIR/sidecar-server-${{ matrix.target-triple }}.exe"
           else
-            cp dist/sidecar-server/sidecar-server dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}
+            cp dist/sidecar-server/sidecar-server "$STAGING_DIR/sidecar-server-${{ matrix.target-triple }}"
           fi
+          cp -R dist/sidecar-server/_internal "$STAGING_DIR/_internal"
 
       - name: Upload sidecar artifact
         uses: actions/upload-artifact@v4
         with:
           name: sidecar-${{ matrix.target-triple }}
           path: |
-            app/sidecar/dist/sidecar-server/sidecar-server-${{ matrix.target-triple }}*
+            app/sidecar/dist/sidecar-bundle-${{ matrix.target-triple }}/**
           retention-days: 1
 
   build-tauri:
@@ -90,11 +94,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: sidecar-${{ matrix.target-triple }}
-          path: app/src-tauri/binaries/
+          path: app/src-tauri/binaries/sidecar-server/
 
       - name: Make sidecar executable (macOS)
         if: matrix.platform == 'macos-latest'
-        run: chmod +x app/src-tauri/binaries/sidecar-server-${{ matrix.target-triple }}
+        run: chmod +x app/src-tauri/binaries/sidecar-server/sidecar-server-${{ matrix.target-triple }}
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
