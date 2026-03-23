@@ -85,6 +85,7 @@ class Job:
 
     def to_response(self) -> JobStatusResponse:
         from models.job import LogMessagePayload
+
         return JobStatusResponse(
             job_id=self.job_id,
             status=self.status,
@@ -142,7 +143,16 @@ class JobManager:
             result = automation_fn(job)
             if inspect.isawaitable(result):
                 await result
-            job.status = JobStatus.SUCCESS
+            if job.status == JobStatus.RUNNING:
+                job.status = JobStatus.SUCCESS
+            else:
+                _logger.warning(
+                    "Job %s coroutine finished but status is '%s' (expected 'running'); "
+                    "preserving externally-set status.",
+                    job.job_id,
+                    job.status.value,
+                )
+                job.emit_log("Job was cancelled — status preserved", level="WARN")
         except Exception as exc:
             job.status = JobStatus.FAILED
             job.error = str(exc)
