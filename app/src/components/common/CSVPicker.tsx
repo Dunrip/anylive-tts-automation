@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { CSVPreviewResponse } from "../../lib/types";
+import type { AutomationType, CSVPreviewResponse } from "../../lib/types";
 import { cn } from "@/lib/utils";
 import { FileSpreadsheet, X } from "lucide-react";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
@@ -10,6 +10,7 @@ interface CSVPickerProps {
   onClear?: () => void;
   sidecarUrl?: string | null;
   configPath?: string;
+  automationType?: AutomationType;
 }
 
 export function CSVPicker({
@@ -17,6 +18,7 @@ export function CSVPicker({
   onClear,
   sidecarUrl,
   configPath,
+  automationType,
 }: CSVPickerProps): React.ReactElement {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<CSVPreviewResponse | null>(null);
@@ -43,7 +45,11 @@ export function CSVPicker({
           const resp = await fetch(`${sidecarUrl}/api/csv/preview`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ csv_path: selected, config_path: configPath }),
+            body: JSON.stringify({
+              csv_path: selected,
+              config_path: configPath,
+              ...(automationType ? { automation_type: automationType } : {}),
+            }),
           });
           if (resp.ok) {
             const data: CSVPreviewResponse = await resp.json();
