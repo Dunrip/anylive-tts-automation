@@ -152,3 +152,27 @@ async def test_cancel_job() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_double_cancel_returns_409() -> None:
+    from models.job import AutomationType, JobStatus
+    from server import app
+    from services.job_manager import job_manager
+
+    job = job_manager.create_job(
+        automation_type=AutomationType.TTS,
+        config_path="test.json",
+        csv_path=None,
+        options={},
+    )
+    job.status = JobStatus.CANCELLED
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/api/jobs/{job.job_id}/cancel")
+
+    assert response.status_code == 409
+    data = response.json()
+    assert "not active" in data["detail"]
