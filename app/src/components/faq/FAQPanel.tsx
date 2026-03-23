@@ -121,6 +121,7 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
         onClear={() => { setCsvPath(null); setCsvPreview(null); }}
         sidecarUrl={sidecarUrl}
         configPath={configPath}
+        automationType="faq"
       />
 
       {/* Audio directory input */}
