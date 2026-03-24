@@ -73,26 +73,39 @@ describe("ScriptsPanel", () => {
     expect(screen.queryByTestId("replace-confirm-dialog")).toBeNull();
   });
 
-  it("calls replace endpoint when confirmation is given", async () => {
+  it("calls startRun with replace endpoint when confirmation is given", async () => {
     const sidecarUrl = "http://127.0.0.1:8080";
-    (global.fetch as Mock).mockResolvedValue({ ok: true });
+    const mockStartRun = vi.fn();
+    vi.mocked(useAutomation).mockReturnValue({
+      isRunning: false,
+      jobId: null,
+      progress: { current: 0, total: 0 },
+      versions: [],
+      error: null,
+      wsUrl: null,
+      startRun: mockStartRun,
+      handleMessage: vi.fn(),
+      reset: vi.fn(),
+      pollJobStatus: vi.fn(),
+      cancelJob: vi.fn(),
+      polledMessages: [],
+    });
 
     render(<ScriptsPanel client="default" sidecarUrl={sidecarUrl} />);
     fireEvent.click(screen.getByTestId("replace-products-button"));
     fireEvent.click(screen.getByTestId("confirm-replace-button"));
 
-    expect(global.fetch).toHaveBeenCalledWith(`${sidecarUrl}/api/scripts/replace`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        config_path: "configs/default/live.json",
-        options: {
-          headless: false,
-          dry_run: false,
-          start_product: undefined,
-          limit: undefined,
-        },
-      }),
+    expect(mockStartRun).toHaveBeenCalledWith({
+      sidecarUrl,
+      endpoint: "/api/scripts/replace",
+      configPath: "configs/default/live.json",
+      csvPath: "",
+      options: {
+        headless: false,
+        dry_run: false,
+        start_product: undefined,
+        limit: undefined,
+      },
     });
   });
 

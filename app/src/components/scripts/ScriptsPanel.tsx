@@ -126,23 +126,18 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
     setReplaceError(null);
 
     try {
-      const resp = await fetch(`${sidecarUrl}/api/scripts/replace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          config_path: configPath,
-          options: {
-            headless: options.headless,
-            dry_run: options.dry_run,
-            start_product: options.start_product,
-            limit: options.limit,
-          },
-        }),
+      await automation.startRun({
+        sidecarUrl,
+        endpoint: "/api/scripts/replace",
+        configPath,
+        csvPath: "",
+        options: {
+          headless: options.headless,
+          dry_run: options.dry_run,
+          start_product: options.start_product,
+          limit: options.limit,
+        },
       });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ detail: "Replace failed" }));
-        setReplaceError(err.detail || "Replace failed");
-      }
     } catch {
       setReplaceError("Could not connect to sidecar");
     }

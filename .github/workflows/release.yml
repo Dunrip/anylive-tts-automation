@@ -8,7 +8,7 @@ on:
     inputs:
       version:
         description: "Version tag (e.g., v0.1.0)"
-        required: false
+        required: true
 
 jobs:
   build-sidecar:
