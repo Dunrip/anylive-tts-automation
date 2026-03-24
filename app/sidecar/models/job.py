@@ -31,6 +31,7 @@ class AutomationOptions(BaseModel):
     limit: Optional[int] = None
     audio_dir: Optional[str] = None
     delete_scripts: bool = False
+    replace_products: bool = False
 
 
 class JobStartRequest(BaseModel):
