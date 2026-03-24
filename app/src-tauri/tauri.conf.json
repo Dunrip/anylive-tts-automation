@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/sidecar-server/sidecar-server"
     ],
@@ -47,6 +48,13 @@
     },
     "single-instance": null,
     "dialog": null,
-    "notification": null
+    "notification": null,
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Dunrip/anylive-tts-automation/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDRDFEQUY0QkQ2QjVBMTkKUldRWldtdTk5TnJSVE5jSzhzOUh5RFhKTCtPcHg1UGNjUysvS0dHUHZJWFJ1U2JLejhacVo2OTUK"
+    }
   }
 }
