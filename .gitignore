@@ -18,3 +18,15 @@ downloads/
 .claude/
 .sisyphus/evidence/
 .sisyphus/
+
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/sidecar/__pycache__/
+app/sidecar/.pytest_cache/
+app/sidecar/build/
+app/sidecar/dist/
+app/sidecar/logs/
+
+browser_data/
+history/

@@ -18,17 +18,40 @@ from typing import Any, Callable, Optional
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+
+def get_playwright_cache_dir() -> Path:
+    """Return the platform-specific Playwright browser cache directory.
+
+    Returns:
+        Path: The cache directory for Playwright browsers:
+            - macOS: ~/Library/Caches/ms-playwright
+            - Windows: %LOCALAPPDATA%/ms-playwright
+            - Linux/Unix: ~/.cache/ms-playwright
+    """
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform == "win32":
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        return Path(localappdata) / "ms-playwright"
+    else:
+        # Linux and other Unix-like systems
+        return Path.home() / ".cache" / "ms-playwright"
+
+
 # In packaged apps Playwright may default to looking for browsers inside the
-# application bundle. Force use of the standard macOS cache directory where
+# application bundle. Force use of the standard cache directory where
 # `python -m playwright install chromium` downloads browsers.
 os.environ.setdefault(
     "PLAYWRIGHT_BROWSERS_PATH",
-    os.path.join(str(Path.home()), "Library", "Caches", "ms-playwright"),
+    str(get_playwright_cache_dir()),
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+# Platform-aware keyboard modifier
+MODIFIER_KEY = "Meta" if sys.platform == "darwin" else "Control"
+
 DEFAULT_TIMEOUT = 30000
 CLICK_TIMEOUT = 8000
 NAVIGATION_TIMEOUT = 45000
@@ -119,8 +142,11 @@ class EmojiFormatter(logging.Formatter):
         return f"{self.formatTime(record, '%H:%M:%S')} | {record.levelname} | {record.getMessage()}"
 
 
+_LEVEL_MAP: dict[str, str] = {"WARNING": "WARN", "CRITICAL": "ERROR"}
+
+
 class CallbackLogHandler(logging.Handler):
-    def __init__(self, callback: Callable[[str], None]) -> None:
+    def __init__(self, callback: Callable[[str, str], None]) -> None:
         super().__init__()
         self.callback = callback
         self.setFormatter(EmojiFormatter())
@@ -128,7 +154,8 @@ class CallbackLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            self.callback(msg)
+            level = _LEVEL_MAP.get(record.levelname, record.levelname)
+            self.callback(msg, level)
         except Exception:
             self.handleError(record)
 
@@ -139,7 +166,7 @@ def setup_logging(
     logger_name: str = "auto_tts",
     log_prefix: str = "auto_tts",
     logs_dir: Optional[str] = None,
-    log_callback: Optional[Callable[[str], None]] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None,
 ) -> logging.Logger:
     if logs_dir is None:
         logs_path = Path("logs")
@@ -167,7 +194,7 @@ def setup_logging(
 
     if log_callback:
         callback_handler = CallbackLogHandler(log_callback)
-        callback_handler.setLevel(logging.INFO)
+        callback_handler.setLevel(logging.DEBUG)
         logger.addHandler(callback_handler)
 
     return logger
@@ -231,7 +258,7 @@ class BrowserAutomation:
         dry_run: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
-        browser_data_subdir: str = "browser_data",
+        browser_data_subdir: str = "state/browser_data",
         session_filename: str = SESSION_FILE,
         login_url: str = "https://app.anylive.jp",
         base_url: str = "",
@@ -385,9 +412,9 @@ class BrowserAutomation:
                 await el.scroll_into_view_if_needed()
                 await el.click(force=True)
                 await asyncio.sleep(0.03)
-                await el.press("Meta+A")
+                await el.press(f"{MODIFIER_KEY}+A")
                 await el.press("Backspace")
-                await self.page.keyboard.press("Meta+V")
+                await self.page.keyboard.press(f"{MODIFIER_KEY}+V")
                 await asyncio.sleep(0.03)
                 try:
                     await el.press("Tab")
@@ -410,7 +437,7 @@ class BrowserAutomation:
                 await asyncio.sleep(0.03)
 
                 try:
-                    await element.press("Meta+A")
+                    await element.press(f"{MODIFIER_KEY}+A")
                     await element.press("Backspace")
                 except Exception:
                     try:
@@ -485,6 +512,83 @@ class BrowserAutomation:
         return False
 
 
+async def _scrape_user_profile(page: "Page") -> dict[str, str]:
+    logger = logging.getLogger(__name__)
+
+    try:
+        avatar_selectors = [
+            'button[class*="avatar"]',
+            'button[class*="profile"]',
+            '[class*="avatar"] button',
+            '[class*="profile"] button',
+        ]
+
+        avatar_button = None
+        for selector in avatar_selectors:
+            try:
+                avatar_button = await page.wait_for_selector(
+                    selector, timeout=3000, state="visible"
+                )
+                if avatar_button:
+                    logger.debug(f"Found avatar button with selector: {selector}")
+                    break
+            except Exception:
+                continue
+
+        if not avatar_button:
+            logger.warning("Could not find avatar button in header")
+            return {}
+
+        await avatar_button.click()
+        await asyncio.sleep(0.5)
+
+        try:
+            dropdown = await page.wait_for_selector(
+                '[class*="dropdown"], [class*="menu"], [role="menu"]',
+                timeout=3000,
+                state="visible",
+            )
+        except Exception:
+            logger.warning("Avatar dropdown did not appear after clicking")
+            return {}
+
+        display_name = ""
+        email = ""
+
+        children = await dropdown.query_selector_all("*")
+        for child in children:
+            text = (await child.text_content() or "").strip()
+            if not text or text in ("ADMIN", "Logout"):
+                continue
+            child_children = await child.query_selector_all("*")
+            if len(child_children) > 0:
+                continue
+            if "@" in text and "." in text:
+                email = text
+            elif not display_name:
+                display_name = text
+
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+
+        result = {}
+        if display_name:
+            result["display_name"] = display_name
+        if email:
+            result["email"] = email
+
+        if result:
+            logger.debug(f"Scraped user profile: {result}")
+        else:
+            logger.warning("Could not extract display_name or email from dropdown")
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Error scraping user profile: {e}")
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Login setup (shared)
 # ---------------------------------------------------------------------------
@@ -492,7 +596,7 @@ async def setup_login(
     logger: logging.Logger,
     *,
     login_url: str = "https://app.anylive.jp",
-    browser_data_subdir: str = "browser_data",
+    browser_data_subdir: str = "state/browser_data",
     session_filename: str = SESSION_FILE,
     gui_mode: bool = False,
 ) -> None:
@@ -533,6 +637,30 @@ async def setup_login(
                     current_url = page.url
                     if "login" not in current_url.lower():
                         logger.info("Existing session is still valid!")
+                        try:
+                            with open(session_file, "r") as f:
+                                session_data = json.load(f)
+                            needs_update = False
+                            if not session_data.get("setup_complete"):
+                                session_data["setup_complete"] = True
+                                session_data["timestamp"] = datetime.now().isoformat()
+                                needs_update = True
+                            if "email" not in session_data:
+                                logger.info(
+                                    "Email missing from session, scraping user profile..."
+                                )
+                                profile = await _scrape_user_profile(page)
+                                if profile:
+                                    session_data.update(profile)
+                                    needs_update = True
+                            if needs_update:
+                                with open(session_file, "w") as f:
+                                    json.dump(session_data, f)
+                                logger.info(
+                                    "Session updated with setup marker and profile"
+                                )
+                        except Exception as e:
+                            logger.debug(f"Could not update session with profile: {e}")
                         logger.info("Setup complete! You can now run without --setup")
                         await context.close()
                         return
@@ -585,14 +713,16 @@ async def setup_login(
         if "login" in current_url.lower():
             logger.warning("Not saving session marker because login was not completed")
         else:
+            profile = await _scrape_user_profile(page)
+
+            session_data = {
+                "setup_complete": True,
+                "timestamp": datetime.now().isoformat(),
+            }
+            session_data.update(profile)
+
             with open(session_file, "w") as f:
-                json.dump(
-                    {
-                        "setup_complete": True,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                    f,
-                )
+                json.dump(session_data, f)
             logger.info("Session saved to browser_data directory")
             logger.info(f"Setup marker saved to {session_file}")
 
