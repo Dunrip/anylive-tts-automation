@@ -4,8 +4,10 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { MainContent } from "./components/layout/MainContent";
 import { Titlebar } from "./components/layout/Titlebar";
 import { Onboarding } from "./components/common/Onboarding";
+import { Toaster } from "./components/ui/sonner";
 import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import { PanelType } from "./lib/navigation";
 import { SessionStatus } from "./lib/types";
 
@@ -23,6 +25,8 @@ function App(): React.ReactElement {
   useKeyboardShortcuts({
     onPanelChange: setActivePanel,
   });
+
+  useUpdateCheck();
 
   useEffect(() => {
     const loadClientsFromRust = async (): Promise<void> => {
@@ -115,6 +119,7 @@ function App(): React.ReactElement {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)]">
+      <Toaster />
       <Titlebar />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
