@@ -7,7 +7,10 @@ existing scripts from every product, and upload mode (default) to add
 audio files from CSV.
 """
 
+from __future__ import annotations
+
 import argparse
+import difflib
 import json
 import logging
 import os
@@ -16,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 import pandas as pd
 
@@ -64,6 +67,39 @@ SCRIPT_SELECTORS: dict[str, list[str]] = {
     ],
     "script_row_name": [
         '[aria-label="more"]',  # Each script row has a "more" button — used as anchor to find row text
+    ],
+    # ── Replace Product selectors ──────────────────────────────────────
+    # Derived from existing codebase patterns + user screenshots.
+    # VERIFY: Run with --debug to confirm each selector on the live page.
+    #
+    # Product card detection:
+    #   - Populated cards have an <img> inside .product-card
+    #   - Empty cards have NO <img> (or a placeholder without src)
+    #   - Product name text is in a child element of the sidebar row
+    #   - The '...' button on product cards may share aria-label="more"
+    #     with script-row buttons — scope via parent card context.
+    "card_more_button": [
+        'button[aria-label="More Operations"]',
+        ".chakra-menu__menu-button",
+    ],
+    "replace_menuitem": [
+        '[role="menuitem"]:has-text("Replace Product")',
+        '.chakra-menu__menuitem:has-text("Replace")',
+    ],
+    "replace_popup_confirm": [
+        # VERIFY: Blue "Confirm" button in "Replace Product" popup (Room ID step)
+        'button:has-text("Confirm")',
+    ],
+    "replace_search_input": [
+        # VERIFY: "Search product by name/ID" input in Replace popup
+        'input[placeholder*="Search product"]',
+        'input[placeholder*="Search"]',
+    ],
+    "replace_product_item": [
+        'input[type="radio"]',
+    ],
+    "replace_final_confirm": [
+        'button:has-text("Confirm")',
     ],
 }
 
@@ -1058,9 +1094,450 @@ class ScriptAutomation(BrowserAutomation):
 
             products_since_refresh += 1
 
+    async def _detect_empty_thumbnail(self, product_number: int) -> bool:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        num_str = str(product_number)
+        try:
+            return bool(
+                await self.page.evaluate(
+                    """(targetNum) => {
+                        const row = document.querySelector(
+                            `[data-script-product="${targetNum}"]`
+                        );
+                        if (!row) return false;
+
+                        const card = row.querySelector('.product-card') || row;
+                        const host = card.closest('.product-card') || row;
+                        const img = host.querySelector('img') || row.querySelector('img');
+                        if (!img) return true;
+                        return img.src && img.src.includes('default_product_image');
+                    }""",
+                    num_str,
+                )
+            )
+        except Exception as e:
+            self.logger.debug(
+                f"Could not detect empty thumbnail for product #{product_number}: {e}"
+            )
+            return False
+
+    async def _read_product_name_from_card(self, product_number: int) -> Optional[str]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        num_str = str(product_number)
+        try:
+            name: Optional[str] = await self.page.evaluate(
+                """(targetNum) => {
+                    const row = document.querySelector(
+                        `[data-script-product="${targetNum}"]`
+                    );
+                    if (!row) return null;
+
+                    const blocked = new Set([
+                        targetNum,
+                        'more',
+                        'replace',
+                        'delete',
+                        'upload audio script',
+                        'add audio',
+                        'no product script',
+                    ]);
+
+                    const candidates = [];
+                    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                        const raw = walker.currentNode.textContent || '';
+                        const text = raw.trim();
+                        if (!text) continue;
+
+                        const normalized = text.toLowerCase();
+                        if (blocked.has(normalized)) continue;
+                        if (/^\\d{1,3}$/.test(text)) continue;
+                        if (/^\\d+\\s*\\/\\s*\\d+$/.test(text)) continue;
+                        if (/^\\d+\\s+product\\s+scripts?$/i.test(text)) continue;
+                        if (text.length < 2 || text.length > 140) continue;
+
+                        const parent = walker.currentNode.parentElement;
+                        if (!parent) continue;
+                        const tag = parent.tagName;
+                        if (tag === 'BUTTON') continue;
+
+                        const weight = text.length + (tag === 'P' || tag === 'SPAN' ? 3 : 0);
+                        candidates.push({ text, weight });
+                    }
+
+                    if (candidates.length === 0) return null;
+                    candidates.sort((a, b) => b.weight - a.weight);
+                    return candidates[0].text;
+                }""",
+                num_str,
+            )
+            return name.strip() if name else None
+        except Exception as e:
+            self.logger.debug(
+                f"Could not read card product name for #{product_number}: {e}"
+            )
+            return None
+
+    async def _scan_sidebar_empty_status(self) -> dict[int, str]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        payload: dict[str, Any] = await self.page.evaluate(
+            """() => {
+                const cards = document.querySelectorAll('.product-card');
+                const empty = {};
+                let total = 0;
+
+                for (const card of cards) {
+                    total += 1;
+                    const row = card.parentElement || card;
+
+                    let productNumber = null;
+                    const numWalker = document.createTreeWalker(
+                        row, NodeFilter.SHOW_TEXT
+                    );
+                    while (numWalker.nextNode()) {
+                        const t = numWalker.currentNode.textContent?.trim() || '';
+                        if (!/^\\d{1,3}$/.test(t)) continue;
+
+                        let isCounter = false;
+                        let check = numWalker.currentNode.parentElement;
+                        for (let c = 0; c < 3 && check; c++) {
+                            if (/^\\d+\\s*\\/\\s*\\d+$/.test(check.textContent?.trim() || '')) {
+                                isCounter = true;
+                                break;
+                            }
+                            check = check.parentElement;
+                        }
+                        if (isCounter) continue;
+                        productNumber = parseInt(t, 10);
+                        break;
+                    }
+                    if (!productNumber || productNumber < 1) continue;
+
+                    const img = card.querySelector('img') || row.querySelector('img');
+                    const isPopulated = img && img.src && !img.src.includes('default_product_image');
+                    if (isPopulated) continue;
+
+                    const blocked = new Set([
+                        String(productNumber),
+                        'more',
+                        'replace',
+                        'delete',
+                        'upload audio script',
+                        'add audio',
+                        'no product script',
+                    ]);
+                    const names = [];
+                    const nameWalker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+                    while (nameWalker.nextNode()) {
+                        const txt = nameWalker.currentNode.textContent?.trim() || '';
+                        if (!txt) continue;
+                        const normalized = txt.toLowerCase();
+                        if (blocked.has(normalized)) continue;
+                        if (/^\\d{1,3}$/.test(txt)) continue;
+                        if (/^\\d+\\s*\\/\\s*\\d+$/.test(txt)) continue;
+                        if (/^\\d+\\s+product\\s+scripts?$/i.test(txt)) continue;
+                        if (txt.length < 2 || txt.length > 140) continue;
+
+                        const parent = nameWalker.currentNode.parentElement;
+                        if (!parent || parent.tagName === 'BUTTON') continue;
+                        const score = txt.length + (parent.tagName === 'P' ? 4 : 0);
+                        names.push({ txt, score });
+                    }
+
+                    let productName = '';
+                    if (names.length > 0) {
+                        names.sort((a, b) => b.score - a.score);
+                        productName = names[0].txt;
+                    }
+
+                    empty[String(productNumber)] = productName;
+                }
+
+                return { empty, total };
+            }"""
+        )
+
+        raw_empty = payload.get("empty", {}) if isinstance(payload, dict) else {}
+        total = int(payload.get("total", 0)) if isinstance(payload, dict) else 0
+        empty_cards: dict[int, str] = {
+            int(k): str(v).strip() for k, v in raw_empty.items() if str(k).isdigit()
+        }
+
+        self.logger.info(
+            f"Pre-scan: {len(empty_cards)} empty product cards out of {total} total"
+        )
+        return empty_cards
+
+    async def _close_replace_popup(self) -> None:
+        if self.page is None:
+            return
+        try:
+            cancel_btn = self.page.locator('button:has-text("Cancel"):visible').first
+            if await cancel_btn.count() > 0:
+                await cancel_btn.click(timeout=CLICK_TIMEOUT)
+                await asyncio.sleep(0.5)
+                return
+            await self.page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+    async def _pick_best_product_match(self, product_name: str) -> Optional[int]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        names: list[str] = await self.page.evaluate(
+            """() => {
+                const radios = Array.from(
+                    document.querySelectorAll('input[type="radio"]')
+                ).filter(el => {
+                    const style = window.getComputedStyle(el);
+                    return style && style.display !== 'none' && style.visibility !== 'hidden';
+                });
+
+                return radios.map(radio => {
+                    let container = radio.parentElement;
+                    for (let i = 0; i < 5 && container; i++) {
+                        const text = container.textContent || '';
+                        if (text.length > 20) {
+                            const lines = text.split(/[\\n\\r]+/).map(s => s.trim()).filter(s => s.length > 5);
+                            const name = lines.find(l => !/^[¥\\d,\\.]+$/.test(l) && !/^ID:/.test(l));
+                            if (name) return name.trim();
+                        }
+                        container = container.parentElement;
+                    }
+                    return '';
+                }).filter(txt => txt.length > 0);
+            }"""
+        )
+
+        if not names:
+            self.logger.warning("No product results found in replace popup")
+            return None
+
+        if len(names) == 1:
+            self.logger.info(f"Found exact match: '{names[0]}'")
+            return 0
+
+        target = product_name.lower().strip()
+        scored: list[tuple[int, str, float]] = []
+        for idx, candidate in enumerate(names):
+            score = difflib.SequenceMatcher(
+                None, target, candidate.lower().strip()
+            ).ratio()
+            scored.append((idx, candidate, score))
+
+        best_index, best_name, best_score = max(scored, key=lambda item: item[2])
+        self.logger.info(
+            f"Found {len(names)} results, selected '{best_name}' "
+            f"(similarity: {best_score:.0%})"
+        )
+        if best_score < 0.5:
+            self.logger.warning(f"Low confidence match ({best_score:.0%})")
+
+        return best_index
+
+    async def replace_all_products(
+        self,
+        start_product: int = 1,
+        limit: Optional[int] = None,
+        *,
+        dry_run: bool = False,
+    ) -> list[dict]:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        await self.navigate_to_set_live_content()
+        total = await self.get_product_count()
+        end_product = min(start_product + (limit or total) - 1, total)
+
+        empty_status = await self._scan_sidebar_empty_status()
+        in_range_empty = {
+            number: name
+            for number, name in empty_status.items()
+            if start_product <= number <= end_product
+        }
+
+        if not in_range_empty:
+            self.logger.info("No empty product cards found")
+            return []
+
+        results: list[dict] = []
+        target_numbers = sorted(in_range_empty.keys())
+
+        for product_number in target_numbers:
+            fallback_name = in_range_empty.get(product_number, "")
+            if not await self.select_product(product_number):
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": fallback_name,
+                        "replaced": False,
+                        "success": False,
+                        "error": f"Could not select product #{product_number}",
+                    }
+                )
+                continue
+
+            name = await self._read_product_name_from_card(product_number)
+            product_name = (
+                name or fallback_name or f"Product {product_number}"
+            ).strip()
+
+            try:
+                success = await self.replace_single_product(
+                    product_number,
+                    product_name,
+                    dry_run=dry_run,
+                )
+                if not success and not dry_run:
+                    await self.take_screenshot(f"replace_product_{product_number}")
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": product_name,
+                        "replaced": success,
+                        "success": success,
+                        "error": None if success else "Failed to replace product",
+                    }
+                )
+            except Exception as e:
+                self.logger.error(f"Error replacing product #{product_number}: {e}")
+                await self.take_screenshot(f"replace_product_{product_number}")
+                results.append(
+                    {
+                        "product_number": product_number,
+                        "product_name": product_name,
+                        "replaced": False,
+                        "success": False,
+                        "error": str(e),
+                    }
+                )
+
+        return results
+
+    async def replace_single_product(
+        self, product_number: int, product_name: str, *, dry_run: bool = False
+    ) -> bool:
+        if self.page is None:
+            raise RuntimeError("Browser page is not initialized")
+
+        if dry_run:
+            self.logger.info(
+                f"DRY RUN: Would replace product #{product_number} '{product_name}'"
+            )
+            return True
+
+        try:
+            await self._dismiss_open_menus()
+
+            tagged_row = self.page.locator(f'[data-script-product="{product_number}"]')
+            if await tagged_row.count() == 0:
+                self.logger.warning(
+                    f"Tagged row not found for product #{product_number}, re-selecting"
+                )
+                if not await self.select_product(product_number):
+                    return False
+                tagged_row = self.page.locator(
+                    f'[data-script-product="{product_number}"]'
+                )
+
+            more_btn = tagged_row.locator('button[aria-label="More Operations"]').first
+            if await more_btn.count() == 0:
+                more_btn = tagged_row.locator(".chakra-menu__menu-button").first
+
+            if await more_btn.count() == 0:
+                self.logger.error(
+                    f"Could not find card menu button for product #{product_number}"
+                )
+                return False
+
+            await more_btn.scroll_into_view_if_needed()
+            await more_btn.click(timeout=CLICK_TIMEOUT)
+            await asyncio.sleep(0.5)
+
+            replace_item = self.page.get_by_role(
+                "menuitem", name="Replace Product"
+            ).first
+            try:
+                await replace_item.wait_for(state="visible", timeout=CLICK_TIMEOUT)
+            except Exception:
+                replace_item = self.page.locator(
+                    '[role="menuitem"]:has-text("Replace Product")'
+                ).first
+            await replace_item.click(timeout=CLICK_TIMEOUT)
+
+            await self.page.wait_for_selector(
+                'text="Add Platform Product"', timeout=CLICK_TIMEOUT
+            )
+            self.logger.info(f"Replace popup opened for product #{product_number}")
+            await asyncio.sleep(1)
+
+            room_confirm = self.page.locator('button:has-text("Confirm"):visible').first
+            await room_confirm.click(timeout=CLICK_TIMEOUT)
+
+            search_selector = 'input[placeholder*="Search"]'
+            await self.page.wait_for_selector(
+                search_selector, timeout=NAVIGATION_TIMEOUT
+            )
+            self.logger.info("Product grid loaded, searching...")
+            await asyncio.sleep(1)
+
+            await self.page.fill(search_selector, product_name)
+            await asyncio.sleep(2)
+
+            best_index = await self._pick_best_product_match(product_name)
+            if best_index is None:
+                self.logger.warning(
+                    f"No product match found in popup for '{product_name}'"
+                )
+                await self._close_replace_popup()
+                return False
+
+            radios = self.page.locator('input[type="radio"]:visible')
+            visible_count = await radios.count()
+            if visible_count == 0:
+                self.logger.warning("No selectable radio buttons in product grid")
+                await self._close_replace_popup()
+                return False
+
+            target_index = min(best_index, visible_count - 1)
+            await radios.nth(target_index).click(force=True, timeout=CLICK_TIMEOUT)
+            await asyncio.sleep(0.5)
+
+            final_confirm = self.page.locator('button:has-text("Confirm"):visible').last
+            await final_confirm.click(timeout=CLICK_TIMEOUT)
+
+            try:
+                await self.page.wait_for_selector(
+                    'text="Add Platform Product"',
+                    state="hidden",
+                    timeout=NAVIGATION_TIMEOUT,
+                )
+            except Exception:
+                await asyncio.sleep(3)
+
+            await asyncio.sleep(1)
+            self.logger.info(f"Successfully replaced product #{product_number}")
+            return True
+
+        except Exception as e:
+            await self._close_replace_popup()
+            self.logger.error(
+                f"Error replacing product #{product_number} '{product_name}': {e}"
+            )
+            return False
+
 
 # ---------------------------------------------------------------------------
 # Config loading
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def load_script_config(
     config_path: str, cli_overrides: Optional[dict] = None
@@ -1342,6 +1819,48 @@ def generate_script_report(
             f"Deleted: {total_scripts_deleted} | Time: {elapsed_str}"
         )
         logger.info("=" * 70)
+    elif mode == "replace" and delete_results is not None:
+        successful = sum(1 for r in delete_results if r["success"])
+        replaced = sum(1 for r in delete_results if r.get("replaced", False))
+        failed = sum(1 for r in delete_results if not r["success"])
+        already_populated = sum(
+            1 for r in delete_results if r["success"] and not r.get("replaced", False)
+        )
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "replace",
+            "total_products": len(delete_results),
+            "replaced": replaced,
+            "already_populated": already_populated,
+            "failed": failed,
+            "elapsed_seconds": elapsed_seconds,
+            "products": delete_results,
+        }
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("FINAL SCRIPT REPORT (REPLACE MODE)")
+        logger.info("=" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Replaced: {replaced} | Failed: {failed}"
+        )
+        if already_populated > 0:
+            logger.info(f"Already populated (skipped): {already_populated}")
+        logger.info(f"Time: {elapsed_str}")
+        for r in delete_results:
+            status = "OK" if r["success"] else "FAILED"
+            if r.get("replaced"):
+                detail = "Replaced"
+            elif r["success"]:
+                detail = "Already populated"
+            else:
+                detail = r.get("error", "Unknown")
+            logger.info(f"  {status} Product #{r['product_number']}: {detail}")
+        logger.info("-" * 70)
+        logger.info(
+            f"Total: {len(delete_results)} | Replaced: {replaced} | "
+            f"Failed: {failed} | Time: {elapsed_str}"
+        )
+        logger.info("=" * 70)
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
@@ -1415,6 +1934,232 @@ def generate_script_report(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+
+async def run_job(
+    config_path: str,
+    csv_path: str | None = None,
+    *,
+    headless: bool = False,
+    dry_run: bool = False,
+    debug: bool = False,
+    delete_scripts: bool = False,
+    replace_products: bool = False,
+    start_product: int | None = None,
+    limit: int | None = None,
+    audio_dir: str | None = None,
+    base_url: str | None = None,
+    app_support_dir: str | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
+) -> dict:
+    """Run Script automation as a job.
+
+    Args:
+        config_path: Path to client config JSON file
+        csv_path: Path to CSV file. Required unless delete_scripts=True.
+        headless: Run browser in headless mode
+        dry_run: Preview actions without browser interaction
+        debug: Keep browser open after execution for debugging
+        delete_scripts: If True, delete all scripts from all products (csv_path not required)
+        start_product: Starting product number (default: 1)
+        limit: Limit number of products to process
+        audio_dir: Override audio directory path
+        app_support_dir: Directory for logs, screenshots, session (default: current dir)
+        log_callback: Optional callback for streaming logs to GUI
+
+    Returns:
+        dict with keys: success (bool), report (dict), error (str or None)
+    """
+    # Validate csv_path requirement
+    if not delete_scripts and not replace_products and not csv_path:
+        return {
+            "success": False,
+            "report": {},
+            "error": "csv_path is required when delete_scripts is False",
+        }
+
+    # Set up app support directory if provided
+    if app_support_dir:
+        logs_dir = os.path.join(app_support_dir, "logs")
+    else:
+        logs_dir = None
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_time = time.time()
+    logger = setup_logging(
+        timestamp,
+        logger_name="auto_script",
+        log_prefix="auto_script",
+        logs_dir=logs_dir,
+        log_callback=log_callback,
+    )
+
+    logger.info("ANYLIVE SCRIPT AUTOMATION (SET LIVE CONTENT)")
+    logger.info("=" * 70)
+
+    try:
+        # Load configuration
+        if config_path != "inline" and not os.path.exists(config_path):
+            error_msg = f"Config file not found: {config_path}"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "report": {}, "error": error_msg}
+
+        if config_path == "inline":
+            config = ScriptConfig(base_url=base_url or "")
+            if audio_dir:
+                config.audio_dir = audio_dir
+            logger.info(f"Using inline config with base_url: {config.base_url}")
+        else:
+            try:
+                config = load_script_config(
+                    config_path,
+                    {"audio_dir": audio_dir} if audio_dir else None,
+                )
+                logger.info(f"Loaded config: {config_path}")
+            except FileNotFoundError as e:
+                logger.error(f"{e}")
+                return {"success": False, "report": {}, "error": str(e)}
+            except Exception as e:
+                logger.error(f"Failed to load config: {e}")
+                return {"success": False, "report": {}, "error": str(e)}
+
+        if debug:
+            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+
+        # Get session paths (use default client paths)
+        _session_filename, _browser_data_subdir = get_live_session_paths(None)
+
+        # Validate session
+        if not is_session_valid(_session_filename):
+            error_msg = "No session found. Please run with --setup first."
+            logger.error(error_msg)
+            return {"success": False, "report": {}, "error": error_msg}
+
+        automation = ScriptAutomation(
+            config=config,
+            headless=headless,
+            logger=logger,
+            dry_run=dry_run,
+            debug=debug,
+            browser_data_subdir=_browser_data_subdir,
+            session_filename=_session_filename,
+        )
+
+        try:
+            await automation.start_browser()
+
+            if not await automation.navigate_to_set_live_content():
+                error_msg = "Failed to navigate to Set Live Content page"
+                logger.error(error_msg)
+                return {"success": False, "report": {}, "error": error_msg}
+
+            if replace_products:
+                logger.info(
+                    f"REPLACE MODE: Replacing empty product cards "
+                    f"starting at #{start_product or 1}"
+                )
+                if dry_run:
+                    logger.info("DRY RUN MODE: No products will be replaced")
+
+                replace_results = await automation.replace_all_products(
+                    start_product=start_product or 1,
+                    limit=limit,
+                    dry_run=dry_run,
+                )
+                report = generate_script_report(
+                    products=[],
+                    config=config,
+                    timestamp=timestamp,
+                    logger=logger,
+                    mode="replace",
+                    delete_results=replace_results,
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+            elif delete_scripts:
+                logger.info(
+                    f"DELETE MODE: Deleting scripts from products "
+                    f"starting at #{start_product or 1}"
+                )
+                if dry_run:
+                    logger.info("DRY RUN MODE: No scripts will be deleted")
+
+                delete_results = await automation.delete_all_scripts(
+                    start_product=start_product or 1,
+                    limit=limit,
+                    dry_run=dry_run,
+                )
+                report = generate_script_report(
+                    products=[],
+                    config=config,
+                    timestamp=timestamp,
+                    logger=logger,
+                    mode="delete",
+                    delete_results=delete_results,
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+            else:
+                if dry_run:
+                    logger.info("DRY RUN MODE: No audio will be uploaded")
+
+                if not csv_path:
+                    error_msg = "csv_path is required for upload mode"
+                    logger.error(error_msg)
+                    return {"success": False, "report": {}, "error": error_msg}
+
+                try:
+                    df = load_csv(csv_path, logger)
+                    products = parse_script_csv(df, config, logger)
+                except (FileNotFoundError, ValueError) as e:
+                    logger.error(f"{e}")
+                    return {"success": False, "report": {}, "error": str(e)}
+
+                if not products:
+                    error_msg = "No products to process"
+                    logger.error(error_msg)
+                    return {"success": False, "report": {}, "error": error_msg}
+
+                if start_product and start_product > 1:
+                    products = [
+                        p for p in products if p.product_number >= start_product
+                    ]
+                    logger.info(f"Starting from product #{start_product}")
+
+                if limit:
+                    products = products[:limit]
+                    logger.info(f"Limited to {limit} products")
+
+                await automation.upload_all_scripts(products, dry_run=dry_run)
+
+                report = generate_script_report(
+                    products=products,
+                    config=config,
+                    timestamp=timestamp,
+                    logger=logger,
+                    mode="upload",
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+        finally:
+            if debug:
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                await async_debug_pause(
+                    "   Press Enter to close the browser and exit..."
+                )
+                logger.info("=" * 70)
+            await automation.close()
+
+        return {"success": True, "report": report, "error": None}
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ Job failed: {error_msg}")
+        return {"success": False, "report": {}, "error": error_msg}
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(
         description="AnyLive Script Automation (Set Live Content)"
@@ -1433,6 +2178,11 @@ async def main() -> None:
         "--delete-scripts",
         action="store_true",
         help="Delete all scripts from all products (CSV not required)",
+    )
+    parser.add_argument(
+        "--replace-products",
+        action="store_true",
+        help="Replace empty product cards with Shopee products (CSV not required)",
     )
     parser.add_argument(
         "--start-product",
@@ -1459,6 +2209,9 @@ async def main() -> None:
 
     args = parser.parse_args()
 
+    if args.replace_products and args.delete_scripts:
+        parser.error("--replace-products and --delete-scripts cannot be used together")
+
     if args.debug and args.headless:
         args.debug = False
 
@@ -1466,7 +2219,6 @@ async def main() -> None:
     _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    start_time = time.time()
     logger = setup_logging(
         timestamp, logger_name="auto_script", log_prefix="auto_script"
     )
@@ -1506,125 +2258,48 @@ async def main() -> None:
     elif args.config:
         config_path = args.config
 
-    cli_overrides: dict = {}
-    if args.base_url:
-        cli_overrides["base_url"] = args.base_url
-    if args.audio_dir:
-        cli_overrides["audio_dir"] = args.audio_dir
-
-    # For delete mode with only --base-url, create a minimal config
-    if config_path is None and args.delete_scripts and args.base_url:
-        config = ScriptConfig(base_url=args.base_url)
-    elif config_path is None and not args.delete_scripts:
+    if (
+        config_path is None
+        and (args.delete_scripts or args.replace_products)
+        and args.base_url
+    ):
+        config_path = "inline"
+    elif config_path is None and not args.delete_scripts and not args.replace_products:
         logger.error("Please specify --client or --config for upload mode")
         logger.info("   python auto_script.py --client example --csv scripts.csv")
         return
     elif config_path is None:
         logger.error("Please specify --client or --config")
         return
-    else:
+
+    csv_path = None
+    if not args.delete_scripts and not args.replace_products:
         try:
-            config = load_script_config(
-                config_path, cli_overrides if cli_overrides else None
-            )
-            logger.info(f"Loaded config: {config_path}")
-        except FileNotFoundError as e:
+            csv_from_config = None
+            if config_path != "inline":
+                config_obj = load_script_config(config_path, None)
+                csv_from_config = getattr(config_obj, "csv", None)
+            csv_path = find_csv_file(args.csv or csv_from_config or None)
+        except (FileNotFoundError, ValueError) as e:
             logger.error(f"{e}")
             return
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            return
 
-    if args.debug:
-        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
-
-    automation = ScriptAutomation(
-        config=config,
+    result = await run_job(
+        config_path=config_path,
+        csv_path=csv_path,
         headless=args.headless,
-        logger=logger,
         dry_run=args.dry_run,
         debug=args.debug,
-        browser_data_subdir=_browser_data_subdir,
-        session_filename=_session_filename,
+        delete_scripts=args.delete_scripts,
+        replace_products=args.replace_products,
+        start_product=args.start_product if args.start_product > 1 else None,
+        limit=args.limit,
+        audio_dir=args.audio_dir,
+        base_url=getattr(args, "base_url", None),
     )
 
-    try:
-        await automation.start_browser()
-
-        if not await automation.navigate_to_set_live_content():
-            logger.error("Failed to navigate to Set Live Content page")
-            return
-
-        if args.delete_scripts:
-            logger.info(
-                f"DELETE MODE: Deleting scripts from products "
-                f"starting at #{args.start_product}"
-            )
-            if args.dry_run:
-                logger.info("DRY RUN MODE: No scripts will be deleted")
-
-            delete_results = await automation.delete_all_scripts(
-                start_product=args.start_product,
-                limit=args.limit,
-                dry_run=args.dry_run,
-            )
-            generate_script_report(
-                products=[],
-                config=config,
-                timestamp=timestamp,
-                logger=logger,
-                mode="delete",
-                delete_results=delete_results,
-                elapsed_seconds=time.time() - start_time,
-            )
-
-        else:
-            if args.dry_run:
-                logger.info("DRY RUN MODE: No audio will be uploaded")
-
-            try:
-                csv_from_config = getattr(config, "csv", None)
-                csv_path = find_csv_file(args.csv or csv_from_config or None)
-            except (FileNotFoundError, ValueError) as e:
-                logger.error(f"{e}")
-                return
-
-            df = load_csv(csv_path, logger)
-            products = parse_script_csv(df, config, logger)
-
-            if not products:
-                logger.error("No products to process")
-                return
-
-            if args.start_product > 1:
-                products = [
-                    p for p in products if p.product_number >= args.start_product
-                ]
-                logger.info(f"Starting from product #{args.start_product}")
-
-            if args.limit:
-                products = products[: args.limit]
-                logger.info(f"Limited to {args.limit} products")
-
-            await automation.upload_all_scripts(products, dry_run=args.dry_run)
-
-            generate_script_report(
-                products=products,
-                config=config,
-                timestamp=timestamp,
-                logger=logger,
-                mode="upload",
-                elapsed_seconds=time.time() - start_time,
-            )
-
-    finally:
-        if args.debug:
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
-            await async_debug_pause("   Press Enter to close the browser and exit...")
-            logger.info("=" * 70)
-        await automation.close()
+    if not result["success"]:
+        logger.error(f"Job failed: {result['error']}")
 
 
 if __name__ == "__main__":

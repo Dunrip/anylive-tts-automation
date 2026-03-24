@@ -14,7 +14,7 @@ from typing import List, Optional, Callable
 import pandas as pd
 from playwright.async_api import async_playwright, Page, BrowserContext
 
-# Re-export shared utilities so menubar_gui.py and other callers that
+# Re-export shared utilities so other callers that
 # import from auto_tts continue to work without changes.
 from shared import (  # noqa: F401
     set_app_support_dir,
@@ -33,6 +33,7 @@ from shared import (
     DEFAULT_TIMEOUT,
     CLICK_TIMEOUT,
     DEBUG_SLOW_MO,
+    MODIFIER_KEY,
     NAVIGATION_TIMEOUT,
     POST_AUTOSAVE_DELAY_SECONDS,
     PRE_FILL_START_DELAY_SECONDS,
@@ -115,6 +116,17 @@ SELECTORS = {
         'input[name*="generatedScript"][name*="title"]',
         'input[aria-label="Section Title"]',
         'input[placeholder*="Introduction"]',
+    ],
+    "autosave_done": [
+        ':has-text("Auto Saved")',
+        ':has-text("Autosaved")',
+        ':has-text("Saved")',
+    ],
+    "autosave_in_progress": [
+        ':has-text("Saving...")',
+        ':has-text("Saving")',
+        ':has-text("Auto Saving")',
+        ':has-text("Auto saving")',
     ],
 }
 
@@ -249,6 +261,16 @@ def collect_expected_audio_codes(
             if stripped:
                 codes.add(stripped)
     return codes
+
+
+def extract_expected_audio_codes(
+    df: pd.DataFrame,
+    config: ClientConfig,
+    logger: logging.Logger,
+    product_filter: Optional[set[int]] = None,
+) -> set[str]:
+    """Backward-compatible alias for expected audio code extraction."""
+    return collect_expected_audio_codes(df, config, logger, product_filter)
 
 
 def _safe_int(val: object) -> Optional[int]:
@@ -567,6 +589,7 @@ class TTSAutomation:
         headless: bool,
         logger: logging.Logger,
         dry_run: bool = False,
+        no_save: bool = False,
         debug: bool = False,
         screenshots_dir: Optional[str] = None,
     ):
@@ -574,6 +597,7 @@ class TTSAutomation:
         self.headless = headless
         self.logger = logger
         self.dry_run = dry_run
+        self.no_save = no_save
         self.debug = debug
         self.screenshots_dir = screenshots_dir if screenshots_dir else "screenshots"
         self.context: Optional[BrowserContext] = None
@@ -840,9 +864,9 @@ class TTSAutomation:
                 await el.scroll_into_view_if_needed()
                 await el.click(force=True)
                 await asyncio.sleep(0.03)
-                await el.press("Meta+A")
+                await el.press(f"{MODIFIER_KEY}+A")
                 await el.press("Backspace")
-                await self.page.keyboard.press("Meta+V")
+                await self.page.keyboard.press(f"{MODIFIER_KEY}+V")
                 await asyncio.sleep(0.03)
                 try:
                     await el.press("Tab")
@@ -865,7 +889,7 @@ class TTSAutomation:
                 await asyncio.sleep(0.03)
 
                 try:
-                    await element.press("Meta+A")
+                    await element.press(f"{MODIFIER_KEY}+A")
                     await element.press("Backspace")
                 except Exception:
                     try:
@@ -1612,7 +1636,7 @@ class TTSAutomation:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
                     await asyncio.sleep(0.02)
-                    await el.press("Meta+A")
+                    await el.press(f"{MODIFIER_KEY}+A")
                     await el.press("Backspace")
                     await self.page.keyboard.type(val, delay=1)
                     # commit
@@ -1664,7 +1688,7 @@ class TTSAutomation:
                     await el.scroll_into_view_if_needed()
                     await el.click(force=True)
                     await asyncio.sleep(0.02)
-                    await el.press("Meta+A")
+                    await el.press(f"{MODIFIER_KEY}+A")
                     await el.press("Backspace")
                     await self.page.keyboard.type(val, delay=1)
                     await asyncio.sleep(0.03)
@@ -1755,7 +1779,7 @@ class TTSAutomation:
                     try:
                         await template.scroll_into_view_if_needed()
                         await template.click(force=True)
-                        await template.press("Meta+A")
+                        await template.press(f"{MODIFIER_KEY}+A")
                         await template.press("Backspace")
                         await self.page.keyboard.type(audio_code, delay=1)
                         await template.press("Enter")
@@ -1986,17 +2010,21 @@ class TTSAutomation:
         self.logger.info("💾 Waiting for auto-save...")
         try:
             # Fast path: if already auto-saved, return immediately.
-            await self.page.wait_for_selector('text="Auto Saved"', timeout=250)
-            self.logger.info("✅ Auto-saved successfully")
+            for selector in SELECTORS["autosave_done"]:
+                try:
+                    await self.page.wait_for_selector(selector, timeout=250)
+                    self.logger.info("✅ Auto-saved successfully")
+                    break
+                except Exception:
+                    continue
+            else:
+                # No autosave_done selector matched in fast path
+                raise Exception("No autosave_done selector matched")
         except Exception:
             try:
                 # If still saving, allow a bit more time for the status to flip.
                 saving_visible = False
-                for saving_selector in (
-                    'text="Saving..."',
-                    'text="Saving"',
-                    'text="Auto Saving"',
-                ):
+                for saving_selector in SELECTORS["autosave_in_progress"]:
                     try:
                         loc = self.page.locator(saving_selector)
                         if await loc.count() > 0 and await loc.first.is_visible():
@@ -2006,13 +2034,21 @@ class TTSAutomation:
                         continue
 
                 wait_timeout = 3500 if saving_visible else 1200
-                await self.page.wait_for_selector(
-                    'text="Auto Saved"', timeout=wait_timeout
-                )
-                self.logger.info("✅ Auto-saved successfully")
-            except Exception as e:
-                self.logger.warning(
-                    f"Could not confirm auto-save status quickly (continuing): {e}"
+                for selector in SELECTORS["autosave_done"]:
+                    try:
+                        await self.page.wait_for_selector(
+                            selector, timeout=wait_timeout
+                        )
+                        self.logger.info("✅ Auto-saved successfully")
+                        break
+                    except Exception:
+                        continue
+                else:
+                    # No autosave_done selector matched in slow path
+                    raise Exception("No autosave_done selector matched")
+            except Exception:
+                self.logger.info(
+                    "Auto-save status not detected (safe to continue — buffered wait applied)"
                 )
                 # Continue anyway as the system likely saved
 
@@ -2066,8 +2102,11 @@ class TTSAutomation:
             if successful_slots == 0:
                 raise Exception("Failed to fill any slots")
 
-            if not await self.save_version(len(version.scripts)):
-                raise Exception("Failed to save version")
+            if self.no_save:
+                self.logger.info("🔇 NO-SAVE MODE: Skipping save")
+            else:
+                if not await self.save_version(len(version.scripts)):
+                    raise Exception("Failed to save version")
 
             # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
             try:
@@ -2474,8 +2513,12 @@ async def run_job(
     start_version: Optional[int] = None,
     limit: Optional[int] = None,
     version_filter: Optional[set[int]] = None,
+    flat_mode: bool = False,
+    no_save: bool = False,
+    verify: bool = False,
     app_support_dir: Optional[str] = None,
-    log_callback: Optional[Callable[[str], None]] = None,
+    log_callback: Optional[Callable[[str, str], None]] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
     debug_callback: Optional[Callable[[], None]] = None,
 ) -> dict:
     """
@@ -2548,7 +2591,28 @@ async def run_job(
                     else:
                         await async_debug_pause("   Press Enter to close browser...")
                 await automation.close()
-            return {"success": True, "report": None, "error": None, "downloaded": count}
+            if verify and csv_path:
+                try:
+                    df_verify = load_csv(csv_path, logger)
+                    expected = extract_expected_audio_codes(df_verify, config, logger)
+                    dl_dir = (
+                        config.base_url.rstrip("/").split("/")[-1]
+                        if config.base_url
+                        else "downloads"
+                    )
+                    missing = verify_downloads(dl_dir, expected, logger)
+                except Exception as e:
+                    logger.error(f"❌ Verify failed: {e}")
+                    missing = []
+            else:
+                missing = []
+            return {
+                "success": True,
+                "report": None,
+                "error": None,
+                "downloaded": count,
+                "missing": missing,
+            }
 
         # Load and parse CSV
         if not os.path.exists(csv_path):
@@ -2557,7 +2621,7 @@ async def run_job(
             return {"success": False, "report": None, "error": error_msg}
 
         df = load_csv(csv_path, logger)
-        versions = parse_csv_data(df, config, logger)
+        versions = parse_csv_data(df, config, logger, flat_mode=flat_mode)
 
         if not versions:
             error_msg = "No versions to process"
@@ -2571,6 +2635,11 @@ async def run_job(
         if limit:
             versions = versions[:limit]
             logger.info(f"Limited to {limit} versions")
+
+        if flat_mode:
+            logger.info(
+                f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version"
+            )
 
         if dry_run:
             logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
@@ -2586,6 +2655,7 @@ async def run_job(
             headless=headless,
             logger=logger,
             dry_run=dry_run,
+            no_save=no_save,
             debug=_effective_debug,
             screenshots_dir=screenshots_dir,
         )
@@ -2593,8 +2663,10 @@ async def run_job(
         try:
             await automation.start_browser()
 
-            for version in versions:
+            for idx, version in enumerate(versions):
                 print_version_info(version, logger)
+                if progress_callback:
+                    progress_callback(idx + 1, len(versions), version.name)
                 result = await automation.process_version(version)
                 if not result and _effective_debug:
                     logger.info(f"🐛 DEBUG: '{version.name}' failed. Browser paused.")
@@ -2663,6 +2735,11 @@ async def main():
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Run without clicking Generate Speech"
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Skip saving after filling forms (inspect only)",
     )
 
     parser.add_argument(
@@ -2926,6 +3003,7 @@ async def main():
         headless=args.headless,
         logger=logger,
         dry_run=args.dry_run,
+        no_save=args.no_save,
         debug=args.debug,
     )
 

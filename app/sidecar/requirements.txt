@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+websockets
+pandas
+playwright
+pytest
+pytest-asyncio
+httpx
+pyinstaller

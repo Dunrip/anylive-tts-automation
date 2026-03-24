@@ -90,7 +90,7 @@ python auto_tts.py --download --versions 0,14-26
 
 - `TTSAutomation` class: Handles TTS-specific browser automation and form filling
 - `parse_csv_data()`: Reads CSV and groups scripts by product
-- Imports shared utilities from `shared.py` (re-exports for backward compat with menubar_gui.py)
+- Imports shared utilities from `shared.py`
 - TTS-specific `SELECTORS` dict
 - Uses `state/browser_data/` and `state/session_state.json` for `app.anylive.jp`
 
@@ -334,7 +334,6 @@ When UI elements change:
 
 ### Menu Bar GUI Architecture
 
-- `rumps` for native macOS menu bar integration
 - Background threads for async operations (avoid blocking UI)
 - UI updates queued via `_UI_QUEUE` for thread safety
 - Logging to `~/Library/Application Support/AnyLiveTTS/logs/menubar.log`
@@ -349,9 +348,7 @@ anylive-tts-automation/
 ├── auto_tts.py             # TTS automation script
 ├── auto_faq.py             # Product FAQ automation script
 ├── auto_script.py          # Set Live Content script automation
-├── menubar_gui.py          # macOS menu bar app
 ├── requirements.txt        # Python dependencies
-├── menubar_app.spec        # PyInstaller spec file
 ├── configs/                # Client configurations (nested structure)
 │   ├── CLAUDE.md           # Config structure documentation
 │   ├── default/            # Default client (template + fallback)
@@ -377,7 +374,6 @@ anylive-tts-automation/
 - `shared.py`: Shared utilities — BrowserAutomation base class, logging, CSV, session
 - `auto_tts.py`: TTS automation logic (imports from shared.py)
 - `auto_faq.py`: FAQ automation logic (imports from shared.py)
-- `menubar_gui.py`: Menu bar application wrapper
 - `tests/`: Unit tests (77 tests covering CSV parsing, audio resolution, config, session)
 - `AGENTS.md`: Detailed architecture documentation (legacy, consider this CLAUDE.md authoritative)
 - `README.md`: User-facing documentation
