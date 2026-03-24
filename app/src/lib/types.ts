@@ -23,6 +23,7 @@ export interface AutomationOptions {
   limit?: number;
   audio_dir?: string;
   delete_scripts?: boolean;
+  replace_products?: boolean;
 }
 
 export interface JobStartRequest {
