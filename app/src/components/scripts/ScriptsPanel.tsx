@@ -26,6 +26,8 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
   const [csvPreview, setCsvPreview] = useState<CSVPreviewResponse | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [options, setOptions] = useState<{
     headless: boolean;
@@ -115,6 +117,34 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
       }
     } catch {
       setDeleteError("Could not connect to sidecar");
+    }
+  };
+
+  const handleReplace = async (): Promise<void> => {
+    if (!sidecarUrl || automation.isRunning) return;
+    setShowReplaceConfirm(false);
+    setReplaceError(null);
+
+    try {
+      const resp = await fetch(`${sidecarUrl}/api/scripts/replace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config_path: configPath,
+          options: {
+            headless: options.headless,
+            dry_run: options.dry_run,
+            start_product: options.start_product,
+            limit: options.limit,
+          },
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: "Replace failed" }));
+        setReplaceError(err.detail || "Replace failed");
+      }
+    } catch {
+      setReplaceError("Could not connect to sidecar");
     }
   };
 
@@ -238,6 +268,15 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
         </Button>
 
         <Button
+          data-testid="replace-products-button"
+          onClick={() => setShowReplaceConfirm(true)}
+          disabled={automation.isRunning || !sidecarUrl}
+          variant="outline"
+        >
+          Replace Products
+        </Button>
+
+        <Button
           data-testid="delete-scripts-button"
           onClick={() => setShowDeleteConfirm(true)}
           disabled={automation.isRunning || !sidecarUrl}
@@ -250,6 +289,39 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
       {deleteError && (
         <div className="px-3 py-2 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[var(--error)] rounded-md text-sm text-[var(--error)]">
           {deleteError}
+        </div>
+      )}
+      {replaceError && (
+        <div className="px-3 py-2 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[var(--error)] rounded-md text-sm text-[var(--error)]">
+          {replaceError}
+        </div>
+      )}
+
+      {/* Replace confirmation dialog */}
+      {showReplaceConfirm && (
+        <div
+          data-testid="replace-confirm-dialog"
+          className="p-4 bg-[var(--bg-elevated)] border border-[var(--warning)] rounded-lg"
+        >
+          <p className="text-sm text-[var(--text-primary)] mb-3">
+            Are you sure you want to replace all products? This will delete existing products and upload new ones. This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              data-testid="confirm-replace-button"
+              variant="destructive"
+              onClick={handleReplace}
+            >
+              Yes, Replace All
+            </Button>
+            <Button
+              data-testid="cancel-replace-button"
+              variant="outline"
+              onClick={() => setShowReplaceConfirm(false)}
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
 
@@ -266,7 +338,6 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
             <Button
               data-testid="confirm-delete-button"
               variant="destructive"
-             
               onClick={handleDelete}
             >
               Yes, Delete All
@@ -274,7 +345,6 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
             <Button
               data-testid="cancel-delete-button"
               variant="outline"
-             
               onClick={() => setShowDeleteConfirm(false)}
             >
               Cancel
