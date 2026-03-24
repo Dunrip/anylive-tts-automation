@@ -32,6 +32,11 @@ class ScriptDeleteRequest(BaseModel):
     options: dict[str, Any] = {}
 
 
+class ScriptReplaceRequest(BaseModel):
+    config_path: str
+    options: dict[str, Any] = {}
+
+
 async def _run_script_job(job: Job) -> None:
     from auto_script import run_job  # type: ignore[import]
 
@@ -54,6 +59,7 @@ async def _run_script_job(job: Job) -> None:
     dry_run: bool = bool(opts.get("dry_run", False))
     debug: bool = bool(opts.get("debug", False))
     delete_scripts: bool = bool(opts.get("delete_scripts", False))
+    replace_products: bool = bool(opts.get("replace_products", False))
     start_product: Optional[int] = opts.get("start_product")
     limit: Optional[int] = opts.get("limit")
     audio_dir: Optional[str] = opts.get("audio_dir")
@@ -65,6 +71,7 @@ async def _run_script_job(job: Job) -> None:
         dry_run=dry_run,
         debug=debug,
         delete_scripts=delete_scripts,
+        replace_products=replace_products,
         start_product=start_product,
         limit=limit,
         audio_dir=audio_dir,
@@ -99,6 +106,27 @@ async def run_scripts(request: ScriptRunRequest) -> dict[str, str]:
 async def delete_scripts(request: ScriptDeleteRequest) -> dict[str, str]:
     """Start a Script delete automation job (no CSV required)."""
     options = {**request.options, "delete_scripts": True}
+
+    try:
+        job = job_manager.create_job(
+            automation_type=AutomationType.SCRIPT,
+            config_path=request.config_path,
+            csv_path=None,
+            options=options,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    job.add_log_callback(log_streamer.make_log_callback(job.job_id))
+    asyncio.create_task(job_manager.run_job(job, _run_script_job))
+
+    return {"job_id": job.job_id, "status": "accepted"}
+
+
+@router.post("/scripts/replace", status_code=202)
+async def replace_scripts(request: ScriptReplaceRequest) -> dict[str, str]:
+    """Start a Script replace-products automation job (no CSV required)."""
+    options = {**request.options, "replace_products": True}
 
     try:
         job = job_manager.create_job(
