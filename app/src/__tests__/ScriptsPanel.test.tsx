@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ScriptsPanel } from "../components/scripts/ScriptsPanel";
 import { useAutomation } from "../hooks/useAutomation";
