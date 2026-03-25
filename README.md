@@ -14,7 +14,7 @@ Automate the creation of Text-to-Speech script versions on the AnyLive platform 
   - [auto_tts.py: TTS Script Creation](#auto_ttspy-tts-script-creation)
   - [auto_faq.py: Product FAQ](#auto_faqpy-product-faq)
   - [auto_script.py: Set Live Content](#auto_scriptpy-set-live-content)
-  - [Menu Bar App (macOS)](#menu-bar-app-macos)
+  - [Desktop App](#desktop-app)
 - [CLI Reference](#cli-reference)
 - [Configuration](#configuration)
   - [Multi-Client Setup](#multi-client-setup)
@@ -121,8 +121,8 @@ python auto_script.py --client example --delete-scripts
 python auto_script.py --client example --start-product 3
 ```
 
-### Menu Bar App (macOS)
-A native macOS menu bar application built with `rumps` that wraps the CLI functionality in a GUI. It stores user data in `~/Library/Application Support/AnyLiveTTS/`. Run it using `python menubar_gui.py`.
+### Desktop App
+A cross-platform desktop application built with [Tauri v2](https://v2.tauri.app/) that wraps the automation tools in a modern UI. Available for **macOS** (Apple Silicon) and **Windows** (64-bit). Download the latest release from the [Releases page](https://github.com/Dunrip/anylive-tts-automation/releases). See [`app/README.md`](app/README.md) for development details.
 
 ## CLI Reference
 
@@ -191,7 +191,7 @@ anylive-tts-automation/
 ├── auto_tts.py             # TTS automation
 ├── auto_faq.py             # FAQ automation
 ├── auto_script.py          # Script automation
-├── menubar_gui.py          # macOS menu bar app
+├── app/                    # Tauri v2 desktop app
 ├── shared.py               # Shared utilities
 ├── requirements.txt
 ├── configs/
