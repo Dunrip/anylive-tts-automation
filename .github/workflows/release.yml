@@ -47,23 +47,19 @@ jobs:
       - name: Rename binary with target-triple
         shell: bash
         run: |
-          cd app/sidecar
-          STAGING_DIR="dist/sidecar-bundle-${{ matrix.target-triple }}"
-          rm -rf "$STAGING_DIR"
-          mkdir -p "$STAGING_DIR"
+          cd app/sidecar/dist
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
-            cp dist/sidecar-server/sidecar-server.exe "$STAGING_DIR/sidecar-server-${{ matrix.target-triple }}.exe"
+            mv sidecar-server.exe "sidecar-server-${{ matrix.target-triple }}.exe"
           else
-            cp dist/sidecar-server/sidecar-server "$STAGING_DIR/sidecar-server-${{ matrix.target-triple }}"
+            mv sidecar-server "sidecar-server-${{ matrix.target-triple }}"
           fi
-          cp -R dist/sidecar-server/_internal "$STAGING_DIR/_internal"
 
       - name: Upload sidecar artifact
         uses: actions/upload-artifact@v4
         with:
           name: sidecar-${{ matrix.target-triple }}
           path: |
-            app/sidecar/dist/sidecar-bundle-${{ matrix.target-triple }}/**
+            app/sidecar/dist/sidecar-server-${{ matrix.target-triple }}*
           retention-days: 1
 
   build-tauri:

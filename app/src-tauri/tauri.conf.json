@@ -31,9 +31,6 @@
     "externalBin": [
       "binaries/sidecar-server/sidecar-server"
     ],
-    "resources": {
-      "binaries/sidecar-server/_internal": "binaries/sidecar-server/_internal"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
