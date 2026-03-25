@@ -217,11 +217,23 @@ pub fn run() {
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
             } else {
-                app.shell()
-                    .sidecar("sidecar-server")
-                    .map_err(|e| format!("Failed to find sidecar: {e}"))?
-                    .spawn()
-                    .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
+                {
+                    let resource_dir = app
+                        .path()
+                        .resource_dir()
+                        .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+                    let sidecar_name = if cfg!(target_os = "windows") {
+                        "sidecar-server.exe"
+                    } else {
+                        "sidecar-server"
+                    };
+                    let sidecar_path = resource_dir.join("sidecar").join(sidecar_name);
+
+                    app.shell()
+                        .command(sidecar_path.to_string_lossy().to_string())
+                        .spawn()
+                        .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
+                }
             };
 
             {

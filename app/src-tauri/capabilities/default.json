@@ -7,6 +7,7 @@
     "core:default",
     "shell:default",
     "shell:allow-execute",
+    "shell:allow-spawn",
     "core:tray:default",
     "notification:default",
     "dialog:default",

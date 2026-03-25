@@ -47,7 +47,7 @@ jobs:
       - name: Rename binary with target-triple
         shell: bash
         run: |
-          cd app/sidecar/dist
+          cd app/sidecar/dist/sidecar-server
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
             mv sidecar-server.exe "sidecar-server-${{ matrix.target-triple }}.exe"
           else
@@ -59,7 +59,7 @@ jobs:
         with:
           name: sidecar-${{ matrix.target-triple }}
           path: |
-            app/sidecar/dist/sidecar-server-${{ matrix.target-triple }}*
+            app/sidecar/dist/sidecar-server/**
           retention-days: 1
 
   build-tauri:
@@ -97,9 +97,19 @@ jobs:
           name: sidecar-${{ matrix.target-triple }}
           path: app/src-tauri/binaries/sidecar-server/
 
+      - name: Prepare sidecar for bundling
+        shell: bash
+        run: |
+          cd app/src-tauri/binaries/sidecar-server
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            mv "sidecar-server-${{ matrix.target-triple }}.exe" sidecar-server.exe
+          else
+            mv "sidecar-server-${{ matrix.target-triple }}" sidecar-server
+          fi
+
       - name: Make sidecar executable (macOS)
         if: matrix.platform == 'macos-latest'
-        run: chmod +x app/src-tauri/binaries/sidecar-server/sidecar-server-${{ matrix.target-triple }}
+        run: chmod +x app/src-tauri/binaries/sidecar-server/sidecar-server
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
