@@ -109,7 +109,9 @@ jobs:
 
       - name: Make sidecar executable (macOS)
         if: matrix.platform == 'macos-latest'
-        run: chmod +x app/src-tauri/binaries/sidecar-server/sidecar-server
+        run: |
+          chmod +x app/src-tauri/binaries/sidecar-server/sidecar-server
+          find app/src-tauri/binaries/sidecar-server/_internal/playwright/driver -type f \( -name "node" -o -name "*.sh" \) -exec chmod +x {} \; 2>/dev/null || true
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0

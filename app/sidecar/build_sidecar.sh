@@ -41,6 +41,8 @@ if [ -d "$BINARY_DIR/_internal" ]; then
     mkdir -p "$TAURI_SIDECAR_DIR"
     cp "$BINARY_DIR/$TARGET_NAME" "$TAURI_SIDECAR_DIR/$TARGET_NAME"
     cp -R "$BINARY_DIR/_internal" "$TAURI_SIDECAR_DIR/_internal"
+    # Restore execute bits on Playwright driver binaries (macOS DMG/signing can strip them)
+    find "$TAURI_SIDECAR_DIR/_internal/playwright/driver" -type f \( -name "node" -o -name "*.sh" \) -exec chmod +x {} \; 2>/dev/null || true
     echo "Staged onedir payload at: $TAURI_SIDECAR_DIR"
 else
     echo "ERROR: PyInstaller onedir runtime tree missing at $BINARY_DIR/_internal"
