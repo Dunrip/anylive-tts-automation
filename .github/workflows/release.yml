@@ -124,16 +124,13 @@ jobs:
           tagName: ${{ github.event.inputs.version || github.ref_name }}
           releaseName: "AnyLive TTS ${{ github.event.inputs.version || github.ref_name }}"
           releaseBody: |
-            ## macOS — Important
+            ## macOS — First Launch
 
-            macOS may block the app because it is not signed with an Apple Developer certificate.
-
-            **Fix:** Right-click the app → **Open** → click **Open** in the dialog.
-
-            Or run in Terminal after installing:
+            After installing, open **Terminal** and run:
             ```bash
             xattr -cr "/Applications/AnyLive TTS.app"
             ```
+            Then open the app normally. This is required once because the app is not signed with an Apple Developer certificate.
 
             ## Getting Started
 
