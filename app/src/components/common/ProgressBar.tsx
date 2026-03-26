@@ -20,11 +20,16 @@ export function ProgressBar({ current, total, startTime }: ProgressBarProps): Re
 
   useEffect(() => {
     if (!startTime || current === 0) return;
+    // Job complete — one final update, then stop
+    if (total > 0 && current >= total) {
+      setElapsed(Date.now() - startTime);
+      return;
+    }
     const interval = setInterval(() => {
       setElapsed(Date.now() - startTime);
     }, 1000);
     return () => clearInterval(interval);
-  }, [startTime, current]);
+  }, [startTime, current, total]);
 
   // current = "about to process item N" (1-indexed), so completed = current - 1
   // Exception: when current >= total, all items have been emitted (last one processing or done)
