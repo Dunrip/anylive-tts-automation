@@ -13,7 +13,10 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if getattr(sys, "frozen", False):
+    _REPO_ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

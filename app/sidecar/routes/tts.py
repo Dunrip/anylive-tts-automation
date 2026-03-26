@@ -14,7 +14,10 @@ from models.job import AutomationType
 from services.job_manager import Job, job_manager
 from services.log_streamer import log_streamer
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if getattr(sys, "frozen", False):
+    _REPO_ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

@@ -22,9 +22,11 @@ from routes.session import router as session_router
 from routes.setup import router as setup_router
 from routes.tts import router as tts_router
 
-_SIDECAR_DIR = Path(__file__).resolve().parent
-_APP_DIR = _SIDECAR_DIR.parent
-_REPO_ROOT = _APP_DIR.parent
+if getattr(sys, "frozen", False):
+    _REPO_ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _SIDECAR_DIR = Path(__file__).resolve().parent
+    _REPO_ROOT = _SIDECAR_DIR.parent.parent
 
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
