@@ -211,8 +211,14 @@ pub fn run() {
             let is_dev = cfg!(debug_assertions);
 
             let (mut rx, child) = if is_dev {
+                let venv_python = std::path::Path::new("../../.venv/bin/python3");
+                let python_cmd = if venv_python.exists() {
+                    venv_python.to_string_lossy().to_string()
+                } else {
+                    "python3".to_string()
+                };
                 app.shell()
-                    .command("python3")
+                    .command(&python_cmd)
                     .args(["../sidecar/server.py"])
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar: {e}"))?

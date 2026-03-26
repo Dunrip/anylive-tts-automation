@@ -8,8 +8,10 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 
 export default async function globalSetup(): Promise<void> {
   const serverScript = path.join(REPO_ROOT, "app", "sidecar", "server.py");
+  const venvPython = path.join(REPO_ROOT, ".venv", "bin", "python3");
+  const pythonCmd = require("fs").existsSync(venvPython) ? venvPython : "python3";
 
-  const sidecar = spawn("python3", [
+  const sidecar = spawn(pythonCmd, [
     serverScript,
     "--port", String(SIDECAR_PORT),
     "--app-data-dir", REPO_ROOT,
