@@ -4,7 +4,7 @@ import * as path from "path";
 
 const SIDECAR_PORT = 8765;
 const PID_FILE = "/tmp/anylive-e2e-sidecar.pid";
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+const REPO_ROOT = path.resolve(__dirname, "../..");
 
 export default async function globalSetup(): Promise<void> {
   const serverScript = path.join(REPO_ROOT, "app", "sidecar", "server.py");
