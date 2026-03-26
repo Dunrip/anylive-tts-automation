@@ -123,7 +123,29 @@ jobs:
           projectPath: app
           tagName: ${{ github.event.inputs.version || github.ref_name }}
           releaseName: "AnyLive TTS ${{ github.event.inputs.version || github.ref_name }}"
-          releaseBody: "See the assets to download this version and install."
+          releaseBody: |
+            ## macOS — Important
+
+            macOS may block the app because it is not signed with an Apple Developer certificate.
+
+            **Fix:** Right-click the app → **Open** → click **Open** in the dialog.
+
+            Or run in Terminal after installing:
+            ```bash
+            xattr -cr "/Applications/AnyLive TTS.app"
+            ```
+
+            ## Getting Started
+
+            1. Download the installer for your platform from the assets below
+            2. Install and launch AnyLive TTS
+            3. Run **Setup** to install Chromium and log in to AnyLive
+            4. Select a client config and start automating
+
+            ## System Requirements
+
+            - **macOS**: Apple Silicon (M1/M2/M3/M4)
+            - **Windows**: 64-bit Windows 10+
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
