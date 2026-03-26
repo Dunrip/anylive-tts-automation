@@ -128,9 +128,13 @@ jobs:
 
             After installing, open **Terminal** and run:
             ```bash
-            xattr -cr "/Applications/AnyLive TTS.app"
+            xattr -cr "/path/to/AnyLive TTS.app"
             ```
-            Then open the app normally. This is required once because the app is not signed with an Apple Developer certificate.
+            Replace `/path/to/` with where you installed the app, for example:
+            - `/Applications/AnyLive TTS.app` (default)
+            - `~/Applications/AnyLive TTS.app` (if you cannot write to /Applications)
+
+            This is required once because the app is not signed with an Apple Developer certificate.
 
             ## Getting Started
 
