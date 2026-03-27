@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TTSConfig, LiveConfig } from "../../lib/types";
 import { cn } from "@/lib/utils";
@@ -49,6 +49,7 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
   const [originalLive, setOriginalLive] = useState<LiveConfig>(DEFAULT_LIVE);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const saveStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!client) return;
@@ -98,7 +99,7 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
       setOriginalTts(ttsConfig);
       setOriginalLive(liveConfig);
       setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      saveStatusTimeoutRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
     } catch {
       setSaveStatus("error");
     } finally {
@@ -111,6 +112,12 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
     setLiveConfig(originalLive);
     setSaveStatus("idle");
   };
+
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimeoutRef.current) clearTimeout(saveStatusTimeoutRef.current);
+    };
+  }, []);
 
   const updateTts = (field: keyof TTSConfig, value: unknown): void => {
     setTtsConfig((prev) => ({ ...prev, [field]: value }));
@@ -156,18 +163,18 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           </h3>
           <div className={sectionClasses}>
             <p className={sectionTitleClasses}>Automation</p>
-            <div className="mb-3">
-              <label className={labelClasses}>Version Template</label>
-              <input data-testid="input-version-template" type="text" value={ttsConfig.version_template} onChange={(e) => updateTts("version_template", e.target.value)} placeholder="Template_Name" className={inputClasses} />
-            </div>
-            <div className="mb-3">
-              <label className={labelClasses}>Voice Name</label>
-              <input data-testid="input-voice-name" type="text" value={ttsConfig.voice_name} onChange={(e) => updateTts("voice_name", e.target.value)} placeholder="Voice_Clone_Name" className={inputClasses} />
-            </div>
-            <div className="mb-3">
-              <label className={labelClasses}>Max Scripts Per Version</label>
-              <input data-testid="input-max-scripts" type="number" value={ttsConfig.max_scripts_per_version} onChange={(e) => updateTts("max_scripts_per_version", parseInt(e.target.value, 10))} min={1} max={50} className={cn(inputClasses, "w-[120px]")} />
-            </div>
+             <div className="mb-3">
+               <label htmlFor="settings-version-template" className={labelClasses}>Version Template</label>
+               <input id="settings-version-template" data-testid="input-version-template" type="text" value={ttsConfig.version_template} onChange={(e) => updateTts("version_template", e.target.value)} placeholder="Template_Name" className={inputClasses} />
+             </div>
+             <div className="mb-3">
+               <label htmlFor="settings-voice-name" className={labelClasses}>Voice Name</label>
+               <input id="settings-voice-name" data-testid="input-voice-name" type="text" value={ttsConfig.voice_name} onChange={(e) => updateTts("voice_name", e.target.value)} placeholder="Voice_Clone_Name" className={inputClasses} />
+             </div>
+             <div className="mb-3">
+               <label htmlFor="settings-max-scripts" className={labelClasses}>Max Scripts Per Version</label>
+               <input id="settings-max-scripts" data-testid="input-max-scripts" type="number" value={ttsConfig.max_scripts_per_version} onChange={(e) => updateTts("max_scripts_per_version", parseInt(e.target.value, 10))} min={1} max={50} className={cn(inputClasses, "w-[120px]")} />
+             </div>
             <div className="flex flex-col gap-2">
               <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
                 <input data-testid="toggle-voice-selection" type="checkbox" checked={ttsConfig.enable_voice_selection ?? false} onChange={(e) => updateTts("enable_voice_selection", e.target.checked)} />
@@ -181,12 +188,12 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           </div>
           <div className={sectionClasses}>
             <p className={sectionTitleClasses}>CSV Column Mapping</p>
-            {[{ key: "product_number", label: "Product Number" }, { key: "product_name", label: "Product Name" }, { key: "script_content", label: "Script Content" }, { key: "audio_code", label: "Audio Code" }].map(({ key, label }) => (
-              <div key={key} className="mb-2.5">
-                <label className={labelClasses}>{label}</label>
-                <input data-testid={`input-csv-${key}`} type="text" value={(ttsConfig.csv_columns as unknown as Record<string, string>)?.[key] || ""} onChange={(e) => updateTtsCsv(key, e.target.value)} className={inputClasses} />
-              </div>
-            ))}
+             {[{ key: "product_number", label: "Product Number" }, { key: "product_name", label: "Product Name" }, { key: "script_content", label: "Script Content" }, { key: "audio_code", label: "Audio Code" }].map(({ key, label }) => (
+               <div key={key} className="mb-2.5">
+                 <label htmlFor={`settings-csv-tts-${key}`} className={labelClasses}>{label}</label>
+                 <input id={`settings-csv-tts-${key}`} data-testid={`input-csv-${key}`} type="text" value={(ttsConfig.csv_columns as unknown as Record<string, string>)?.[key] || ""} onChange={(e) => updateTtsCsv(key, e.target.value)} className={inputClasses} />
+               </div>
+             ))}
           </div>
         </div>
 
@@ -197,13 +204,13 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           </h3>
           <div className={sectionClasses}>
             <p className={sectionTitleClasses}>Audio</p>
-            <div className="mb-3">
-              <label className={labelClasses}>Audio Directory</label>
-              <input data-testid="input-live-audio-dir" type="text" value={liveConfig.audio_dir || ""} onChange={(e) => updateLive("audio_dir", e.target.value)} placeholder="downloads" className={inputClasses} />
-            </div>
-            <div className="mb-3">
-              <label className={labelClasses}>Audio Extensions</label>
-              <div className={cn(inputClasses, "flex items-center gap-1.5 min-h-[34px] px-2 py-1.5 cursor-default")}>
+             <div className="mb-3">
+               <label htmlFor="settings-audio-dir" className={labelClasses}>Audio Directory</label>
+               <input id="settings-audio-dir" data-testid="input-live-audio-dir" type="text" value={liveConfig.audio_dir || ""} onChange={(e) => updateLive("audio_dir", e.target.value)} placeholder="downloads" className={inputClasses} />
+             </div>
+             <div className="mb-3">
+               <label htmlFor="settings-audio-extensions" className={labelClasses}>Audio Extensions</label>
+               <div id="settings-audio-extensions" className={cn(inputClasses, "flex items-center gap-1.5 min-h-[34px] px-2 py-1.5 cursor-default")}>
                 {[".mp3", ".wav"].map((ext) => {
                   const active = (liveConfig.audio_extensions || []).includes(ext);
                   return (
@@ -231,12 +238,12 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           </div>
           <div className={sectionClasses}>
             <p className={sectionTitleClasses}>CSV Column Mapping</p>
-            {[{ key: "product_number", label: "Product Number" }, { key: "product_name", label: "Product Name" }, { key: "question", label: "Question/Keywords" }, { key: "script_content", label: "Script Content" }, { key: "audio_code", label: "Audio Code" }].map(({ key, label }) => (
-              <div key={key} className="mb-2.5">
-                <label className={labelClasses}>{label}</label>
-                <input data-testid={`input-live-csv-${key}`} type="text" value={(liveConfig.csv_columns as unknown as Record<string, string>)?.[key] || ""} onChange={(e) => updateLiveCsv(key, e.target.value)} className={inputClasses} />
-              </div>
-            ))}
+             {[{ key: "product_number", label: "Product Number" }, { key: "product_name", label: "Product Name" }, { key: "question", label: "Question/Keywords" }, { key: "script_content", label: "Script Content" }, { key: "audio_code", label: "Audio Code" }].map(({ key, label }) => (
+               <div key={key} className="mb-2.5">
+                 <label htmlFor={`settings-csv-live-${key}`} className={labelClasses}>{label}</label>
+                 <input id={`settings-csv-live-${key}`} data-testid={`input-live-csv-${key}`} type="text" value={(liveConfig.csv_columns as unknown as Record<string, string>)?.[key] || ""} onChange={(e) => updateLiveCsv(key, e.target.value)} className={inputClasses} />
+               </div>
+             ))}
           </div>
         </div>
       </div>

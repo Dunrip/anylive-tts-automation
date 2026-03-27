@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
   const [installing, setInstalling] = useState(false);
   const [status, setStatus] = useState<"idle" | "installing" | "done" | "error">("idle");
   const [message, setMessage] = useState<string>("");
+  const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const handleInstall = async (): Promise<void> => {
     setInstalling(true);
@@ -27,7 +28,7 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
       if (data.status === "installed" || data.status === "already_installed") {
         setStatus("done");
         setMessage("Chromium installed successfully!");
-        setTimeout(onComplete, 1500);
+        completeTimeoutRef.current = setTimeout(onComplete, 1500);
       } else {
         setStatus("error");
         setMessage(data.error || "Installation failed");
@@ -39,6 +40,12 @@ export function SetupWizard({ sidecarUrl, onComplete }: SetupWizardProps): React
       setInstalling(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+    };
+  }, []);
 
   return (
     <div

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CheckCircle, Circle, Loader2, AlertCircle } from "lucide-react";
@@ -44,6 +44,8 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
     return () => clearTimeout(timer);
   }, [step, chromiumInstalled, sessionValid, onComplete]);
 
+  const chromiumTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const handleInstallChromium = async (): Promise<void> => {
     setChromiumStatus("loading");
     setChromiumMessage("Installing Chromium browser...");
@@ -54,7 +56,7 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
       if (data.status === "installed" || data.status === "already_installed") {
         setChromiumStatus("done");
         setChromiumMessage("Chromium installed successfully.");
-        setTimeout(() => setStep("login"), 800);
+        chromiumTimeoutRef.current = setTimeout(() => setStep("login"), 800);
       } else {
         setChromiumStatus("error");
         setChromiumMessage(data.error || "Installation failed. Try again.");
@@ -64,6 +66,8 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
       setChromiumMessage("Could not connect to sidecar.");
     }
   };
+
+  const loginTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const handleLogin = async (): Promise<void> => {
     setLoginStatus("loading");
@@ -75,7 +79,7 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
       if (data.status === "ok") {
         setLoginStatus("done");
         setLoginMessage(`Welcome${data.display_name ? `, ${data.display_name}` : ""}!`);
-        setTimeout(() => {
+        loginTimeoutRef.current = setTimeout(() => {
           onComplete({ sessionValid: true, displayName: data.display_name ?? null, email: data.email ?? null });
         }, 900);
       } else if (data.status === "timeout") {
@@ -90,6 +94,14 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
       setLoginMessage("Could not connect to sidecar.");
     }
   };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (chromiumTimeoutRef.current) clearTimeout(chromiumTimeoutRef.current);
+      if (loginTimeoutRef.current) clearTimeout(loginTimeoutRef.current);
+    };
+  }, []);
 
   return (
     <div
