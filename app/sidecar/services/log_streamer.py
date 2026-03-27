@@ -10,6 +10,14 @@ from fastapi import WebSocket
 _logger = logging.getLogger(__name__)
 
 
+def _log_broadcast_exception(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        _logger.error("Unhandled exception in broadcast task: %s", exc, exc_info=exc)
+
+
 class LogStreamer:
     def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = {}
@@ -52,7 +60,8 @@ class LogStreamer:
         def callback(message: dict[str, Any]) -> None:
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(self.broadcast(job_id, message))
+                t = loop.create_task(self.broadcast(job_id, message))
+                t.add_done_callback(_log_broadcast_exception)
             except RuntimeError:
                 _logger.debug("No event loop for log broadcast (job %s)", job_id)
 

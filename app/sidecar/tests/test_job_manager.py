@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from models.job import AutomationType, JobStatus
-from services.job_manager import JobManager
+from services.job_manager import JobManager, make_job_done_callback
 
 
 class TestJobManager:
@@ -136,4 +136,29 @@ class TestJobManager:
         assert (
             job.status == JobStatus.SUCCESS
         ), f"Expected SUCCESS but got {job.status}, error: {job.error}"
+        assert job.finished_at is not None
+
+    async def test_done_callback_captures_exception_and_marks_job_failed(self) -> None:
+        job = self.manager.create_job(
+            automation_type=AutomationType.TTS,
+            config_path="/config.json",
+            csv_path=None,
+            options={},
+        )
+        job.status = JobStatus.RUNNING
+
+        async def raising_fn() -> None:
+            raise RuntimeError("fire-and-forget exception")
+
+        task = asyncio.create_task(raising_fn())
+        task.add_done_callback(make_job_done_callback(job))
+
+        try:
+            await task
+        except RuntimeError:
+            pass
+
+        assert job.status == JobStatus.FAILED
+        assert job.error is not None
+        assert "fire-and-forget exception" in job.error
         assert job.finished_at is not None

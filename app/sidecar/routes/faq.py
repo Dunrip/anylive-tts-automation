@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from models.job import AutomationType
-from services.job_manager import Job, job_manager
+from services.job_manager import Job, job_manager, make_job_done_callback
 from services.log_streamer import log_streamer
 
 if getattr(sys, "frozen", False):
@@ -91,6 +91,7 @@ async def run_faq(request: FAQRunRequest) -> dict[str, str]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     job.add_log_callback(log_streamer.make_log_callback(job.job_id))
-    asyncio.create_task(job_manager.run_job(job, _run_faq_job))
+    task = asyncio.create_task(job_manager.run_job(job, _run_faq_job))
+    task.add_done_callback(make_job_done_callback(job))
 
     return {"job_id": job.job_id, "status": "accepted"}

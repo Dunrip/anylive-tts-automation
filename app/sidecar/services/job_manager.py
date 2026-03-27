@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -13,6 +14,41 @@ from models.job import AutomationType, JobProgress, JobStatus, JobStatusResponse
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _log_task_exception(task: asyncio.Task[Any]) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        _logger.error(
+            "Unhandled exception in background task '%s': %s",
+            task.get_name(),
+            exc,
+            exc_info=exc,
+        )
+
+
+def make_job_done_callback(job: Job) -> Callable[[asyncio.Task[Any]], None]:
+    def _callback(task: asyncio.Task[Any]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        _logger.error(
+            "Unhandled exception in background task for job %s: %s",
+            job.job_id,
+            exc,
+            exc_info=exc,
+        )
+        if job.status == JobStatus.RUNNING:
+            job.status = JobStatus.FAILED
+            job.error = str(exc)
+            job.finished_at = _now()
+            job.emit_status()
+
+    return _callback
 
 
 class Job:

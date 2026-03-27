@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from models.job import AutomationType
-from services.job_manager import Job, job_manager
+from services.job_manager import Job, job_manager, make_job_done_callback
 from services.log_streamer import log_streamer
 
 if getattr(sys, "frozen", False):
@@ -100,14 +100,14 @@ async def run_scripts(request: ScriptRunRequest) -> dict[str, str]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     job.add_log_callback(log_streamer.make_log_callback(job.job_id))
-    asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task = asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task.add_done_callback(make_job_done_callback(job))
 
     return {"job_id": job.job_id, "status": "accepted"}
 
 
 @router.post("/scripts/delete", status_code=202)
 async def delete_scripts(request: ScriptDeleteRequest) -> dict[str, str]:
-    """Start a Script delete automation job (no CSV required)."""
     options = {**request.options, "delete_scripts": True}
 
     try:
@@ -121,14 +121,14 @@ async def delete_scripts(request: ScriptDeleteRequest) -> dict[str, str]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     job.add_log_callback(log_streamer.make_log_callback(job.job_id))
-    asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task = asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task.add_done_callback(make_job_done_callback(job))
 
     return {"job_id": job.job_id, "status": "accepted"}
 
 
 @router.post("/scripts/replace", status_code=202)
 async def replace_scripts(request: ScriptReplaceRequest) -> dict[str, str]:
-    """Start a Script replace-products automation job (no CSV required)."""
     options = {**request.options, "replace_products": True}
 
     try:
@@ -142,6 +142,7 @@ async def replace_scripts(request: ScriptReplaceRequest) -> dict[str, str]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     job.add_log_callback(log_streamer.make_log_callback(job.job_id))
-    asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task = asyncio.create_task(job_manager.run_job(job, _run_script_job))
+    task.add_done_callback(make_job_done_callback(job))
 
     return {"job_id": job.job_id, "status": "accepted"}
