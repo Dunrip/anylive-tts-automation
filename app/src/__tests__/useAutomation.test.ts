@@ -192,4 +192,50 @@ describe("useAutomation", () => {
       { method: "POST" }
     );
   });
+
+  it("pollJobStatus logs error on fetch failure", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    vi.mocked(globalThis.fetch).mockRejectedValue(new Error("Network error"));
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.pollJobStatus("http://127.0.0.1:8080", "test-job");
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith("Job poll failed:", expect.any(Error));
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("cancelJob logs error and sets error state on fetch failure", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    vi.mocked(globalThis.fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ job_id: "test-job" }),
+    } as Response);
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.startRun({
+        sidecarUrl: "http://127.0.0.1:8080",
+        endpoint: "/api/tts/run",
+        configPath: "configs/default/tts.json",
+        csvPath: "/test.csv",
+        options: {},
+      });
+    });
+
+    vi.mocked(globalThis.fetch).mockRejectedValue(new Error("Cancel failed"));
+
+    await act(async () => {
+      await result.current.cancelJob("http://127.0.0.1:8080");
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith("Job cancel failed:", expect.any(Error));
+    expect(result.current.error).toBe("Error: Cancel failed");
+    consoleErrorSpy.mockRestore();
+  });
 });

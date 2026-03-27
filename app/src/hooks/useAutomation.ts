@@ -234,8 +234,8 @@ export function useAutomation() {
           })),
         }));
       }
-    } catch {
-      // Silently ignore poll errors
+    } catch (err) {
+      console.error("Job poll failed:", err);
     }
   }, []);
 
@@ -256,8 +256,12 @@ export function useAutomation() {
     if (!state.jobId) return;
     try {
       await fetch(`${sidecarUrl}/api/jobs/${state.jobId}/cancel`, { method: "POST" });
-    } catch {
-      // silently ignore cancel errors
+    } catch (err) {
+      console.error("Job cancel failed:", err);
+      setState((prev) => ({
+        ...prev,
+        error: String(err),
+      }));
     }
   }, [state.jobId]);
 
