@@ -102,18 +102,19 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
         FAQ Automation
       </h2>
 
-      {/* Base URL (shared with Scripts) */}
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
-        <input
-          data-testid="input-faq-base-url"
-          type="text"
-          value={baseUrl}
-          onChange={(e) => onBaseUrlChange?.(e.target.value)}
-          placeholder="https://live.app.anylive.jp/live/SESSION_ID"
-          className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
-        />
-      </div>
+       {/* Base URL (shared with Scripts) */}
+       <div className="flex items-center gap-2">
+         <label htmlFor="faq-base-url" className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
+         <input
+           id="faq-base-url"
+           data-testid="input-faq-base-url"
+           type="text"
+           value={baseUrl}
+           onChange={(e) => onBaseUrlChange?.(e.target.value)}
+           placeholder="https://live.app.anylive.jp/live/SESSION_ID"
+           className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
+         />
+       </div>
 
       {/* CSV Picker */}
       <CSVPicker
@@ -124,19 +125,20 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
         automationType="faq"
       />
 
-      {/* Audio directory input */}
-      <div>
-        <label className="text-xs text-[var(--text-secondary)] block mb-1">
-          Audio Directory (optional)
-        </label>
-        <input
-          data-testid="audio-dir-input"
-          type="text"
-          value={audioDir}
-          onChange={(e) => setAudioDir(e.target.value)}
-          placeholder="downloads/"
-          className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border"
-        />
+       {/* Audio directory input */}
+       <div>
+         <label htmlFor="faq-audio-dir" className="text-xs text-[var(--text-secondary)] block mb-1">
+           Audio Directory (optional)
+         </label>
+         <input
+           id="faq-audio-dir"
+           data-testid="audio-dir-input"
+           type="text"
+           value={audioDir}
+           onChange={(e) => setAudioDir(e.target.value)}
+           placeholder="downloads/"
+           className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border"
+         />
       </div>
 
       {/* Options */}
@@ -159,46 +161,49 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
       </div>
 
       {/* Advanced options */}
-      <div>
-        <button
-          data-testid="faq-toggle-advanced"
-          onClick={() => setShowAdvanced((prev) => !prev)}
-          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
-        >
-          <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
-          Advanced (Optional)
-        </button>
+       <div>
+         <button
+           type="button"
+           data-testid="faq-toggle-advanced"
+           onClick={() => setShowAdvanced((prev) => !prev)}
+           className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+         >
+           <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
+           Advanced (Optional)
+         </button>
         {showAdvanced && (
           <div className="mt-2 flex gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--text-muted)]">Start from product</label>
-              <input
-                data-testid="faq-option-start-product"
-                type="number"
-                min={1}
-                placeholder="1"
-                value={options.start_product ?? ""}
-                onChange={(e) => setOptions((prev) => ({
-                  ...prev,
-                  start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                }))}
-                className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-              />
+             <div className="flex flex-col gap-1">
+               <label htmlFor="faq-start-product" className="text-xs text-[var(--text-muted)]">Start from product</label>
+               <input
+                 id="faq-start-product"
+                 data-testid="faq-option-start-product"
+                 type="number"
+                 min={1}
+                 placeholder="1"
+                 value={options.start_product ?? ""}
+                 onChange={(e) => setOptions((prev) => ({
+                   ...prev,
+                   start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                 }))}
+                 className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+               />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--text-muted)]">Limit products</label>
-              <input
-                data-testid="faq-option-limit"
-                type="number"
-                min={1}
-                placeholder="All"
-                value={options.limit ?? ""}
-                onChange={(e) => setOptions((prev) => ({
-                  ...prev,
-                  limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                }))}
-                className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-              />
+             <div className="flex flex-col gap-1">
+               <label htmlFor="faq-limit-products" className="text-xs text-[var(--text-muted)]">Limit products</label>
+               <input
+                 id="faq-limit-products"
+                 data-testid="faq-option-limit"
+                 type="number"
+                 min={1}
+                 placeholder="All"
+                 value={options.limit ?? ""}
+                 onChange={(e) => setOptions((prev) => ({
+                   ...prev,
+                   limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                 }))}
+                 className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+               />
             </div>
           </div>
         )}
@@ -231,9 +236,9 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
       {/* Product list */}
       {automation.versions.length > 0 && (
         <div data-testid="product-list" className="border border-[var(--border-default)] rounded-md overflow-hidden">
-          {automation.versions.map((v, i) => (
-            <div
-              key={i}
+           {automation.versions.map((v, i) => (
+             <div
+               key={v.name}
               className={cn(
                 "flex items-center justify-between px-3 py-2",
                 i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",

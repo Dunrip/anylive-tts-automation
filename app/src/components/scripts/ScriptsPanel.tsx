@@ -152,18 +152,19 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
         Script Automation
       </h2>
 
-      {/* Base URL (shared with FAQ) */}
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
-        <input
-          data-testid="input-scripts-base-url"
-          type="text"
-          value={baseUrl}
-          onChange={(e) => onBaseUrlChange?.(e.target.value)}
-          placeholder="https://live.app.anylive.jp/live/SESSION_ID"
-          className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
-        />
-      </div>
+       {/* Base URL (shared with FAQ) */}
+       <div className="flex items-center gap-2">
+         <label htmlFor="scripts-base-url" className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
+         <input
+           id="scripts-base-url"
+           data-testid="input-scripts-base-url"
+           type="text"
+           value={baseUrl}
+           onChange={(e) => onBaseUrlChange?.(e.target.value)}
+           placeholder="https://live.app.anylive.jp/live/SESSION_ID"
+           className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
+         />
+       </div>
 
       {/* CSV Picker */}
       <CSVPicker
@@ -193,59 +194,63 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
         ))}
       </div>
 
-      <div>
-        <button
-          data-testid="scripts-toggle-advanced"
-          onClick={() => setShowAdvanced((prev) => !prev)}
-          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
-        >
-          <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
-          Advanced (Optional)
-        </button>
+       <div>
+         <button
+           type="button"
+           data-testid="scripts-toggle-advanced"
+           onClick={() => setShowAdvanced((prev) => !prev)}
+           className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
+         >
+           <span className={cn("transition-transform text-xs", showAdvanced && "rotate-90")}>▶</span>
+           Advanced (Optional)
+         </button>
         {showAdvanced && (
           <div className="mt-2 flex flex-col gap-3">
             <div className="flex gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[var(--text-muted)]">Start from product</label>
-                <input
-                  data-testid="scripts-option-start-product"
-                  type="number"
-                  min={1}
-                  placeholder="1"
-                  value={options.start_product ?? ""}
-                  onChange={(e) => setOptions((prev) => ({
-                    ...prev,
-                    start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                  }))}
-                  className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-                />
+               <div className="flex flex-col gap-1">
+                 <label htmlFor="scripts-start-product" className="text-xs text-[var(--text-muted)]">Start from product</label>
+                 <input
+                   id="scripts-start-product"
+                   data-testid="scripts-option-start-product"
+                   type="number"
+                   min={1}
+                   placeholder="1"
+                   value={options.start_product ?? ""}
+                   onChange={(e) => setOptions((prev) => ({
+                     ...prev,
+                     start_product: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                   }))}
+                   className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                 />
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-[var(--text-muted)]">Limit products</label>
-                <input
-                  data-testid="scripts-option-limit"
-                  type="number"
-                  min={1}
-                  placeholder="All"
-                  value={options.limit ?? ""}
-                  onChange={(e) => setOptions((prev) => ({
-                    ...prev,
-                    limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                  }))}
-                  className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-                />
+               <div className="flex flex-col gap-1">
+                 <label htmlFor="scripts-limit-products" className="text-xs text-[var(--text-muted)]">Limit products</label>
+                 <input
+                   id="scripts-limit-products"
+                   data-testid="scripts-option-limit"
+                   type="number"
+                   min={1}
+                   placeholder="All"
+                   value={options.limit ?? ""}
+                   onChange={(e) => setOptions((prev) => ({
+                     ...prev,
+                     limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                   }))}
+                   className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                 />
               </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--text-muted)]">Audio directory</label>
-              <input
-                data-testid="scripts-option-audio-dir"
-                type="text"
-                placeholder="downloads/"
-                value={options.audio_dir}
-                onChange={(e) => setOptions((prev) => ({ ...prev, audio_dir: e.target.value }))}
-                className="w-full max-w-[300px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-              />
+             <div className="flex flex-col gap-1">
+               <label htmlFor="scripts-audio-dir" className="text-xs text-[var(--text-muted)]">Audio directory</label>
+               <input
+                 id="scripts-audio-dir"
+                 data-testid="scripts-option-audio-dir"
+                 type="text"
+                 placeholder="downloads/"
+                 value={options.audio_dir}
+                 onChange={(e) => setOptions((prev) => ({ ...prev, audio_dir: e.target.value }))}
+                 className="w-full max-w-[300px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+               />
             </div>
           </div>
         )}
@@ -356,9 +361,9 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
       {/* Version list */}
       {automation.versions.length > 0 && (
         <div data-testid="scripts-version-list" className="border border-[var(--border-default)] rounded-md overflow-hidden">
-          {automation.versions.map((v, i) => (
-            <div
-              key={i}
+           {automation.versions.map((v, i) => (
+             <div
+               key={v.name}
               className={cn(
                 "flex items-center justify-between px-3 py-2",
                 i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",
