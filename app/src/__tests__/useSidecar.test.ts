@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSidecar } from "../hooks/useSidecar";
 
@@ -51,5 +51,24 @@ describe("useSidecar", () => {
     );
 
     expect(result.current.port).toBe(9090);
+  });
+
+  it("includes error context when sidecar fails to start", async () => {
+    vi.useFakeTimers();
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockRejectedValue(new Error("ECONNREFUSED: Connection refused"));
+
+    const { result } = renderHook(() => useSidecar());
+
+    // Advance timers to exhaust all 60 attempts (60 * 500ms = 30s)
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.isReady).toBe(false);
+    expect(result.current.error).toContain("Sidecar failed to start after 30s:");
+    expect(result.current.error).toContain("ECONNREFUSED");
+
+    vi.useRealTimers();
   });
 });

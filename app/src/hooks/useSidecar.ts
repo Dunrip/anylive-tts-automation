@@ -26,7 +26,8 @@ export function useSidecar(): SidecarState {
 
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 30;
+    const maxAttempts = 60;
+    let lastError: string = "";
 
     const pollForPort = async (): Promise<void> => {
       while (!cancelled && attempts < maxAttempts) {
@@ -41,7 +42,8 @@ export function useSidecar(): SidecarState {
             });
           }
           return;
-        } catch {
+        } catch (err) {
+          lastError = String(err);
           attempts += 1;
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
@@ -50,7 +52,7 @@ export function useSidecar(): SidecarState {
       if (!cancelled) {
         setState((prev) => ({
           ...prev,
-          error: "Sidecar failed to start within 15 seconds",
+          error: `Sidecar failed to start after 30s: ${lastError}`,
         }));
       }
     };
