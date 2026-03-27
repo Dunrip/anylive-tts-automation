@@ -311,9 +311,14 @@ pub fn run() {
                         let state = app.state::<SidecarProcess>();
                         if let Ok(mut guard) = state.child.lock() {
                             if let Some(mut child) = guard.take() {
-                                let _ = child.write("shutdown\n".as_bytes());
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                let _ = child.kill();
+                                eprintln!("[sidecar shutdown] Sending shutdown signal...");
+                                if let Err(e) = child.write("shutdown\n".as_bytes()) {
+                                    eprintln!("[sidecar shutdown] Failed to send shutdown signal: {}", e);
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(1000));
+                                if let Err(e) = child.kill() {
+                                    eprintln!("[sidecar shutdown] Failed to kill sidecar: {}", e);
+                                }
                             }
                         }
                         app.exit(0);
@@ -341,9 +346,14 @@ pub fn run() {
                 let child_lock = state.child.lock();
                 if let Ok(mut guard) = child_lock {
                     if let Some(mut child) = guard.take() {
-                        let _ = child.write("shutdown\n".as_bytes());
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        let _ = child.kill();
+                        eprintln!("[sidecar shutdown] Sending shutdown signal...");
+                        if let Err(e) = child.write("shutdown\n".as_bytes()) {
+                            eprintln!("[sidecar shutdown] Failed to send shutdown signal: {}", e);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        if let Err(e) = child.kill() {
+                            eprintln!("[sidecar shutdown] Failed to kill sidecar: {}", e);
+                        }
                     }
                 }
             }
@@ -355,9 +365,14 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Ok(mut guard) = app_handle.state::<SidecarProcess>().child.lock() {
                     if let Some(mut child) = guard.take() {
-                        let _ = child.write("shutdown\n".as_bytes());
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        let _ = child.kill();
+                        eprintln!("[sidecar shutdown] Sending shutdown signal...");
+                        if let Err(e) = child.write("shutdown\n".as_bytes()) {
+                            eprintln!("[sidecar shutdown] Failed to send shutdown signal: {}", e);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        if let Err(e) = child.kill() {
+                            eprintln!("[sidecar shutdown] Failed to kill sidecar: {}", e);
+                        }
                     }
                 }
             }
