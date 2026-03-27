@@ -69,12 +69,12 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           return r.json();
         })
         .then(applyConfig)
-        .catch(() => {});
+        .catch((err) => { console.error("SettingsPanel: sidecar config load failed:", err); });
     } else {
       Promise.resolve()
         .then(() => invoke<string>("read_client_config", { client }))
         .then((json) => applyConfig(JSON.parse(json)))
-        .catch(() => {});
+        .catch((err) => { console.error("SettingsPanel: tauri config load failed:", err); });
     }
   }, [sidecarUrl, client]);
 

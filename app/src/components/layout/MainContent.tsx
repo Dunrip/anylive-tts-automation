@@ -35,7 +35,7 @@ export function MainContent({ activePanel, client, sidecarUrl }: MainContentProp
         if (tts?.base_url) setTtsBaseUrl(tts.base_url as string);
         if (live?.base_url) setLiveBaseUrl(live.base_url as string);
       })
-      .catch(() => {});
+      .catch((err) => { console.error("MainContent: initial config load failed:", err); });
   }, [sidecarUrl, client]);
 
   const saveTtsBaseUrl = useCallback((url: string) => {
@@ -52,7 +52,7 @@ export function MainContent({ activePanel, client, sidecarUrl }: MainContentProp
           body: JSON.stringify({ ...data, tts }),
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error("MainContent: TTS base URL save failed:", err); });
   }, [sidecarUrl, client]);
 
   const saveLiveBaseUrl = useCallback((url: string) => {
@@ -69,7 +69,7 @@ export function MainContent({ activePanel, client, sidecarUrl }: MainContentProp
           body: JSON.stringify({ ...data, live }),
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error("MainContent: Live base URL save failed:", err); });
   }, [sidecarUrl, client]);
 
   const handleLogStateChange = useCallback(
