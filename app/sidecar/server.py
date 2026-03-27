@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import logging
 import socket
 import sys
 import threading
@@ -21,6 +22,8 @@ from routes.scripts import router as scripts_router
 from routes.session import router as session_router
 from routes.setup import router as setup_router
 from routes.tts import router as tts_router
+
+logger = logging.getLogger(__name__)
 
 if getattr(sys, "frozen", False):
     _REPO_ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
@@ -72,10 +75,49 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "version": "1.0.0"}
 
 
+_MAX_PORT_RETRIES = 3
+
+
 def _get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+        port = int(sock.getsockname()[1])
+    logger.info("Allocated port %d", port)
+    return port
+
+
+def _allocate_port_with_retry() -> int:
+    last_exc: OSError | None = None
+    for attempt in range(1, _MAX_PORT_RETRIES + 1):
+        candidate = _get_free_port()
+        try:
+            # Pre-flight: verify the port is still unoccupied before starting uvicorn
+            # (_get_free_port releases its socket, leaving a race-condition window)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind(("127.0.0.1", candidate))
+            return candidate
+        except OSError as exc:
+            last_exc = exc
+            if attempt < _MAX_PORT_RETRIES:
+                logger.warning(
+                    "Port %d unavailable (attempt %d/%d): %s — retrying port allocation",
+                    candidate,
+                    attempt,
+                    _MAX_PORT_RETRIES,
+                    exc,
+                )
+            else:
+                logger.error(
+                    "Port allocation failed after %d attempt(s): %s",
+                    _MAX_PORT_RETRIES,
+                    exc,
+                )
+    assert last_exc is not None
+    raise OSError(
+        f"Failed to allocate a free port after {_MAX_PORT_RETRIES} attempts"
+    ) from last_exc
 
 
 def _stdin_watcher(shutdown_event: threading.Event) -> None:
@@ -134,7 +176,7 @@ def main() -> None:
 
     init_db(_app_data_dir)
 
-    port = args.port if args.port is not None else _get_free_port()
+    port = args.port if args.port is not None else _allocate_port_with_retry()
 
     shutdown_event = threading.Event()
     stdin_thread = threading.Thread(
