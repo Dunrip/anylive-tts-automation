@@ -8,7 +8,11 @@ interface WebSocketState {
 }
 
 const MAX_BUFFER = 5000;
-const RECONNECT_DELAY_MS = 2000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_RECONNECT_DELAY_MS = 30000;
+const BASE_RECONNECT_DELAY_MS = 1000;
+const WS_CLOSING = 2;
+const WS_CLOSED = 3;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -59,6 +63,7 @@ export function useWebSocket(url: string | null): WebSocketState {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef<number>(0);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -70,6 +75,29 @@ export function useWebSocket(url: string | null): WebSocketState {
     }
 
     let cancelled = false;
+    reconnectAttemptRef.current = 0;
+
+    const scheduleReconnect = (): void => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        return;
+      }
+
+      const delay = Math.min(
+        BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttemptRef.current),
+        MAX_RECONNECT_DELAY_MS,
+      );
+      reconnectAttemptRef.current += 1;
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (!cancelled) {
+          connect();
+        }
+      }, delay);
+    };
 
     const connect = (): void => {
       if (cancelled) {
@@ -82,6 +110,7 @@ export function useWebSocket(url: string | null): WebSocketState {
 
         ws.onopen = () => {
           if (!cancelled) {
+            reconnectAttemptRef.current = 0;
             setIsConnected(true);
           }
         };
@@ -114,23 +143,17 @@ export function useWebSocket(url: string | null): WebSocketState {
           }
 
           setIsConnected(false);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (!cancelled) {
-              connect();
-            }
-          }, RECONNECT_DELAY_MS);
+          scheduleReconnect();
         };
 
         ws.onerror = () => {
-          ws.close();
+          if (ws.readyState !== WS_CLOSING && ws.readyState !== WS_CLOSED) {
+            ws.close();
+          }
         };
       } catch {
         if (!cancelled) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (!cancelled) {
-              connect();
-            }
-          }, RECONNECT_DELAY_MS);
+          scheduleReconnect();
         }
       }
     };

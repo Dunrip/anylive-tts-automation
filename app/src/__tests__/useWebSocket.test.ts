@@ -149,4 +149,87 @@ describe("useWebSocket", () => {
 
     expect(MockWebSocket.instances).toHaveLength(2);
   });
+
+  it("uses exponential backoff delays on reconnect", () => {
+    vi.useFakeTimers();
+    renderHook(() => useWebSocket("ws://localhost:8080/ws"));
+
+    const expectedDelays = [1000, 2000, 4000, 8000, 16000, 30000];
+
+    for (let i = 0; i < expectedDelays.length; i++) {
+      act(() => {
+        MockWebSocket.instances[i].close();
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(expectedDelays[i] - 1);
+      });
+      expect(MockWebSocket.instances).toHaveLength(i + 1);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(MockWebSocket.instances).toHaveLength(i + 2);
+    }
+  });
+
+  it("stops reconnecting after 10 failed attempts", () => {
+    vi.useFakeTimers();
+    renderHook(() => useWebSocket("ws://localhost:8080/ws"));
+
+    for (let i = 0; i <= 10; i++) {
+      act(() => {
+        MockWebSocket.instances[i].close();
+      });
+      act(() => {
+        vi.advanceTimersByTime(30001);
+      });
+    }
+
+    expect(MockWebSocket.instances).toHaveLength(11);
+
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(MockWebSocket.instances).toHaveLength(11);
+  });
+
+  it("resets backoff counter after successful connection", () => {
+    vi.useFakeTimers();
+    renderHook(() => useWebSocket("ws://localhost:8080/ws"));
+
+    act(() => {
+      MockWebSocket.instances[0].close();
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    act(() => {
+      MockWebSocket.instances[1].close();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(3);
+
+    act(() => {
+      MockWebSocket.instances[2].open();
+    });
+
+    act(() => {
+      MockWebSocket.instances[2].close();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(MockWebSocket.instances).toHaveLength(3);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(MockWebSocket.instances).toHaveLength(4);
+  });
 });
