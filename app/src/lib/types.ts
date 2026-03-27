@@ -70,6 +70,7 @@ export interface StatusMessage {
   type: "status";
   job_id: string;
   status: JobStatus;
+  error?: string;
 }
 
 export type WSMessage = LogMessage | ProgressMessage | StatusMessage;
