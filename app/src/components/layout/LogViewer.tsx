@@ -71,7 +71,7 @@ export function LogViewer({
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, autoScroll]);
+  }, [autoScroll]);
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
@@ -167,11 +167,12 @@ export function LogViewer({
       data-testid="log-viewer"
       className="flex flex-col border-t border-[var(--border-default)] bg-[var(--bg-base)]"
     >
-      <div
-        data-testid="log-resize-handle"
-        onMouseDown={handleMouseDown}
-        className="h-1 cursor-row-resize bg-transparent hover:bg-[var(--border-active)] transition-colors shrink-0"
-      />
+       <button
+         type="button"
+         data-testid="log-resize-handle"
+         onMouseDown={handleMouseDown}
+         className="h-1 cursor-row-resize bg-transparent hover:bg-[var(--border-active)] transition-colors shrink-0 w-full border-none p-0"
+       />
 
       <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-surface)] border-b border-[var(--border-default)]">
         <Button
@@ -184,11 +185,11 @@ export function LogViewer({
           {isCollapsed ? "▲" : "▼"}
         </Button>
 
-        <span className="text-xs text-[var(--text-secondary)] font-medium">Logs</span>
-        <div
-          aria-label={isConnected ? "connected" : "disconnected"}
-          className={cn("size-1.5 rounded-full", isConnected ? "bg-[var(--success)]" : "bg-[var(--text-muted)]")}
-        />
+         <span className="text-xs text-[var(--text-secondary)] font-medium">Logs</span>
+         <div
+           className={cn("size-1.5 rounded-full", isConnected ? "bg-[var(--success)]" : "bg-[var(--text-muted)]")}
+           title={isConnected ? "connected" : "disconnected"}
+         />
 
         <span className="text-[length:var(--text-xs)] text-[var(--text-muted)]">
           {filteredMessages.length} messages
@@ -267,9 +268,9 @@ export function LogViewer({
               {filter ? "No matching log messages" : "Waiting for logs..."}
             </p>
           ) : (
-            filteredMessages.map((message, index) => (
-              <div
-                key={`${message.timestamp}-${index}`}
+             filteredMessages.map((message, index) => (
+               <div
+                 key={message.timestamp}
                 data-testid={`log-line-${index}`}
                 className="mb-px break-all"
                 style={{

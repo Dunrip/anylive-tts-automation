@@ -87,7 +87,7 @@ export function TTSPanel({
   useEffect(() => {
     processedCountRef.current = 0;
     hasConnectedRef.current = false;
-  }, [automation.wsUrl]);
+  }, []);
 
   useEffect(() => {
     const newMessages = ws.messages.slice(processedCountRef.current);
@@ -136,7 +136,7 @@ export function TTSPanel({
       });
     }
     wasRunningRef.current = automation.isRunning;
-  }, [automation.isRunning]);
+  }, [automation.isRunning, automation.error, automation.versions, sendJobNotification]);
 
   const handleRun = async (): Promise<void> => {
     if ((!csvPath && !options.download) || !sidecarUrl || automation.isRunning) {
@@ -184,17 +184,18 @@ export function TTSPanel({
       </h2>
 
       {/* Base URL */}
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
-        <input
-          data-testid="input-tts-base-url"
-          type="text"
-          value={baseUrl}
-          onChange={(e) => onBaseUrlChange?.(e.target.value)}
-          placeholder="https://app.anylive.jp/live-assets/XXX"
-          className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
-        />
-      </div>
+       <div className="flex items-center gap-2">
+         <label htmlFor="tts-base-url" className="text-xs text-[var(--text-muted)] shrink-0">URL</label>
+         <input
+           id="tts-base-url"
+           data-testid="input-tts-base-url"
+           type="text"
+           value={baseUrl}
+           onChange={(e) => onBaseUrlChange?.(e.target.value)}
+           placeholder="https://app.anylive.jp/live-assets/XXX"
+           className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
+         />
+       </div>
 
       <CSVPicker
         onFileSelected={handleCsvSelected}
@@ -259,16 +260,17 @@ export function TTSPanel({
               Verify after
             </label>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-[var(--text-muted)]">Version filter</label>
-            <input
-              data-testid="option-version-filter"
-              type="text"
-              placeholder="e.g. 1-5,8,10-12 (blank = all)"
-              value={options.version_filter}
-              onChange={(e) => setOptions((prev) => ({ ...prev, version_filter: e.target.value }))}
-              className="w-full max-w-[250px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-            />
+           <div className="flex flex-col gap-1">
+             <label htmlFor="tts-version-filter" className="text-xs text-[var(--text-muted)]">Version filter</label>
+             <input
+               id="tts-version-filter"
+               data-testid="option-version-filter"
+               type="text"
+               placeholder="e.g. 1-5,8,10-12 (blank = all)"
+               value={options.version_filter}
+               onChange={(e) => setOptions((prev) => ({ ...prev, version_filter: e.target.value }))}
+               className="w-full max-w-[250px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+             />
           </div>
         </div>
       ) : (
@@ -296,6 +298,7 @@ export function TTSPanel({
 
           <div>
             <button
+              type="button"
               data-testid="toggle-advanced"
               onClick={() => setShowAdvanced((prev) => !prev)}
               className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer bg-transparent border-none p-0"
@@ -306,35 +309,37 @@ export function TTSPanel({
             {showAdvanced && (
               <div className="mt-2 flex flex-col gap-3">
                 <div className="flex gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--text-muted)]">Start from version</label>
-                    <input
-                      data-testid="option-start-version"
-                      type="number"
-                      min={1}
-                      placeholder="1"
-                      value={options.start_version ?? ""}
-                      onChange={(e) => setOptions((prev) => ({
-                        ...prev,
-                        start_version: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                      }))}
-                      className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-                    />
+                   <div className="flex flex-col gap-1">
+                     <label htmlFor="tts-start-version" className="text-xs text-[var(--text-muted)]">Start from version</label>
+                     <input
+                       id="tts-start-version"
+                       data-testid="option-start-version"
+                       type="number"
+                       min={1}
+                       placeholder="1"
+                       value={options.start_version ?? ""}
+                       onChange={(e) => setOptions((prev) => ({
+                         ...prev,
+                         start_version: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                       }))}
+                       className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                     />
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--text-muted)]">Limit versions</label>
-                    <input
-                      data-testid="option-limit"
-                      type="number"
-                      min={1}
-                      placeholder="All"
-                      value={options.limit ?? ""}
-                      onChange={(e) => setOptions((prev) => ({
-                        ...prev,
-                        limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                      }))}
-                      className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
-                    />
+                   <div className="flex flex-col gap-1">
+                     <label htmlFor="tts-limit-versions" className="text-xs text-[var(--text-muted)]">Limit versions</label>
+                     <input
+                       id="tts-limit-versions"
+                       data-testid="option-limit"
+                       type="number"
+                       min={1}
+                       placeholder="All"
+                       value={options.limit ?? ""}
+                       onChange={(e) => setOptions((prev) => ({
+                         ...prev,
+                         limit: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                       }))}
+                       className="w-[100px] px-2 py-1 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-xs"
+                     />
                   </div>
                 </div>
                 <div className="flex gap-4">
@@ -391,10 +396,10 @@ export function TTSPanel({
             data-testid="version-list"
             className="border border-[var(--border-default)] rounded-md overflow-hidden"
           >
-            {automation.versions.map((v, i) => (
-              <div
-                key={i}
-                data-testid={`version-item-${i}`}
+             {automation.versions.map((v, i) => (
+               <div
+                 key={v.name}
+                 data-testid={`version-item-${i}`}
                 className={cn(
                   "flex items-center justify-between px-3 py-2",
                   i < automation.versions.length - 1 && "border-b border-[var(--border-default)]",
