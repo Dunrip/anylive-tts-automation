@@ -34,6 +34,10 @@ class LogStreamer:
         except ValueError:
             pass
         if not self._connections[job_id]:
+            _logger.warning(
+                "All WebSocket clients disconnected for job %s, job still running",
+                job_id,
+            )
             del self._connections[job_id]
 
     async def broadcast(self, job_id: str, message: dict[str, Any]) -> None:
@@ -46,8 +50,13 @@ class LogStreamer:
         for websocket in list(sockets):
             try:
                 await websocket.send_text(payload)
-            except Exception:
-                _logger.debug("WebSocket send failed for job %s, marking dead", job_id)
+            except Exception as exc:
+                _logger.warning(
+                    "WebSocket send failed for job %s: %s: %s",
+                    job_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 dead.append(websocket)
 
         for websocket in dead:
