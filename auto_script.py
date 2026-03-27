@@ -605,6 +605,7 @@ class ScriptAutomation(BrowserAutomation):
         start_product: int = 1,
         limit: Optional[int] = None,
         dry_run: bool = False,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> list[dict]:
         """Delete all scripts from all products in the sidebar.
 
@@ -641,6 +642,9 @@ class ScriptAutomation(BrowserAutomation):
             return sorted(results, key=lambda r: r["product_number"])
 
         for idx, product_number in enumerate(products_with_scripts, 1):
+            if cancel_check and cancel_check():
+                self.logger.info("Job cancelled, stopping")
+                break
             expected = script_status.get(product_number, 0)
             self._log_product_header(
                 idx, total_to_delete, product_number, "Deleting scripts"
@@ -1021,7 +1025,10 @@ class ScriptAutomation(BrowserAutomation):
             self._log_product_result("OK", f"{len(product.rows)} scripts {suffix}")
 
     async def upload_all_scripts(
-        self, products: List[ProductScript], dry_run: bool = False
+        self,
+        products: List[ProductScript],
+        dry_run: bool = False,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> None:
         """Upload audio scripts for all products."""
         total = len(products)
@@ -1031,6 +1038,9 @@ class ScriptAutomation(BrowserAutomation):
         script_status = await self.scan_sidebar_script_status()
 
         for idx, product in enumerate(products, 1):
+            if cancel_check and cancel_check():
+                self.logger.info("Job cancelled, stopping")
+                break
             if not self._is_page_alive():
                 self.logger.error(
                     "Browser page is closed — aborting remaining "
@@ -1349,6 +1359,7 @@ class ScriptAutomation(BrowserAutomation):
         limit: Optional[int] = None,
         *,
         dry_run: bool = False,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> list[dict]:
         if self.page is None:
             raise RuntimeError("Browser page is not initialized")
@@ -1372,6 +1383,9 @@ class ScriptAutomation(BrowserAutomation):
         target_numbers = sorted(in_range_empty.keys())
 
         for product_number in target_numbers:
+            if cancel_check and cancel_check():
+                self.logger.info("Job cancelled, stopping")
+                break
             fallback_name = in_range_empty.get(product_number, "")
             if not await self.select_product(product_number):
                 results.append(
@@ -1951,6 +1965,7 @@ async def run_job(
     base_url: str | None = None,
     app_support_dir: str | None = None,
     log_callback: Callable[[str, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Run Script automation as a job.
 
@@ -2045,6 +2060,7 @@ async def run_job(
             session_filename=_session_filename,
         )
 
+        cancelled = False
         try:
             await automation.start_browser()
 
@@ -2065,7 +2081,9 @@ async def run_job(
                     start_product=start_product or 1,
                     limit=limit,
                     dry_run=dry_run,
+                    cancel_check=cancel_check,
                 )
+                cancelled = bool(cancel_check and cancel_check())
                 report = generate_script_report(
                     products=[],
                     config=config,
@@ -2088,7 +2106,9 @@ async def run_job(
                     start_product=start_product or 1,
                     limit=limit,
                     dry_run=dry_run,
+                    cancel_check=cancel_check,
                 )
+                cancelled = bool(cancel_check and cancel_check())
                 report = generate_script_report(
                     products=[],
                     config=config,
@@ -2130,7 +2150,12 @@ async def run_job(
                     products = products[:limit]
                     logger.info(f"Limited to {limit} products")
 
-                await automation.upload_all_scripts(products, dry_run=dry_run)
+                await automation.upload_all_scripts(
+                    products,
+                    dry_run=dry_run,
+                    cancel_check=cancel_check,
+                )
+                cancelled = bool(cancel_check and cancel_check())
 
                 report = generate_script_report(
                     products=products,
@@ -2142,7 +2167,7 @@ async def run_job(
                 )
 
         finally:
-            if debug:
+            if debug and not cancelled:
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info("🐛 DEBUG MODE: Browser is open for inspection.")

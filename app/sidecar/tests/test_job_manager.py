@@ -133,10 +133,26 @@ class TestJobManager:
             await asyncio.sleep(0.01)
 
         await self.manager.run_job(job, mock_fn)
-        assert (
-            job.status == JobStatus.SUCCESS
-        ), f"Expected SUCCESS but got {job.status}, error: {job.error}"
+        assert job.status == JobStatus.SUCCESS, (
+            f"Expected SUCCESS but got {job.status}, error: {job.error}"
+        )
         assert job.finished_at is not None
+
+    async def test_run_job_times_out_and_marks_failed(self) -> None:
+        job = self.manager.create_job(
+            automation_type=AutomationType.TTS,
+            config_path="/config.json",
+            csv_path=None,
+            options={},
+        )
+
+        async def slow_fn(_job) -> None:
+            await asyncio.sleep(10)
+
+        await self.manager.run_job(job, slow_fn, timeout=1)
+        assert job.status == JobStatus.FAILED
+        assert job.error is not None
+        assert "timed out" in job.error
 
     async def test_done_callback_captures_exception_and_marks_job_failed(self) -> None:
         job = self.manager.create_job(
@@ -162,3 +178,82 @@ class TestJobManager:
         assert job.error is not None
         assert "fire-and-forget exception" in job.error
         assert job.finished_at is not None
+
+    async def test_cooperative_cancellation_stops_after_first_iteration(self) -> None:
+        job = self.manager.create_job(
+            automation_type=AutomationType.TTS,
+            config_path="/config.json",
+            csv_path=None,
+            options={},
+        )
+
+        processed_versions: list[str] = []
+        first_iteration_done = asyncio.Event()
+        continue_after_cancel = asyncio.Event()
+
+        async def mock_multi_version_runner(current_job) -> None:
+            for version in ["v1", "v2"]:
+                if current_job.is_cancelled:
+                    break
+                processed_versions.append(version)
+                if version == "v1":
+                    first_iteration_done.set()
+                    await continue_after_cancel.wait()
+
+        task = asyncio.create_task(self.manager.run_job(job, mock_multi_version_runner))
+
+        await first_iteration_done.wait()
+        job.status = JobStatus.CANCELLED
+        continue_after_cancel.set()
+        await task
+
+        assert processed_versions == ["v1"]
+        assert job.status == JobStatus.CANCELLED
+        assert job.finished_at is not None
+
+    async def test_emit_status_includes_error_field_when_job_fails(self) -> None:
+        job = self.manager.create_job(
+            automation_type=AutomationType.TTS,
+            config_path="/config.json",
+            csv_path=None,
+            options={},
+        )
+
+        emitted: list[dict] = []
+        job.add_log_callback(emitted.append)
+
+        async def failing_fn(_job) -> None:
+            raise RuntimeError("Timeout connecting to browser")
+
+        await self.manager.run_job(job, failing_fn)
+
+        status_messages = [m for m in emitted if m.get("type") == "status"]
+        assert status_messages, "no status messages emitted"
+
+        last_status = status_messages[-1]
+        assert last_status["status"] == "failed"
+        assert "error" in last_status, "error field missing from failed status message"
+        assert "Timeout connecting to browser" in last_status["error"]
+
+    async def test_emit_status_excludes_error_field_on_success(self) -> None:
+        job = self.manager.create_job(
+            automation_type=AutomationType.TTS,
+            config_path="/config.json",
+            csv_path=None,
+            options={},
+        )
+
+        emitted: list[dict] = []
+        job.add_log_callback(emitted.append)
+
+        async def ok_fn(_job) -> None:
+            return None
+
+        await self.manager.run_job(job, ok_fn)
+
+        status_messages = [m for m in emitted if m.get("type") == "status"]
+        assert status_messages, "no status messages emitted"
+
+        last_status = status_messages[-1]
+        assert last_status["status"] == "success"
+        assert "error" not in last_status, "error field must be absent on success"

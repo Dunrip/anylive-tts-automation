@@ -2520,6 +2520,7 @@ async def run_job(
     log_callback: Optional[Callable[[str, str], None]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     debug_callback: Optional[Callable[[], None]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> dict:
     """
     Main automation job function for GUI and programmatic execution.
@@ -2660,10 +2661,15 @@ async def run_job(
             screenshots_dir=screenshots_dir,
         )
 
+        cancelled = False
         try:
             await automation.start_browser()
 
             for idx, version in enumerate(versions):
+                if cancel_check and cancel_check():
+                    logger.info("Job cancelled, stopping")
+                    cancelled = True
+                    break
                 print_version_info(version, logger)
                 if progress_callback:
                     progress_callback(idx + 1, len(versions), version.name)
@@ -2678,7 +2684,7 @@ async def run_job(
                         )
 
         finally:
-            if _effective_debug:
+            if _effective_debug and not cancelled:
                 succeeded = sum(1 for v in versions if v.success)
                 failed = [v.name for v in versions if v.error]
                 partial = [v.name for v in versions if v.failed_slots]

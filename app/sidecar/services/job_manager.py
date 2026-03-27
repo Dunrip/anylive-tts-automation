@@ -11,6 +11,8 @@ _logger = logging.getLogger(__name__)
 
 from models.job import AutomationType, JobProgress, JobStatus, JobStatusResponse
 
+JOB_TIMEOUT_SECONDS: float = 3600
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -115,6 +117,8 @@ class Job:
             "job_id": self.job_id,
             "status": self.status.value,
         }
+        if self.error:
+            msg["error"] = self.error
         self._log_messages.append(msg)
         for callback in self._log_callbacks:
             callback(msg)
@@ -170,7 +174,12 @@ class JobManager:
         self._current_job = job
         return job
 
-    async def run_job(self, job: Job, automation_fn: Callable[..., Any]) -> None:
+    async def run_job(
+        self,
+        job: Job,
+        automation_fn: Callable[..., Any],
+        timeout: float = JOB_TIMEOUT_SECONDS,
+    ) -> None:
         job.status = JobStatus.RUNNING
         job.emit_status()
         job.emit_log(f"Starting {job.automation_type.value} automation")
@@ -178,7 +187,7 @@ class JobManager:
         try:
             result = automation_fn(job)
             if inspect.isawaitable(result):
-                await result
+                await asyncio.wait_for(result, timeout=timeout)
             if job.status == JobStatus.RUNNING:
                 job.status = JobStatus.SUCCESS
             else:
@@ -189,6 +198,12 @@ class JobManager:
                     job.status.value,
                 )
                 job.emit_log("Job was cancelled — status preserved", level="WARN")
+                if job.finished_at is None:
+                    job.finished_at = _now()
+        except asyncio.TimeoutError:
+            job.status = JobStatus.FAILED
+            job.error = f"Job timed out after {int(timeout)}s"
+            job.emit_log(f"Job timed out after {int(timeout)}s", level="ERROR")
         except Exception as exc:
             job.status = JobStatus.FAILED
             job.error = str(exc)

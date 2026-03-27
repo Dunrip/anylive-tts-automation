@@ -86,6 +86,7 @@ async def _run_tts_job(job: Job) -> None:
         verify=verify,
         log_callback=log_callback,
         progress_callback=progress_callback,
+        cancel_check=lambda: job.is_cancelled,
         app_support_dir=str(_REPO_ROOT),
     )
 

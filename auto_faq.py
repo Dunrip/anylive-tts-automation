@@ -1006,6 +1006,7 @@ async def run_job(
     audio_dir: str | None = None,
     app_support_dir: str | None = None,
     log_callback: Callable[[str, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Run FAQ automation as a job.
 
@@ -1115,6 +1116,7 @@ async def run_job(
             session_filename=_session_filename,
         )
 
+        cancelled = False
         try:
             await automation.start_browser()
 
@@ -1124,6 +1126,10 @@ async def run_job(
                 return {"success": False, "report": None, "error": error_msg}
 
             for product in products:
+                if cancel_check and cancel_check():
+                    logger.info("Job cancelled, stopping")
+                    cancelled = True
+                    break
                 logger.info("")
                 logger.info("=" * 70)
                 logger.info(
@@ -1142,7 +1148,7 @@ async def run_job(
                     )
 
         finally:
-            if debug:
+            if debug and not cancelled:
                 succeeded = sum(1 for p in products if p.success)
                 failed = [f"#{p.product_number}" for p in products if p.error]
                 logger.info("")

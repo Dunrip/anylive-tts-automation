@@ -65,6 +65,7 @@ async def _run_faq_job(job: Job) -> None:
         limit=limit,
         audio_dir=audio_dir,
         log_callback=log_callback,
+        cancel_check=lambda: job.is_cancelled,
         app_support_dir=str(_REPO_ROOT),
     )
 
