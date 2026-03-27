@@ -81,6 +81,19 @@ export function useAutomation() {
     }));
 
     try {
+      // Health check before starting job
+      try {
+        const healthResp = await fetch(`${sidecarUrl}/health`);
+        if (!healthResp.ok) throw new Error("Health check failed");
+      } catch {
+        setState((prev) => ({
+          ...prev,
+          isRunning: false,
+          error: "Sidecar is not ready. Please wait a moment and try again.",
+        }));
+        return;
+      }
+
       const response = await fetch(`${sidecarUrl}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,6 +178,10 @@ export function useAutomation() {
           status: version.status === "running" ? msg.status : version.status,
         })),
       }));
+    }
+
+    if (msg.error) {
+      setState((prev) => ({ ...prev, error: msg.error as string }));
     }
   }, []);
 
