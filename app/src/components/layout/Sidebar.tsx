@@ -17,6 +17,7 @@ interface SidebarProps {
   userDisplayName?: string | null;
   onClientCreated?: (name: string) => void;
   onClientDeleted?: (name: string) => void;
+  appVersion?: string;
 }
 
 function ClientSelect({
@@ -91,6 +92,7 @@ export function Sidebar({
   userDisplayName,
   onClientCreated,
   onClientDeleted,
+  appVersion,
 }: SidebarProps): React.ReactElement {
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -315,6 +317,11 @@ export function Sidebar({
         <div className={cn("text-xs text-[var(--text-secondary)]", sessionValid ? "mb-0" : "mb-2")}>
           {statusDetail}
         </div>
+        {appVersion && (
+          <div data-testid="app-version" className="text-xs text-[var(--text-muted)] mt-2">
+            v{appVersion}
+          </div>
+        )}
         {sidecarConnected && !sessionValid && onRelogin && (
           <Button data-testid="relogin-button" size="xs" onClick={onRelogin} className="w-full">Re-login</Button>
         )}

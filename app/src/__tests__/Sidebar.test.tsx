@@ -130,4 +130,16 @@ describe("Sidebar", () => {
     expect(screen.getByText("Sidecar Connecting")).toBeTruthy();
     expect(screen.queryByText("pattanun@anymindgroup.com")).toBeNull();
   });
+
+  it("renders app version when appVersion prop provided", () => {
+    render(<Sidebar {...defaultProps} appVersion="1.2.3" />);
+    const versionElement = screen.getByTestId("app-version");
+    expect(versionElement).toBeTruthy();
+    expect(screen.getByText("v1.2.3")).toBeTruthy();
+  });
+
+  it("does not render app version when appVersion prop is undefined", () => {
+    render(<Sidebar {...defaultProps} />);
+    expect(screen.queryByTestId("app-version")).toBeNull();
+  });
 });
