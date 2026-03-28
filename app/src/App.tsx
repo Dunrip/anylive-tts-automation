@@ -8,6 +8,7 @@ import { Toaster } from "./components/ui/sonner";
 import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
+import { useAppVersion } from "./hooks/useAppVersion";
 import { PanelType } from "./lib/navigation";
 import { SessionStatus } from "./lib/types";
 
@@ -21,6 +22,7 @@ function App(): React.ReactElement {
   const [chromiumInstalled, setChromiumInstalled] = useState<boolean | null>(null);
   const [loginInProgress, setLoginInProgress] = useState<boolean>(false);
   const sidecar = useSidecar();
+  const appVersion = useAppVersion();
 
   useKeyboardShortcuts({
     onPanelChange: setActivePanel,
@@ -135,6 +137,7 @@ function App(): React.ReactElement {
           onRelogin={loginInProgress ? undefined : handleRelogin}
           onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
           onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
+          appVersion={appVersion}
         />
         <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
       </div>
