@@ -364,7 +364,7 @@ export function TTSPanel({
           onClick={handleRun}
           disabled={(!csvPath && !options.download) || automation.isRunning || !sidecarUrl}
           title={!sidecarUrl ? "Sidecar not connected" : (!csvPath && !options.download) ? "Select a CSV file first" : ""}
-          variant={automation.isRunning ? "secondary" : "default"}
+          variant={automation.isRunning ? "secondary" : "success"}
         >
           {automation.isRunning ? "Running..." : options.download ? "Download" : "Run"}
         </Button>

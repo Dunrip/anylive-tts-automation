@@ -215,7 +215,7 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
           data-testid="faq-run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          variant={automation.isRunning ? "secondary" : "default"}
+          variant={automation.isRunning ? "secondary" : "success"}
         >
           {automation.isRunning ? "Running..." : "Run"}
         </Button>

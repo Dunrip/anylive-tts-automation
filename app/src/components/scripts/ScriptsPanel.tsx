@@ -262,7 +262,7 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
           data-testid="scripts-run-button"
           onClick={handleRun}
           disabled={!csvPath || automation.isRunning || !sidecarUrl}
-          variant={automation.isRunning ? "secondary" : "default"}
+          variant={automation.isRunning ? "secondary" : "success"}
         >
           {automation.isRunning ? "Running..." : "Upload Scripts"}
         </Button>
