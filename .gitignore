@@ -21,6 +21,7 @@ downloads/
 app/node_modules/
 app/dist/
 app/src-tauri/target/
+app/src-tauri/binaries/sidecar-server/
 app/sidecar/__pycache__/
 app/sidecar/.pytest_cache/
 app/sidecar/build/
