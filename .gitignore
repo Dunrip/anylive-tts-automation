@@ -16,7 +16,6 @@ downloads/
 .ruff_cache/
 .playwright-mcp/
 .claude/
-.sisyphus/evidence/
 .sisyphus/
 
 app/node_modules/
