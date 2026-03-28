@@ -98,7 +98,12 @@ async def test_run_faq_job_passes_cancel_check_callback(monkeypatch) -> None:
         captured.update(kwargs)
         return {"success": True}
 
-    monkeypatch.setattr("auto_faq.run_job", fake_run_job)
+    import sys
+    import types
+
+    mock_module = types.ModuleType("auto_faq")
+    mock_module.run_job = fake_run_job
+    monkeypatch.setitem(sys.modules, "auto_faq", mock_module)
 
     job = job_manager.create_job(
         automation_type=AutomationType.FAQ,

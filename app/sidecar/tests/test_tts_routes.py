@@ -98,7 +98,12 @@ async def test_run_tts_job_passes_cancel_check_callback(monkeypatch) -> None:
         captured.update(kwargs)
         return {"success": True}
 
-    monkeypatch.setattr("auto_tts.run_job", fake_run_job)
+    import sys
+    import types
+
+    mock_module = types.ModuleType("auto_tts")
+    mock_module.run_job = fake_run_job
+    monkeypatch.setitem(sys.modules, "auto_tts", mock_module)
 
     job = job_manager.create_job(
         automation_type=AutomationType.TTS,
