@@ -4,6 +4,7 @@ import type { WSMessage } from "../lib/types";
 interface WebSocketState {
   messages: WSMessage[];
   isConnected: boolean;
+  reconnectExhausted: boolean;
   clearMessages: () => void;
 }
 
@@ -61,6 +62,7 @@ function isWSMessage(value: unknown): value is WSMessage {
 export function useWebSocket(url: string | null): WebSocketState {
   const [messages, setMessages] = useState<WSMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [reconnectExhausted, setReconnectExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef<number>(0);
@@ -76,6 +78,7 @@ export function useWebSocket(url: string | null): WebSocketState {
 
     let cancelled = false;
     reconnectAttemptRef.current = 0;
+    setReconnectExhausted(false);
 
     const scheduleReconnect = (): void => {
       if (reconnectTimeoutRef.current) {
@@ -83,6 +86,7 @@ export function useWebSocket(url: string | null): WebSocketState {
       }
 
       if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setReconnectExhausted(true);
         return;
       }
 
@@ -111,6 +115,7 @@ export function useWebSocket(url: string | null): WebSocketState {
         ws.onopen = () => {
           if (!cancelled) {
             reconnectAttemptRef.current = 0;
+            setReconnectExhausted(false);
             setIsConnected(true);
           }
         };
@@ -175,5 +180,5 @@ export function useWebSocket(url: string | null): WebSocketState {
     };
   }, [url]);
 
-  return { messages, isConnected, clearMessages };
+  return { messages, isConnected, reconnectExhausted, clearMessages };
 }

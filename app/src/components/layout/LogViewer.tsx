@@ -63,15 +63,16 @@ export function LogViewer({
   const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(
     new Set(["INFO", "WARN", "ERROR", "DEBUG"] as LogLevel[])
   );
+  const [exportError, setExportError] = useState<string | null>(null);
   const isDragging = useRef(false);
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
 
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
+    if (autoScroll && messages.length > 0 && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [autoScroll]);
+  }, [autoScroll, messages]);
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
@@ -140,11 +141,15 @@ export function LogViewer({
     const text = filteredMessages
       .map((message) => `[${formatLogTime(message.timestamp)}] [${message.level}] ${message.message}`)
       .join("\n");
-    void navigator.clipboard.writeText(text).catch(() => undefined);
+    void navigator.clipboard.writeText(text).catch(() => {
+      // Clipboard API can fail in unfocused windows or non-HTTPS contexts;
+      // no recovery is possible — user can still select-copy from the log area manually.
+    });
   };
 
   const handleExport = async (): Promise<void> => {
     if (filteredMessages.length === 0) return;
+    setExportError(null);
     const content = filteredMessages
       .map((message) => `[${formatLogTime(message.timestamp)}] [${message.level}] ${message.message}`)
       .join("\n");
@@ -154,11 +159,11 @@ export function LogViewer({
         defaultPath: "logs.txt",
         filters: [{ name: "Text", extensions: ["txt"] }],
       });
-      if (!path) return; // user cancelled
+      if (!path) return;
       const { writeTextFile } = await import("@tauri-apps/plugin-fs");
       await writeTextFile(path, content);
     } catch {
-      // silently ignore export errors
+      setExportError("Export failed");
     }
   };
 
@@ -244,6 +249,15 @@ export function LogViewer({
           <Button variant="ghost" size="xs" data-testid="clear-logs-button" onClick={onClear}>
             Clear
           </Button>
+        ) : null}
+
+        {exportError ? (
+          <span
+            data-testid="export-error"
+            className="text-xs text-[var(--error)]"
+          >
+            {exportError}
+          </span>
         ) : null}
 
         {!autoScroll ? (

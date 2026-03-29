@@ -90,6 +90,7 @@ export function CSVPicker({
             {selectedPath.split("/").pop() || selectedPath}
           </span>
           <button
+            type="button"
             data-testid="clear-csv-button"
             onClick={handleClear}
             aria-label="Clear selected file"
@@ -100,6 +101,7 @@ export function CSVPicker({
         </div>
       ) : (
         <button
+          type="button"
           data-testid="select-csv-button"
           onClick={handleSelectFile}
           disabled={loading}
@@ -160,7 +162,7 @@ export function CSVPicker({
                     <TableBody>
                       {preview.preview.map((row, i) => (
                         <TableRow
-                          key={i}
+                          key={`${row.no}-${row.audio_code}`}
                           className={cn(i % 2 !== 0 && "bg-[var(--bg-surface)]")}
                         >
                           <TableCell className="text-[var(--text-secondary)]">{row.no}</TableCell>

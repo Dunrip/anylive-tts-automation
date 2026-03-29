@@ -4,6 +4,7 @@ import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
+import { useAutomationPanel } from "../../hooks/useAutomationPanel";
 import { useNotification } from "../../hooks/useNotification";
 import { Button } from "@/components/ui/button";
 
@@ -63,12 +64,17 @@ export function TTSPanel({
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [jobStartTime, setJobStartTime] = useState<number | undefined>();
-  const processedCountRef = useRef(0);
-  const hasConnectedRef = useRef(false);
   const wasRunningRef = useRef(false);
   const automation = useAutomation();
   const ws = useWebSocket(automation.wsUrl);
   const { sendJobNotification } = useNotification({ enabled: true });
+  const { hasConnectedRef, resetProcessedCount, resetTracking } = useAutomationPanel({
+    ws,
+    automation,
+    sidecarUrl,
+    onLogStateChange,
+    includePolledMessagesWhenNoWsLogs: true,
+  });
 
   const configPath = `configs/${client}/tts.json`;
 
@@ -79,44 +85,8 @@ export function TTSPanel({
   };
 
   useEffect(() => {
-    if (ws.isConnected) {
-      hasConnectedRef.current = true;
-    }
-  }, [ws.isConnected]);
-
-  useEffect(() => {
-    processedCountRef.current = 0;
-    hasConnectedRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    const newMessages = ws.messages.slice(processedCountRef.current);
-    newMessages.forEach(automation.handleMessage);
-    processedCountRef.current = ws.messages.length;
-  }, [ws.messages, automation.handleMessage]);
-
-  // Poll job status every 2s as fallback for WS progress
-  useEffect(() => {
-    if (!automation.isRunning || !automation.jobId || !sidecarUrl) return;
-    const interval = setInterval(() => {
-      automation.pollJobStatus(sidecarUrl, automation.jobId!);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [automation.isRunning, automation.jobId, sidecarUrl, automation.pollJobStatus]);
-
-  useEffect(() => {
-    if (!onLogStateChange) {
-      return;
-    }
-    // Merge WS messages with polled log messages (fallback when WS fails)
-    const wsLogCount = ws.messages.filter((m) => m.type === "log").length;
-    const messages = wsLogCount > 0 ? ws.messages : [...ws.messages, ...automation.polledMessages];
-    onLogStateChange({
-      messages,
-      isConnected: ws.isConnected,
-      clearMessages: ws.clearMessages,
-    });
-  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange, automation.polledMessages]);
+    resetTracking();
+  }, [resetTracking]);
 
   useEffect(() => {
     if (automation.jobId) {
@@ -144,7 +114,7 @@ export function TTSPanel({
     }
 
     ws.clearMessages();
-    processedCountRef.current = 0;
+    resetProcessedCount();
     setJobStartTime(Date.now());
 
     await automation.startRun({
@@ -203,10 +173,10 @@ export function TTSPanel({
           setCsvPath(null);
           setEstimatedVersions(0);
           setVersionNames([]);
-          automation.reset();
-          ws.clearMessages();
-          processedCountRef.current = 0;
-        }}
+           automation.reset();
+           ws.clearMessages();
+           resetProcessedCount();
+         }}
         sidecarUrl={sidecarUrl}
         configPath={configPath}
       />

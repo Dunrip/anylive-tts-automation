@@ -9,6 +9,7 @@ import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import { useAppVersion } from "./hooks/useAppVersion";
+import { fetchWithTimeout } from "./lib/fetchWithTimeout";
 import { PanelType } from "./lib/navigation";
 import { SessionStatus } from "./lib/types";
 
@@ -21,14 +22,15 @@ function App(): React.ReactElement {
   const [sessionValid, setSessionValid] = useState<boolean>(false);
   const [chromiumInstalled, setChromiumInstalled] = useState<boolean | null>(null);
   const [loginInProgress, setLoginInProgress] = useState<boolean>(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [sidecarConfigError, setSidecarConfigError] = useState<boolean>(false);
   const sidecar = useSidecar();
   const appVersion = useAppVersion();
+  const { installError, clearInstallError } = useUpdateCheck();
 
   useKeyboardShortcuts({
     onPanelChange: setActivePanel,
   });
-
-  useUpdateCheck();
 
   useEffect(() => {
     const loadClientsFromRust = async (): Promise<void> => {
@@ -45,7 +47,9 @@ function App(): React.ReactElement {
   useEffect(() => {
     if (!sidecar.sidecarUrl) return;
 
-    fetch(`${sidecar.sidecarUrl}/api/configs`)
+    setSidecarConfigError(false);
+    const controller = new AbortController();
+    fetchWithTimeout(`${sidecar.sidecarUrl}/api/configs`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data: string[]) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -55,14 +59,18 @@ function App(): React.ReactElement {
           }
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        if (err != null && (err as { name?: unknown }).name === "AbortError") return;
+        setSidecarConfigError(true);
       });
+    return () => { controller.abort(); };
   }, [sidecar.sidecarUrl, selectedClient]);
 
   useEffect(() => {
     if (!sidecar.sidecarUrl || !selectedClient) return;
 
-    fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`)
+    const controller = new AbortController();
+    fetchWithTimeout(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data: SessionStatus) => {
         setSessionValid(data.valid);
@@ -71,26 +79,34 @@ function App(): React.ReactElement {
           setUserEmail(data.email);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        if (err != null && (err as { name?: unknown }).name === "AbortError") return;
+        setSessionValid(false);
       });
+    return () => { controller.abort(); };
   }, [sidecar.sidecarUrl, selectedClient]);
 
   useEffect(() => {
     if (!sidecar.sidecarUrl) return;
 
-    fetch(`${sidecar.sidecarUrl}/api/setup/chromium-status`)
+    const controller = new AbortController();
+    fetchWithTimeout(`${sidecar.sidecarUrl}/api/setup/chromium-status`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data: { installed: boolean; path: string | null }) => {
         setChromiumInstalled(data.installed);
       })
-      .catch(() => {
-        setChromiumInstalled(true);
+      .catch((err: unknown) => {
+        if (err != null && (err as { name?: unknown }).name === "AbortError") return;
+        // Non-abort error: leave chromiumInstalled as null (status unknown).
+        // Do NOT force installed=true — that would silently bypass the setup wizard.
       });
+    return () => { controller.abort(); };
   }, [sidecar.sidecarUrl]);
 
   const handleRelogin = async (): Promise<void> => {
     if (!sidecar.sidecarUrl) return;
     setLoginInProgress(true);
+    setLoginError(null);
     try {
       const resp = await fetch(`${sidecar.sidecarUrl}/api/session/login`, { method: "POST" });
       if (!resp.ok) throw new Error(`Login request failed: ${resp.status}`);
@@ -105,7 +121,8 @@ function App(): React.ReactElement {
           setUserEmail(sessionData.email);
         }
       }
-    } catch {
+    } catch (err) {
+      setLoginError(String(err));
     } finally {
       setLoginInProgress(false);
     }
@@ -123,6 +140,23 @@ function App(): React.ReactElement {
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)]">
       <Toaster />
       <Titlebar />
+      {sidecarConfigError && (
+        <div
+          data-testid="sidecar-config-error"
+          className="px-3 py-1 text-xs bg-[var(--warning)] text-[var(--bg-base)] shrink-0"
+        >
+          Failed to load client list — sidecar unreachable
+        </div>
+      )}
+      {installError && (
+        <div
+          data-testid="install-error-banner"
+          className="px-3 py-1 text-xs bg-[var(--error)] text-white flex items-center justify-between shrink-0"
+        >
+          <span>Update installation failed: {installError}</span>
+          <button type="button" onClick={clearInstallError} className="ml-2 opacity-80 hover:opacity-100">×</button>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           activePanel={activePanel}
@@ -135,6 +169,7 @@ function App(): React.ReactElement {
           userEmail={userEmail}
           userDisplayName={userDisplayName}
           onRelogin={loginInProgress ? undefined : handleRelogin}
+          loginError={loginError}
           onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
           onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
           appVersion={appVersion}

@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockRejectedValue(new Error("Tauri not available in test")),
+}));
+
 describe("SettingsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,6 +75,20 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("does not log error when fetch is aborted (AbortError)", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new DOMException("aborted", "AbortError")
+    );
+
+    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
   it("resets to original values when reset clicked", async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
@@ -86,15 +104,26 @@ describe("SettingsPanel", () => {
       expect(input.value).toBe("MyTemplate");
     });
 
-    // Change value
     fireEvent.change(screen.getByTestId("input-version-template"), { target: { value: "ChangedTemplate" } });
 
-    // Reset
     fireEvent.click(screen.getByTestId("reset-button"));
 
     await waitFor(() => {
       const input = screen.getByTestId("input-version-template") as HTMLInputElement;
       expect(input.value).toBe("MyTemplate");
     });
+  });
+
+  it("shows load error when sidecar config fetch fails with non-abort error", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new TypeError("Failed to fetch")
+    );
+
+    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("load-error")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("load-error").textContent).toContain("Failed to load configuration");
   });
 });

@@ -34,6 +34,31 @@ function isStatusMessage(msg: WSMessage): msg is StatusMessage {
   return msg.type === "status";
 }
 
+function isJobStartPayload(data: unknown): data is { job_id: string } {
+  return (
+    data != null &&
+    typeof data === "object" &&
+    typeof (data as Record<string, unknown>).job_id === "string"
+  );
+}
+
+type PollData = {
+  status: string;
+  progress: { current: number; total: number };
+  error?: string | null;
+  messages?: Array<{ type: string; level: string; message: string; timestamp: string; version?: string | null }>;
+};
+
+function isPollData(data: unknown): data is PollData {
+  if (data == null || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  if (typeof d.status !== "string") return false;
+  const p = d.progress;
+  if (p == null || typeof p !== "object") return false;
+  const progress = p as Record<string, unknown>;
+  return typeof progress.current === "number" && typeof progress.total === "number";
+}
+
 function toWebSocketUrl(sidecarUrl: string, jobId: string): string {
   const wsBase = sidecarUrl.startsWith("https://")
     ? sidecarUrl.replace("https://", "wss://")
@@ -113,7 +138,10 @@ export function useAutomation() {
         );
       }
 
-      const payload = (await response.json()) as { job_id: string };
+      const rawPayload: unknown = await response.json();
+      if (!isJobStartPayload(rawPayload)) {
+        throw new Error("Invalid response from server");
+      }
 
       if (abortRef.current) {
         return;
@@ -121,8 +149,8 @@ export function useAutomation() {
 
       setState((prev) => ({
         ...prev,
-        jobId: payload.job_id,
-        wsUrl: toWebSocketUrl(sidecarUrl, payload.job_id),
+        jobId: rawPayload.job_id,
+        wsUrl: toWebSocketUrl(sidecarUrl, rawPayload.job_id),
       }));
     } catch (error) {
       if (abortRef.current) {
@@ -145,7 +173,9 @@ export function useAutomation() {
         versions: prev.versions.map((version, index) => ({
           ...version,
           status:
-            index < msg.current - 1
+            version.status === "failed"
+              ? "failed"
+              : index < msg.current - 1
               ? "success"
               : index === msg.current - 1
                 ? "running"
@@ -190,12 +220,9 @@ export function useAutomation() {
     try {
       const resp = await fetch(`${sidecarUrl}/api/jobs/${jobId}`);
       if (!resp.ok) return;
-      const data = (await resp.json()) as {
-        status: string;
-        progress: { current: number; total: number };
-        error?: string | null;
-        messages?: Array<{ type: string; level: string; message: string; timestamp: string; version?: string | null }>;
-      };
+      const rawData: unknown = await resp.json();
+      if (!isPollData(rawData)) return;
+      const data = rawData;
 
       setState((prev) => {
         const newProgress = data.progress;
@@ -209,7 +236,9 @@ export function useAutomation() {
           versions: prev.versions.map((version, index) => ({
             ...version,
             status:
-              index < newProgress.current
+              version.status === "failed"
+                ? "failed"
+                : index < newProgress.current
                 ? "success"
                 : index === newProgress.current
                   ? "running"
@@ -252,7 +281,10 @@ export function useAutomation() {
         }));
       }
     } catch (err) {
-      console.error("Job poll failed:", err);
+      setState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : "Job poll failed",
+      }));
     }
   }, []);
 
@@ -274,10 +306,9 @@ export function useAutomation() {
     try {
       await fetch(`${sidecarUrl}/api/jobs/${state.jobId}/cancel`, { method: "POST" });
     } catch (err) {
-      console.error("Job cancel failed:", err);
       setState((prev) => ({
         ...prev,
-        error: String(err),
+        error: err instanceof Error ? err.message : String(err),
       }));
     }
   }, [state.jobId]);

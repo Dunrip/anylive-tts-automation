@@ -1,9 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-export function useUpdateCheck(): void {
+export interface UpdateCheckState {
+  installError: string | null;
+  clearInstallError: () => void;
+}
+
+export function useUpdateCheck(): UpdateCheckState {
+  const [installError, setInstallError] = useState<string | null>(null);
+
   useEffect(() => {
-    // Only run update check in production
     if (import.meta.env.DEV) {
       return;
     }
@@ -20,11 +26,14 @@ export function useUpdateCheck(): void {
             action: {
               label: "Install",
               onClick: async () => {
+                setInstallError(null);
                 try {
                   await update.downloadAndInstall();
                   await relaunch();
-                } catch {
-                  // Silently ignore installation errors
+                } catch (err: unknown) {
+                  setInstallError(
+                    err instanceof Error ? err.message : "Update installation failed"
+                  );
                 }
               },
             },
@@ -32,10 +41,12 @@ export function useUpdateCheck(): void {
           });
         }
       } catch {
-        // Silently ignore errors (offline, endpoint unavailable, etc.)
+        // Offline or update endpoint unavailable — update check is non-critical
       }
     };
 
     checkForUpdates();
   }, []);
+
+  return { installError, clearInstallError: () => setInstallError(null) };
 }

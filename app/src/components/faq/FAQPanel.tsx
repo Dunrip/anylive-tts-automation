@@ -4,6 +4,7 @@ import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from "../common/ProgressBar";
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
+import { useAutomationPanel } from "../../hooks/useAutomationPanel";
 import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 import { Button } from "@/components/ui/button";
 
@@ -41,31 +42,12 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
   const automation = useAutomation();
   const ws = useWebSocket(automation.wsUrl);
 
-  // Process WebSocket messages
-  const processedCountRef = React.useRef(0);
-  React.useEffect(() => {
-    const newMessages = ws.messages.slice(processedCountRef.current);
-    newMessages.forEach(automation.handleMessage);
-    processedCountRef.current = ws.messages.length;
-  }, [ws.messages, automation.handleMessage]);
-
-  // Poll job status every 2s as fallback for WS progress
-  React.useEffect(() => {
-    if (!automation.isRunning || !automation.jobId || !sidecarUrl) return;
-    const interval = setInterval(() => {
-      automation.pollJobStatus(sidecarUrl, automation.jobId!);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [automation.isRunning, automation.jobId, sidecarUrl, automation.pollJobStatus]);
-
-  React.useEffect(() => {
-    if (!onLogStateChange) return;
-    onLogStateChange({
-      messages: ws.messages,
-      isConnected: ws.isConnected,
-      clearMessages: ws.clearMessages,
-    });
-  }, [ws.messages, ws.isConnected, ws.clearMessages, onLogStateChange]);
+  useAutomationPanel({
+    ws,
+    automation,
+    sidecarUrl,
+    onLogStateChange,
+  });
 
   const configPath = `configs/${client}/live.json`;
 

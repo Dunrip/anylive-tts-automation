@@ -19,10 +19,8 @@ const PANEL_SHORTCUTS: Record<string, PanelType> = {
 };
 
 function getModifierKey(): string {
-  if (typeof navigator !== "undefined" && navigator.platform) {
-    return navigator.platform.toLowerCase().includes("mac") ? "Meta" : "Control";
-  }
-  return "Control";
+  if (typeof navigator === "undefined") return "Control";
+  return navigator.userAgent.includes("Mac") ? "Meta" : "Control";
 }
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers): void {

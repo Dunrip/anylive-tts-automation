@@ -232,4 +232,47 @@ describe("useWebSocket", () => {
     });
     expect(MockWebSocket.instances).toHaveLength(4);
   });
+
+  it("exposes reconnectExhausted when max attempts reached", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useWebSocket("ws://localhost:8080/ws"));
+
+    expect(result.current.reconnectExhausted).toBe(false);
+
+    for (let i = 0; i < 11; i++) {
+      act(() => {
+        MockWebSocket.instances[i].close();
+      });
+      act(() => {
+        vi.advanceTimersByTime(30001);
+      });
+    }
+
+    expect(result.current.reconnectExhausted).toBe(true);
+  });
+
+  it("resets reconnectExhausted on successful connection", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ url }) => useWebSocket(url),
+      { initialProps: { url: "ws://localhost:8080/ws" } }
+    );
+
+    for (let i = 0; i < 11; i++) {
+      act(() => {
+        MockWebSocket.instances[i].close();
+      });
+      act(() => {
+        vi.advanceTimersByTime(30001);
+      });
+    }
+
+    expect(result.current.reconnectExhausted).toBe(true);
+
+    act(() => {
+      rerender({ url: "ws://localhost:8080/ws-new" });
+    });
+
+    expect(result.current.reconnectExhausted).toBe(false);
+  });
 });

@@ -13,6 +13,7 @@ interface SidebarProps {
   sessionValid: boolean;
   sidecarUrl?: string | null;
   onRelogin?: () => void;
+  loginError?: string | null;
   userEmail?: string | null;
   userDisplayName?: string | null;
   onClientCreated?: (name: string) => void;
@@ -46,6 +47,7 @@ function ClientSelect({
   return (
     <div ref={ref} className="relative">
       <button
+        id="client-switcher"
         data-testid="client-switcher"
         type="button"
         aria-label={`Select client: ${selected}`}
@@ -88,6 +90,7 @@ export function Sidebar({
   sessionValid,
   sidecarUrl,
   onRelogin,
+  loginError,
   userEmail,
   userDisplayName,
   onClientCreated,
@@ -99,11 +102,14 @@ export function Sidebar({
   const [createError, setCreateError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const sidecarConnected = Boolean(sidecarUrl);
+  const prevClientRef = useRef(selectedClient);
 
-  // Reset confirm state when client changes to prevent accidental deletion
   useEffect(() => {
-    setConfirmDelete(false);
-    setCreateError(null);
+    if (prevClientRef.current !== selectedClient) {
+      prevClientRef.current = selectedClient;
+      setConfirmDelete(false);
+      setCreateError(null);
+    }
   }, [selectedClient]);
   const overallHealthy = sidecarConnected && sessionValid;
   const statusLabel = !sidecarConnected
@@ -197,12 +203,13 @@ export function Sidebar({
       {/* Client switcher */}
       <div className="px-3 pb-3">
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-[var(--text-muted)]">CLIENT</label>
+          <label htmlFor="client-switcher" className="text-xs text-[var(--text-muted)]">CLIENT</label>
           <div className="flex gap-2">
             {selectedClient !== "default" && (
               confirmDelete ? (
                 <div className="flex gap-1.5">
                   <button
+                    type="button"
                     data-testid="confirm-delete-client"
                     onClick={handleDelete}
                     className="text-xs text-[var(--error)] font-medium bg-transparent border-none cursor-pointer p-0"
@@ -210,6 +217,7 @@ export function Sidebar({
                     Confirm
                   </button>
                   <button
+                    type="button"
                     onClick={() => setConfirmDelete(false)}
                     className="text-xs text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-0"
                   >
@@ -218,6 +226,7 @@ export function Sidebar({
                 </div>
               ) : (
                 <button
+                  type="button"
                   data-testid="delete-client-button"
                   onClick={handleDelete}
                   className="text-xs text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-none cursor-pointer p-0 transition-colors"
@@ -227,6 +236,7 @@ export function Sidebar({
               )
             )}
             <button
+              type="button"
               data-testid="new-client-button"
               onClick={() => setIsCreating((prev) => !prev)}
               className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] bg-transparent border-none cursor-pointer p-0 transition-colors"
@@ -249,7 +259,6 @@ export function Sidebar({
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="client-name"
-              autoFocus
               autoComplete="off"
               className="w-full px-2 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm"
             />
@@ -270,6 +279,7 @@ export function Sidebar({
           return (
             <button
               key={item.id}
+              type="button"
               data-testid={`nav-${item.id}`}
               aria-current={isActive ? "page" : undefined}
               onClick={() => onPanelChange(item.panel)}
@@ -322,8 +332,15 @@ export function Sidebar({
             v{appVersion}
           </div>
         )}
-        {sidecarConnected && !sessionValid && onRelogin && (
-          <Button data-testid="relogin-button" size="xs" onClick={onRelogin} className="w-full">Re-login</Button>
+        {sidecarConnected && !sessionValid && (
+          <>
+            {onRelogin && (
+              <Button data-testid="relogin-button" size="xs" onClick={onRelogin} className="w-full">Re-login</Button>
+            )}
+            {loginError && (
+              <p data-testid="login-error" role="alert" className="text-xs text-[var(--error)] mt-1 m-0">{loginError}</p>
+            )}
+          </>
         )}
       </div>
     </aside>

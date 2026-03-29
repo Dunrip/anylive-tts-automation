@@ -4,50 +4,50 @@ import { useKeyboardShortcuts, getModifierKey } from "../hooks/useKeyboardShortc
 import type { PanelType } from "../lib/navigation";
 
 describe("getModifierKey", () => {
-  const originalPlatform = navigator.platform;
+  const originalUserAgent = navigator.userAgent;
 
   afterEach(() => {
-    Object.defineProperty(navigator, "platform", {
-      value: originalPlatform,
+    Object.defineProperty(navigator, "userAgent", {
+      value: originalUserAgent,
       configurable: true,
     });
   });
 
   it("returns Meta on macOS", () => {
-    Object.defineProperty(navigator, "platform", {
-      value: "MacIntel",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       configurable: true,
     });
     expect(getModifierKey()).toBe("Meta");
   });
 
   it("returns Meta on Macbook Pro", () => {
-    Object.defineProperty(navigator, "platform", {
-      value: "MacPPC",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (Macintosh; PPC Mac OS X 10.5) Gecko/20100101 Firefox/68.0",
       configurable: true,
     });
     expect(getModifierKey()).toBe("Meta");
   });
 
   it("returns Control on Windows", () => {
-    Object.defineProperty(navigator, "platform", {
-      value: "Win32",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       configurable: true,
     });
     expect(getModifierKey()).toBe("Control");
   });
 
   it("returns Control on Linux", () => {
-    Object.defineProperty(navigator, "platform", {
-      value: "Linux x86_64",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
       configurable: true,
     });
     expect(getModifierKey()).toBe("Control");
   });
 
   it("returns Control as default fallback", () => {
-    Object.defineProperty(navigator, "platform", {
-      value: "Unknown",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "UnknownBrowser/1.0",
       configurable: true,
     });
     expect(getModifierKey()).toBe("Control");
@@ -55,7 +55,7 @@ describe("getModifierKey", () => {
 });
 
 describe("useKeyboardShortcuts", () => {
-  const originalPlatform = navigator.platform;
+  const originalUserAgent = navigator.userAgent;
   let mockOnPanelChange: ReturnType<typeof vi.fn>;
   let mockOnRun: ReturnType<typeof vi.fn>;
   let mockOnToggleLog: ReturnType<typeof vi.fn>;
@@ -68,16 +68,16 @@ describe("useKeyboardShortcuts", () => {
     mockOnToggleLog = vi.fn();
     mockOnOpenCsv = vi.fn();
     mockOnFocusClientSwitcher = vi.fn();
-    Object.defineProperty(navigator, "platform", {
-      value: "MacIntel",
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       configurable: true,
     });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(navigator, "platform", {
-      value: originalPlatform,
+    Object.defineProperty(navigator, "userAgent", {
+      value: originalUserAgent,
       configurable: true,
     });
   });
@@ -297,8 +297,8 @@ describe("useKeyboardShortcuts", () => {
     });
 
     it("uses Control key on Windows", () => {
-      Object.defineProperty(navigator, "platform", {
-        value: "Win32",
+      Object.defineProperty(navigator, "userAgent", {
+        value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         configurable: true,
       });
 
@@ -320,8 +320,8 @@ describe("useKeyboardShortcuts", () => {
     });
 
     it("ignores Control key on macOS", () => {
-      Object.defineProperty(navigator, "platform", {
-        value: "MacIntel",
+      Object.defineProperty(navigator, "userAgent", {
+        value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         configurable: true,
       });
 

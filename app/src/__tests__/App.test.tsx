@@ -317,6 +317,122 @@ describe("App - Re-login", () => {
     });
   });
 
+  it("shows inline error message after login failure", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(["default"]),
+        });
+      }
+      if (url.includes("/api/session/login") && options?.method === "POST") {
+        return Promise.reject(new Error("Network error"));
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("relogin-button")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("relogin-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("login-error")).toBeTruthy();
+    });
+  });
+
+  it("clears login error on retry attempt", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    let loginCallCount = 0;
+
+    mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(["default"]),
+        });
+      }
+      if (url.includes("/api/session/login") && options?.method === "POST") {
+        loginCallCount += 1;
+        if (loginCallCount === 1) {
+          return Promise.reject(new Error("Network error"));
+        }
+        return new Promise(() => {}); // second attempt: never resolves (stays in progress)
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("relogin-button")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("relogin-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("login-error")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("relogin-button")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("relogin-button"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("login-error")).toBeNull();
+    });
+  });
+
   it("handles login error gracefully", async () => {
     const mockFetch = vi.fn();
     globalThis.fetch = mockFetch;
@@ -461,5 +577,193 @@ describe("App - Session Management", () => {
       );
       expect(sessionCalls.length).toBeGreaterThan(0);
     });
+  });
+
+  it("retains default client list when configs fetch fails", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some((call) => String(call[0]).includes("/api/configs"))).toBe(true);
+    });
+    expect(screen.getByTestId("onboarding")).toBeTruthy();
+  });
+
+  it("retains invalid session state when session fetch fails", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(["default"]),
+        });
+      }
+      if (url.includes("/api/session")) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some((call) => String(call[0]).includes("/api/session"))).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding")).toBeTruthy();
+    });
+  });
+
+  it("shows sidecar config error banner when configs fetch fails", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidecar-config-error")).toBeInTheDocument();
+    });
+  });
+
+  it("does not force chromiumInstalled to true when chromium-status fetch fails (leaves null)", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(["default"]),
+        });
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c) => String(c[0]).includes("/api/setup/chromium-status"))).toBe(true);
+      expect(calls.some((c) => String(c[0]).includes("/api/session"))).toBe(true);
+    });
+
+    expect(screen.queryByTestId("onboarding")).not.toBeInTheDocument();
+  });
+
+  it("does not show sidecar config error when configs fetch is aborted (AbortError)", async () => {
+    const mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/setup/chromium-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ installed: true, path: "/usr/bin/chromium" }),
+        });
+      }
+      if (url.includes("/api/configs")) {
+        return Promise.reject(new DOMException("aborted", "AbortError"));
+      }
+      if (url.includes("/api/session")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              valid: false,
+              display_name: null,
+              email: null,
+              site: "tts",
+              client: "default",
+              checked_at: new Date().toISOString(),
+            }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some((call) => String(call[0]).includes("/api/configs"))).toBe(true);
+    });
+    expect(screen.queryByTestId("sidecar-config-error")).not.toBeInTheDocument();
   });
 });

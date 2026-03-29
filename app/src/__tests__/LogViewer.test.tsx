@@ -174,4 +174,82 @@ describe("LogViewer", () => {
     });
     expect(writeTextFile).not.toHaveBeenCalled();
   });
+
+  it("export shows inline error when file write fails", async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+    (save as ReturnType<typeof vi.fn>).mockResolvedValue("/tmp/logs.txt");
+    (writeTextFile as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Disk full"));
+
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.click(screen.getByTestId("export-logs-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-error")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("export-error").textContent).toBe("Export failed");
+  });
+
+  it("export error clears on next successful export", async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+    (save as ReturnType<typeof vi.fn>).mockResolvedValue("/tmp/logs.txt");
+    (writeTextFile as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("Disk full"))
+      .mockResolvedValueOnce(undefined);
+
+    render(<LogViewer messages={mockMessages} isConnected={true} />);
+    fireEvent.click(screen.getByTestId("export-logs-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("export-error")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("export-logs-button"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("export-error")).not.toBeInTheDocument();
+    });
+  });
+
+  it("auto-scrolls to bottom when new messages arrive while autoScroll is true", () => {
+    const { rerender } = render(<LogViewer messages={[]} isConnected={true} />);
+
+    const content = screen.getByTestId("log-content");
+    let assignedScrollTop: number | undefined;
+    Object.defineProperty(content, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(content, "scrollTop", {
+      configurable: true,
+      get: () => assignedScrollTop ?? 0,
+      set: (v: number) => { assignedScrollTop = v; },
+    });
+
+    rerender(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    expect(assignedScrollTop).toBe(1000);
+  });
+
+  it("does not auto-scroll when new messages arrive and autoScroll is false", () => {
+    const { rerender } = render(<LogViewer messages={mockMessages} isConnected={true} />);
+
+    const content = screen.getByTestId("log-content");
+    Object.defineProperty(content, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(content, "clientHeight", { configurable: true, value: 200 });
+    Object.defineProperty(content, "scrollTop", { configurable: true, value: 0, writable: true });
+
+    fireEvent.scroll(content);
+    expect(screen.getByTestId("resume-scroll-button")).toBeInTheDocument();
+
+    let assignedScrollTop: number | undefined;
+    Object.defineProperty(content, "scrollTop", {
+      configurable: true,
+      get: () => assignedScrollTop ?? 0,
+      set: (v: number) => { assignedScrollTop = v; },
+    });
+
+    const extraMsg: WSMessage = { type: "log", level: "INFO", message: "Extra", timestamp: "2026-01-01T00:05:00Z" };
+    rerender(<LogViewer messages={[...mockMessages, extraMsg]} isConnected={true} />);
+
+    expect(assignedScrollTop).toBeUndefined();
+  });
 });

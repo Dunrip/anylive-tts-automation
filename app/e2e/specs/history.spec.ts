@@ -23,20 +23,26 @@ test.describe("History Panel", () => {
   });
 
   test("shows empty state when no runs exist", async ({ page }) => {
-    // Fresh sidecar has no runs — empty-history should appear
-    await expect(page.getByTestId("empty-history")).toBeVisible({ timeout: 5_000 });
+    await page.route("**/api/history**", (route) => {
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+    await page.getByTestId("refresh-button").click();
+    await page.getByTestId("empty-history").waitFor({ timeout: 10_000 });
+    await expect(page.getByTestId("empty-history")).toBeVisible();
   });
 
   test("switching type filters does not crash", async ({ page }) => {
     for (const filter of ["filter-tts", "filter-faq", "filter-script", "filter-all"]) {
       await page.getByTestId(filter).click();
-      // Panel must remain visible after each filter click
       await expect(page.getByTestId("history-panel")).toBeVisible();
     }
   });
 
   test("refresh button triggers reload", async ({ page }) => {
-    // Just verify click doesn't crash the panel
     await page.getByTestId("refresh-button").click();
     await expect(page.getByTestId("history-panel")).toBeVisible();
   });

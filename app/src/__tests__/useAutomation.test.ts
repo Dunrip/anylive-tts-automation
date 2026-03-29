@@ -113,6 +113,109 @@ describe("useAutomation", () => {
     expect(result.current.versions[1]?.status).toBe("running");
   });
 
+  it("preserves failed version status on later handleMessage progress updates", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ job_id: "test-job" }),
+      } as Response);
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.startRun({
+        sidecarUrl: "http://127.0.0.1:8080",
+        endpoint: "/api/tts/run",
+        configPath: "configs/default/tts.json",
+        csvPath: "/test.csv",
+        options: {},
+        estimatedVersions: 3,
+      });
+    });
+
+    act(() => {
+      result.current.handleMessage({
+        type: "progress",
+        current: 1,
+        total: 3,
+        version_name: "1_ProductA",
+      });
+      result.current.handleMessage({
+        type: "status",
+        job_id: "test-job",
+        status: "failed",
+      });
+      result.current.handleMessage({
+        type: "progress",
+        current: 3,
+        total: 3,
+        version_name: "3_ProductC",
+      });
+    });
+
+    expect(result.current.versions[0]?.status).toBe("failed");
+  });
+
+  it("preserves failed version status on pollJobStatus progress updates", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ job_id: "test-job" }),
+      } as Response);
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.startRun({
+        sidecarUrl: "http://127.0.0.1:8080",
+        endpoint: "/api/tts/run",
+        configPath: "configs/default/tts.json",
+        csvPath: "/test.csv",
+        options: {},
+        estimatedVersions: 3,
+      });
+    });
+
+    act(() => {
+      result.current.handleMessage({
+        type: "progress",
+        current: 1,
+        total: 3,
+        version_name: "1_ProductA",
+      });
+      result.current.handleMessage({
+        type: "status",
+        job_id: "test-job",
+        status: "failed",
+      });
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          status: "running",
+          progress: { current: 2, total: 3 },
+          error: null,
+          messages: [],
+        }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.pollJobStatus("http://127.0.0.1:8080", "test-job");
+    });
+
+    expect(result.current.versions[0]?.status).toBe("failed");
+  });
+
   it("handles status message - success", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock
@@ -223,9 +326,7 @@ describe("useAutomation", () => {
     );
   });
 
-  it("pollJobStatus logs error on fetch failure", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
+  it("pollJobStatus sets error state on fetch failure (no console.error)", async () => {
     vi.mocked(globalThis.fetch).mockRejectedValue(new Error("Network error"));
 
     const { result } = renderHook(() => useAutomation());
@@ -234,13 +335,27 @@ describe("useAutomation", () => {
       await result.current.pollJobStatus("http://127.0.0.1:8080", "test-job");
     });
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("Job poll failed:", expect.any(Error));
-    consoleErrorSpy.mockRestore();
+    expect(result.current.error).toBe("Network error");
+    expect(result.current.isRunning).toBe(false);
   });
 
-  it("cancelJob logs error and sets error state on fetch failure", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("pollJobStatus returns early for malformed API response (missing progress)", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ status: "running" }),
+    } as Response);
 
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.pollJobStatus("http://127.0.0.1:8080", "test-job");
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.isRunning).toBe(false);
+  });
+
+  it("cancelJob sets error state on fetch failure (no console.error)", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock
       .mockResolvedValueOnce({
@@ -269,9 +384,33 @@ describe("useAutomation", () => {
       await result.current.cancelJob("http://127.0.0.1:8080");
     });
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("Job cancel failed:", expect.any(Error));
-    expect(result.current.error).toBe("Error: Cancel failed");
-    consoleErrorSpy.mockRestore();
+    expect(result.current.error).toBe("Cancel failed");
+  });
+
+  it("startRun sets error when server response has no job_id", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce({ ok: true } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ unexpected: "field" }),
+      } as Response);
+
+    const { result } = renderHook(() => useAutomation());
+
+    await act(async () => {
+      await result.current.startRun({
+        sidecarUrl: "http://127.0.0.1:8080",
+        endpoint: "/api/tts/run",
+        configPath: "configs/default/tts.json",
+        csvPath: "/test.csv",
+        options: {},
+      });
+    });
+
+    expect(result.current.isRunning).toBe(false);
+    expect(result.current.error).toBe("Invalid response from server");
+    expect(result.current.jobId).toBeNull();
   });
 
   it("health check guard prevents job start when sidecar is not ready", async () => {

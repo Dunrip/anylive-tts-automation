@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TTSConfig, LiveConfig } from "../../lib/types";
+import { fetchWithTimeout } from "../../lib/fetchWithTimeout";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -37,6 +38,21 @@ const DEFAULT_LIVE: LiveConfig = {
   },
 };
 
+function isTTSConfig(data: unknown): data is TTSConfig {
+  if (data == null || typeof data !== "object" || Array.isArray(data)) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.base_url === "string" &&
+    typeof d.version_template === "string" &&
+    typeof d.voice_name === "string" &&
+    typeof d.max_scripts_per_version === "number"
+  );
+}
+
+function isLiveConfig(data: unknown): data is LiveConfig {
+  return data != null && typeof data === "object" && !Array.isArray(data);
+}
+
 const inputClasses = "w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border";
 const labelClasses = "text-xs text-[var(--text-secondary)] block mb-1";
 const sectionClasses = "mb-6";
@@ -49,14 +65,21 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
   const [originalLive, setOriginalLive] = useState<LiveConfig>(DEFAULT_LIVE);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const saveStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!client) return;
 
-    const applyConfig = (data: Record<string, unknown>): void => {
-      const tts = (data.tts || DEFAULT_TTS) as TTSConfig;
-      const live = (data.live || DEFAULT_LIVE) as LiveConfig;
+    const controller = new AbortController();
+    let unmounted = false;
+
+    const applyConfig = (data: unknown): void => {
+      if (unmounted) return;
+      if (data == null || typeof data !== "object" || Array.isArray(data)) return;
+      const cfg = data as Record<string, unknown>;
+      const tts = isTTSConfig(cfg.tts) ? cfg.tts : DEFAULT_TTS;
+      const live = isLiveConfig(cfg.live) ? cfg.live : DEFAULT_LIVE;
       setTtsConfig(tts);
       setOriginalTts(tts);
       setLiveConfig(live);
@@ -64,19 +87,29 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
     };
 
     if (sidecarUrl) {
-      fetch(`${sidecarUrl}/api/configs/${client}`)
+      fetchWithTimeout(`${sidecarUrl}/api/configs/${client}`, { signal: controller.signal })
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         })
         .then(applyConfig)
-        .catch((err) => { console.error("SettingsPanel: sidecar config load failed:", err); });
+        .catch((err: unknown) => {
+          if (err != null && (err as { name?: unknown }).name === "AbortError") return;
+          if (!unmounted) setLoadError("Failed to load configuration");
+        });
     } else {
       Promise.resolve()
         .then(() => invoke<string>("read_client_config", { client }))
-        .then((json) => applyConfig(JSON.parse(json)))
-        .catch((err) => { console.error("SettingsPanel: tauri config load failed:", err); });
+        .then((json) => applyConfig(JSON.parse(json) as unknown))
+        .catch(() => {
+          if (!unmounted) setLoadError("Failed to load configuration");
+        });
     }
+
+    return () => {
+      unmounted = true;
+      controller.abort();
+    };
   }, [sidecarUrl, client]);
 
   const handleSave = async (): Promise<void> => {
@@ -152,6 +185,7 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           <Button data-testid="reset-button" variant="outline" onClick={handleReset}>Reset</Button>
           {saveStatus === "saved" && <span data-testid="save-success" className="text-xs text-[var(--success)]">Saved</span>}
           {saveStatus === "error" && <span data-testid="save-error" className="text-xs text-[var(--error)]">Save failed</span>}
+          {loadError && <span data-testid="load-error" className="text-xs text-[var(--error)]">{loadError}</span>}
         </div>
       </div>
 

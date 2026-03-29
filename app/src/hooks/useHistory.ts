@@ -8,6 +8,20 @@ interface HistoryState {
   refresh: () => void;
 }
 
+function isHistoryRunArray(data: unknown): data is HistoryRun[] {
+  return (
+    Array.isArray(data) &&
+    data.every(
+      (item) =>
+        item != null &&
+        typeof item === "object" &&
+        typeof (item as Record<string, unknown>).id === "string" &&
+        typeof (item as Record<string, unknown>).status === "string" &&
+        typeof (item as Record<string, unknown>).started_at === "string"
+    )
+  );
+}
+
 export function useHistory(sidecarUrl: string | null | undefined): HistoryState {
   const [runs, setRuns] = useState<HistoryRun[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,8 +34,9 @@ export function useHistory(sidecarUrl: string | null | undefined): HistoryState 
     try {
       const resp = await fetch(`${sidecarUrl}/api/history`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data: HistoryRun[] = await resp.json();
-      setRuns(data);
+      const rawData: unknown = await resp.json();
+      if (!isHistoryRunArray(rawData)) throw new Error("Invalid history response shape");
+      setRuns(rawData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load history");
     } finally {
