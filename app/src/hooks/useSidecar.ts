@@ -108,7 +108,7 @@ export function useSidecar(): SidecarState {
           clearTimeout(abortTimeoutId);
           consecutiveFailures += 1;
 
-          if (consecutiveFailures >= HEALTH_CHECK_FAILURE_THRESHOLD) {
+          if (consecutiveFailures === HEALTH_CHECK_FAILURE_THRESHOLD) {
             setState((prev) => ({
               ...prev,
               isReady: false,

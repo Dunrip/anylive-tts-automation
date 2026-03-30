@@ -118,7 +118,7 @@ export function CSVPicker({
     return () => {
       unlistenFn?.();
     };
-  }, [selectedPath]);
+  }, [selectedPath, sidecarUrl, configPath, automationType, onFileSelected]);
 
   return (
     <div data-testid="csv-picker" className="flex flex-col gap-2">
