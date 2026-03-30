@@ -2537,7 +2537,7 @@ def generate_report(
     logger.info("")
 
     for v in versions:
-        ok = v.success or bool(v.failed_slots)
+        ok = v.success
         logger.info(fmt_result(ok, f"{v.name}: {len(v.scripts)} scripts"))
         if v.error:
             logger.info(f"      Error: {v.error}")
@@ -2723,9 +2723,11 @@ async def run_job(
                     ("Template", config.version_template),
                     (
                         "Mode",
-                        "download"
-                        if download
-                        else ("dry-run" if dry_run else "generate"),
+                        (
+                            "download"
+                            if download
+                            else ("dry-run" if dry_run else "generate")
+                        ),
                     ),
                     ("Flat", "on" if flat_mode else "off"),
                     ("Debug", "on" if _effective_debug else "off"),
@@ -2909,9 +2911,11 @@ async def main():
         fmt_banner(
             "ANYLIVE TTS AUTOMATION",
             Client=args.client or "",
-            Mode="download"
-            if args.download
-            else ("dry-run" if args.dry_run else "generate"),
+            Mode=(
+                "download"
+                if args.download
+                else ("dry-run" if args.dry_run else "generate")
+            ),
             Debug="on" if args.debug else "",
             Flat="on" if args.flat else "",
         )
