@@ -1046,25 +1046,28 @@ def generate_faq_report(
     }
 
     elapsed_str = fmt_elapsed(elapsed_seconds)
-    logger.info(fmt_report_header("FINAL FAQ REPORT"))
-    logger.info(
+    logger.log(REPORT, fmt_report_header("FINAL FAQ REPORT"))
+    logger.log(
+        REPORT,
         fmt_summary(
             f"Total: {len(products)}",
             f"Success: {successful} {SYM.OK}",
             f"Failed: {failed} {SYM.FAIL}",
-        )
+        ),
     )
-    logger.info(fmt_summary(f"Questions: {total_questions}", f"Time: {elapsed_str}"))
-    logger.info("")
+    logger.log(
+        REPORT, fmt_summary(f"Questions: {total_questions}", f"Time: {elapsed_str}")
+    )
+    logger.log(REPORT, "")
 
     for p in products:
         ok = not p.error
         detail = (
             f"Product #{p.product_number} ({p.product_name}): {len(p.rows)} questions"
         )
-        logger.info(fmt_result(ok, detail))
+        logger.log(REPORT, fmt_result(ok, detail))
         if p.error:
-            logger.info(f"      Error: {p.error}")
+            logger.log(REPORT, f"      Error: {p.error}")
 
     logs_path = Path(logs_dir) if logs_dir else Path("logs")
     logs_path.mkdir(exist_ok=True)
@@ -1073,9 +1076,9 @@ def generate_faq_report(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    logger.info("")
-    logger.info(f"  Report saved: {report_path}")
-    logger.info(fmt_report_footer())
+    logger.log(REPORT, "")
+    logger.log(REPORT, f"  Report saved: {report_path}")
+    logger.log(REPORT, fmt_report_footer())
     return report
 
 

@@ -1830,30 +1830,33 @@ def generate_script_report(
             "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
-        logger.info(fmt_report_header("SCRIPT REPORT — DELETE"))
-        logger.info(
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — DELETE"))
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Total: {len(delete_results)}",
                 f"Success: {successful} {SYM.OK}",
                 f"Failed: {failed} {SYM.FAIL}",
-            )
+            ),
         )
-        logger.info(
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Deleted: {total_scripts_deleted}",
                 f"Time: {elapsed_str}",
-            )
+            ),
         )
         for r in delete_results:
-            logger.info(
+            logger.log(
+                REPORT,
                 fmt_result(
                     bool(r["success"]),
                     f"Product #{r['product_number']}: {r['scripts_deleted']} scripts deleted",
-                )
+                ),
             )
             if r.get("error"):
-                logger.info(fmt_step(SYM.WARN, f"Error: {r['error']}"))
-        logger.info(fmt_report_footer())
+                logger.log(REPORT, fmt_step(SYM.WARN, f"Error: {r['error']}"))
+        logger.log(REPORT, fmt_report_footer())
     elif mode == "replace" and delete_results is not None:
         successful = sum(1 for r in delete_results if r["success"])
         replaced = sum(1 for r in delete_results if r.get("replaced", False))
@@ -1871,22 +1874,24 @@ def generate_script_report(
             "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
-        logger.info(fmt_report_header("SCRIPT REPORT — REPLACE"))
-        logger.info(
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — REPLACE"))
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Total: {len(delete_results)}",
                 f"Success: {successful} {SYM.OK}",
                 f"Failed: {failed} {SYM.FAIL}",
-            )
+            ),
         )
-        logger.info(
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Replaced: {replaced}",
                 f"Already populated: {already_populated}",
                 f"Time: {elapsed_str}",
-            )
+            ),
         )
-        logger.info(fmt_section("Per-product results"))
+        logger.log(REPORT, fmt_section("Per-product results"))
         for r in delete_results:
             if r.get("replaced"):
                 detail = "Replaced"
@@ -1894,12 +1899,13 @@ def generate_script_report(
                 detail = "Already populated"
             else:
                 detail = r.get("error", "Unknown")
-            logger.info(
+            logger.log(
+                REPORT,
                 fmt_result(
                     bool(r["success"]), f"Product #{r['product_number']}: {detail}"
-                )
+                ),
             )
-        logger.info(fmt_report_footer())
+        logger.log(REPORT, fmt_report_footer())
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
@@ -1926,32 +1932,35 @@ def generate_script_report(
                 for p in products
             ],
         }
-        logger.info(fmt_report_header("SCRIPT REPORT — UPLOAD"))
-        logger.info(
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — UPLOAD"))
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Total: {len(products)}",
                 f"Success: {successful} {SYM.OK}",
                 f"Failed: {failed} {SYM.FAIL}",
-            )
+            ),
         )
-        logger.info(
+        logger.log(
+            REPORT,
             fmt_summary(
                 f"Scripts: {total_scripts}",
                 f"Skipped: {total_skipped}",
                 f"Time: {elapsed_str}",
-            )
+            ),
         )
-        logger.info(fmt_section("Per-product results"))
+        logger.log(REPORT, fmt_section("Per-product results"))
         for p in products:
-            logger.info(
+            logger.log(
+                REPORT,
                 fmt_result(
                     p.success,
                     f"Product #{p.product_number} ({p.product_name}): {len(p.rows)} scripts",
-                )
+                ),
             )
             if p.error:
-                logger.info(fmt_step(SYM.WARN, f"Error: {p.error}"))
-        logger.info(fmt_report_footer())
+                logger.log(REPORT, fmt_step(SYM.WARN, f"Error: {p.error}"))
+        logger.log(REPORT, fmt_report_footer())
 
     logs_path = Path(logs_dir) if logs_dir else Path("logs")
     logs_path.mkdir(exist_ok=True)
@@ -1960,7 +1969,7 @@ def generate_script_report(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"Report saved: {report_path}")
+    logger.log(REPORT, f"Report saved: {report_path}")
     return report
 
 

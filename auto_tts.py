@@ -2525,24 +2525,25 @@ def generate_report(
     )
 
     elapsed_str = fmt_elapsed(elapsed_seconds)
-    logger.info(fmt_report_header("FINAL REPORT"))
-    logger.info(
+    logger.log(REPORT, fmt_report_header("FINAL REPORT"))
+    logger.log(
+        REPORT,
         fmt_summary(
             f"Total: {report.total}",
             f"Success: {successful} {SYM.OK}",
             f"Failed: {failed} {SYM.FAIL}",
-        )
+        ),
     )
-    logger.info(fmt_summary(f"Scripts: {total_scripts}", f"Time: {elapsed_str}"))
-    logger.info("")
+    logger.log(REPORT, fmt_summary(f"Scripts: {total_scripts}", f"Time: {elapsed_str}"))
+    logger.log(REPORT, "")
 
     for v in versions:
         ok = v.success
-        logger.info(fmt_result(ok, f"{v.name}: {len(v.scripts)} scripts"))
+        logger.log(REPORT, fmt_result(ok, f"{v.name}: {len(v.scripts)} scripts"))
         if v.error:
-            logger.info(f"      Error: {v.error}")
-    logger.info("")
-    logger.info(fmt_report_footer())
+            logger.log(REPORT, f"      Error: {v.error}")
+    logger.log(REPORT, "")
+    logger.log(REPORT, fmt_report_footer())
 
     logs_path = Path(logs_dir) if logs_dir is not None else Path("logs")
     logs_path.mkdir(exist_ok=True)
@@ -2551,7 +2552,7 @@ def generate_report(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
 
-    logger.info(fmt_step(SYM.OK, f"Report saved: {report_path}"))
+    logger.log(REPORT, fmt_step(SYM.OK, f"Report saved: {report_path}"))
     return report
 
 

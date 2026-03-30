@@ -141,6 +141,9 @@ def get_browser_data_dir(subdir: str = "state/browser_data") -> str:
 # Console output formatting
 # ---------------------------------------------------------------------------
 
+REPORT: int = 25
+logging.addLevelName(REPORT, "REPORT")
+
 
 class _Ansi:
     RESET = "\033[0m"
@@ -381,7 +384,16 @@ class PlainFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         msg = strip_ansi(record.getMessage())
         time_str = self.formatTime(record, self._time_fmt)
-        return self._template.format(time=time_str, level=record.levelname, message=msg)
+        s = self._template.format(time=time_str, level=record.levelname, message=msg)
+        if (
+            record.exc_info
+            and isinstance(record.exc_info, tuple)
+            and record.exc_info[0] is not None
+        ):
+            s += "\n" + strip_ansi(self.formatException(record.exc_info))
+        if record.stack_info:
+            s += "\n" + strip_ansi(self.formatStack(record.stack_info))
+        return s
 
 
 _LEVEL_MAP: dict[str, str] = {"WARNING": "WARN", "CRITICAL": "ERROR"}
@@ -417,13 +429,13 @@ def setup_logging(
     Args:
         color: Enable ANSI colors on console.  Auto-disabled when stdout is
             not a TTY or the ``NO_COLOR`` env-var is set.
-        verbosity: ``"quiet"`` (warnings only), ``"normal"`` (info), or
-            ``"verbose"`` (debug on console).
+        verbosity: ``"quiet"`` (report + warnings only), ``"normal"`` (info),
+            or ``"verbose"`` (debug on console).
     """
     set_color_enabled(color and _supports_color())
 
     console_level = {
-        "quiet": logging.WARNING,
+        "quiet": REPORT,
         "normal": logging.INFO,
         "verbose": logging.DEBUG,
     }.get(verbosity, logging.INFO)
