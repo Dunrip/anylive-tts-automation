@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsPanel } from "../components/settings/SettingsPanel";
+import { TooltipProvider } from "../components/ui/tooltip";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue(new Error("Tauri not available in test")),
@@ -13,7 +14,11 @@ describe("SettingsPanel", () => {
   });
 
   it("renders all TTS config form fields", () => {
-    render(<SettingsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("settings-panel")).toBeTruthy();
     expect(screen.getByTestId("input-version-template")).toBeTruthy();
     expect(screen.getByTestId("input-voice-name")).toBeTruthy();
@@ -21,7 +26,11 @@ describe("SettingsPanel", () => {
   });
 
   it("renders CSV column mapping fields", () => {
-    render(<SettingsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("input-csv-product_number")).toBeTruthy();
     expect(screen.getByTestId("input-csv-product_name")).toBeTruthy();
     expect(screen.getByTestId("input-csv-script_content")).toBeTruthy();
@@ -29,7 +38,11 @@ describe("SettingsPanel", () => {
   });
 
   it("renders save and reset buttons", () => {
-    render(<SettingsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("save-button")).toBeTruthy();
     expect(screen.getByTestId("reset-button")).toBeTruthy();
   });
@@ -48,7 +61,11 @@ describe("SettingsPanel", () => {
       }),
     });
 
-    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
 
     await waitFor(() => {
       const input = screen.getByTestId("input-version-template") as HTMLInputElement;
@@ -61,7 +78,11 @@ describe("SettingsPanel", () => {
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tts: {} }) })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ status: "saved" }) });
 
-    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
 
     await waitFor(() => {}); // Wait for initial load
 
@@ -81,7 +102,11 @@ describe("SettingsPanel", () => {
       new DOMException("aborted", "AbortError")
     );
 
-    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -97,7 +122,11 @@ describe("SettingsPanel", () => {
       }),
     });
 
-    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
 
     await waitFor(() => {
       const input = screen.getByTestId("input-version-template") as HTMLInputElement;
@@ -119,7 +148,11 @@ describe("SettingsPanel", () => {
       new TypeError("Failed to fetch")
     );
 
-    render(<SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <SettingsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId("load-error")).toBeInTheDocument();

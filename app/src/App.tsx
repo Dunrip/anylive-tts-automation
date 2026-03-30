@@ -4,7 +4,9 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { MainContent } from "./components/layout/MainContent";
 import { Titlebar } from "./components/layout/Titlebar";
 import { Onboarding } from "./components/common/Onboarding";
+import { ShortcutsModal } from "./components/common/ShortcutsModal";
 import { Toaster } from "./components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSidecar } from "./hooks/useSidecar";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
@@ -15,6 +17,7 @@ import { SessionStatus } from "./lib/types";
 
 function App(): React.ReactElement {
   const [activePanel, setActivePanel] = useState<PanelType>("tts");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<string>("default");
   const [clients, setClients] = useState<string[]>(["default"]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -30,6 +33,7 @@ function App(): React.ReactElement {
 
   useKeyboardShortcuts({
     onPanelChange: setActivePanel,
+    onShowShortcuts: () => setShortcutsOpen(true),
   });
 
   useEffect(() => {
@@ -137,59 +141,62 @@ function App(): React.ReactElement {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)]">
-      <Toaster />
-      <Titlebar />
-      {sidecarConfigError && (
-        <div
-          data-testid="sidecar-config-error"
-          className="px-3 py-1 text-xs bg-[var(--warning)] text-[var(--bg-base)] shrink-0"
-        >
-          Failed to load client list — sidecar unreachable
+    <TooltipProvider>
+      <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-base)]">
+        <Toaster />
+        <Titlebar />
+        {sidecarConfigError && (
+          <div
+            data-testid="sidecar-config-error"
+            className="px-3 py-1 text-xs bg-[var(--warning)] text-[var(--bg-base)] shrink-0"
+          >
+            Failed to load client list — sidecar unreachable
+          </div>
+        )}
+        {installError && (
+          <div
+            data-testid="install-error-banner"
+            className="px-3 py-1 text-xs bg-[var(--error)] text-white flex items-center justify-between shrink-0"
+          >
+            <span>Update installation failed: {installError}</span>
+            <button type="button" onClick={clearInstallError} className="ml-2 opacity-80 hover:opacity-100">×</button>
+          </div>
+        )}
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar
+            activePanel={activePanel}
+            onPanelChange={setActivePanel}
+            clients={clients}
+            selectedClient={selectedClient}
+            onClientChange={setSelectedClient}
+            sessionValid={sessionValid}
+            sidecarUrl={sidecar.sidecarUrl}
+            userEmail={userEmail}
+            userDisplayName={userDisplayName}
+            onRelogin={loginInProgress ? undefined : handleRelogin}
+            loginError={loginError}
+            onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
+            onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
+            appVersion={appVersion}
+          />
+          <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
         </div>
-      )}
-      {installError && (
-        <div
-          data-testid="install-error-banner"
-          className="px-3 py-1 text-xs bg-[var(--error)] text-white flex items-center justify-between shrink-0"
-        >
-          <span>Update installation failed: {installError}</span>
-          <button type="button" onClick={clearInstallError} className="ml-2 opacity-80 hover:opacity-100">×</button>
-        </div>
-      )}
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          activePanel={activePanel}
-          onPanelChange={setActivePanel}
-          clients={clients}
-          selectedClient={selectedClient}
-          onClientChange={setSelectedClient}
-          sessionValid={sessionValid}
-          sidecarUrl={sidecar.sidecarUrl}
-          userEmail={userEmail}
-          userDisplayName={userDisplayName}
-          onRelogin={loginInProgress ? undefined : handleRelogin}
-          loginError={loginError}
-          onClientCreated={(name) => { setClients((prev) => [...prev, name].sort()); setSelectedClient(name); }}
-          onClientDeleted={(name) => { setClients((prev) => prev.filter((c) => c !== name)); setSelectedClient("default"); }}
-          appVersion={appVersion}
-        />
-        <MainContent activePanel={activePanel} client={selectedClient} sidecarUrl={sidecar.sidecarUrl} />
+        {sidecar.sidecarUrl && chromiumInstalled !== null && (chromiumInstalled === false || !sessionValid) && !loginInProgress && (
+          <Onboarding
+            sidecarUrl={sidecar.sidecarUrl}
+            chromiumInstalled={chromiumInstalled}
+            sessionValid={sessionValid}
+            onComplete={({ sessionValid: valid, displayName, email }) => {
+              setChromiumInstalled(true);
+              setSessionValid(valid);
+              if (displayName) setUserDisplayName(displayName);
+              if (email) setUserEmail(email);
+            }}
+          />
+        )}
+        <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       </div>
-      {sidecar.sidecarUrl && chromiumInstalled !== null && (chromiumInstalled === false || !sessionValid) && !loginInProgress && (
-        <Onboarding
-          sidecarUrl={sidecar.sidecarUrl}
-          chromiumInstalled={chromiumInstalled}
-          sessionValid={sessionValid}
-          onComplete={({ sessionValid: valid, displayName, email }) => {
-            setChromiumInstalled(true);
-            setSessionValid(valid);
-            if (displayName) setUserDisplayName(displayName);
-            if (email) setUserEmail(email);
-          }}
-        />
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
 

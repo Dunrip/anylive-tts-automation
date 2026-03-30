@@ -13,6 +13,7 @@ vi.mock("../hooks/useSidecar", () => ({
 
 vi.mock("../hooks/useKeyboardShortcuts", () => ({
   useKeyboardShortcuts: vi.fn(),
+  getModifierKey: () => "Meta",
 }));
 
 describe("App - SetupWizard", () => {

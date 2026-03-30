@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { FAQPanel } from "../components/faq/FAQPanel";
 import { useAutomation } from "../hooks/useAutomation";
+import { TooltipProvider } from "../components/ui/tooltip";
 
 vi.mock("../components/common/CSVPicker", () => ({
   CSVPicker: () => <div data-testid="csv-picker-mock" />,
@@ -31,25 +32,41 @@ describe("FAQPanel", () => {
   });
 
   it("renders FAQ panel with run button", () => {
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("faq-panel")).toBeTruthy();
     expect(screen.getByTestId("faq-run-button")).toBeTruthy();
   });
 
   it("renders audio dir selector", () => {
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("audio-dir-input")).toBeTruthy();
   });
 
   it("renders option checkboxes", () => {
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("faq-option-headless")).toBeTruthy();
     expect(screen.getByTestId("faq-option-dry_run")).toBeTruthy();
     expect(screen.getByTestId("faq-option-debug")).toBeTruthy();
   });
 
   it("run button is disabled without CSV", () => {
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     const btn = screen.getByTestId("faq-run-button") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -69,14 +86,22 @@ describe("FAQPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     const btn = screen.getByTestId("faq-run-button") as HTMLButtonElement;
     expect(btn.textContent).toBe("Running...");
     expect(btn.disabled).toBe(true);
   });
 
   it("advanced toggle shows and hides start-product and limit fields", () => {
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.queryByTestId("faq-option-start-product")).toBeNull();
     expect(screen.queryByTestId("faq-option-limit")).toBeNull();
 
@@ -106,7 +131,11 @@ describe("FAQPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("product-list")).toBeTruthy();
     expect(screen.getByText("Product A")).toBeTruthy();
     expect(screen.getByText("Product B")).toBeTruthy();
@@ -127,7 +156,11 @@ describe("FAQPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     const errorBanner = screen.getByTestId("faq-error");
     expect(errorBanner).toBeTruthy();
     expect(errorBanner.textContent).toBe("FAQ run failed");
@@ -148,7 +181,11 @@ describe("FAQPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<FAQPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <FAQPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("progress-bar")).toBeTruthy();
   });
 });

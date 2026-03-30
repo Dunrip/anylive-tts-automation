@@ -7,6 +7,7 @@ interface ShortcutHandlers {
   onToggleLog?: () => void;
   onOpenCsv?: () => void;
   onFocusClientSwitcher?: () => void;
+  onShowShortcuts?: () => void;
 }
 
 const PANEL_SHORTCUTS: Record<string, PanelType> = {
@@ -65,6 +66,13 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers): void {
       if (key === "k" || key === "K") {
         event.preventDefault();
         handlers.onFocusClientSwitcher?.();
+        return;
+      }
+
+      // Show shortcuts help: ⌘?
+      if (event.key === "?") {
+        event.preventDefault();
+        handlers.onShowShortcuts?.();
         return;
       }
     },

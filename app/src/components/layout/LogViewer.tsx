@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { LogLevel, LogMessage, WSMessage } from "../../lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -141,9 +142,10 @@ export function LogViewer({
     const text = filteredMessages
       .map((message) => `[${formatLogTime(message.timestamp)}] [${message.level}] ${message.message}`)
       .join("\n");
-    void navigator.clipboard.writeText(text).catch(() => {
-      // Clipboard API can fail in unfocused windows or non-HTTPS contexts;
-      // no recovery is possible — user can still select-copy from the log area manually.
+    void navigator.clipboard.writeText(text).then(() => {
+      toast.success("Copied to clipboard");
+    }).catch(() => {
+      toast.error("Failed to copy");
     });
   };
 

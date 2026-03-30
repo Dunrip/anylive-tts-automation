@@ -7,7 +7,7 @@ import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
 import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 import { Button } from "@/components/ui/button";
-
+import { OptionSwitch } from "@/components/common/OptionSwitch";
 import { cn } from "@/lib/utils";
 
 interface ScriptsPanelProps {
@@ -160,21 +160,30 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
 
       {/* Options */}
       <div className="flex gap-4">
-        {[
-          { key: "headless" as const, label: "Headless" },
-          { key: "dry_run" as const, label: "Dry Run" },
-          { key: "debug" as const, label: "Debug" },
-        ].map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
-            <input type="checkbox"
-              data-testid={`scripts-option-${key}`}
-              checked={options[key] as boolean}
-              onChange={() => setOptions((prev) => ({ ...prev, [key]: !prev[key] as boolean }))}
-             
-            />
-            {label}
-          </label>
-        ))}
+        <OptionSwitch
+          id="scripts-option-headless"
+          testId="scripts-option-headless"
+          checked={options.headless}
+          onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, headless: checked }))}
+          label="Headless"
+          description="Run browser in background without visible window"
+        />
+        <OptionSwitch
+          id="scripts-option-dry_run"
+          testId="scripts-option-dry_run"
+          checked={options.dry_run}
+          onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, dry_run: checked }))}
+          label="Dry Run"
+          description="Fill forms without generating speech or saving"
+        />
+        <OptionSwitch
+          id="scripts-option-debug"
+          testId="scripts-option-debug"
+          checked={options.debug}
+          onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, debug: checked }))}
+          label="Debug"
+          description="Slow motion with pause-on-error for troubleshooting"
+        />
       </div>
 
        <div>
