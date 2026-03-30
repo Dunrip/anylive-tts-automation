@@ -25,8 +25,19 @@ import pandas as pd
 
 from shared import (
     BrowserAutomation,
+    SYM,
     async_debug_pause,
     ensure_client_config,
+    fmt_banner,
+    fmt_elapsed,
+    fmt_item,
+    fmt_kv,
+    fmt_report_footer,
+    fmt_report_header,
+    fmt_result,
+    fmt_section,
+    fmt_step,
+    fmt_summary,
     get_live_session_paths,
     save_last_client,
     setup_login,
@@ -177,13 +188,10 @@ class ScriptAutomation(BrowserAutomation):
     def _log_product_header(
         self, index: int, total: int, product_number: int, label: str
     ) -> None:
-        self.logger.info("")
-        self.logger.info("=" * 60)
-        self.logger.info(f" [{index}/{total}] Product #{product_number} — {label}")
-        self.logger.info("-" * 60)
+        self.logger.info(fmt_item(index, total, f"Product #{product_number} — {label}"))
 
-    def _log_product_result(self, status: str, detail: str) -> None:
-        self.logger.info(f"  → {status}: {detail}")
+    def _log_product_result(self, ok: bool, detail: str) -> None:
+        self.logger.info(fmt_result(ok, detail))
 
     async def navigate_to_set_live_content(self) -> bool:
         """Navigate to the Set Live Content tab (default active tab)."""
@@ -554,12 +562,15 @@ class ScriptAutomation(BrowserAutomation):
                     break
 
         if count == 0:
-            self.logger.info("  No scripts to delete")
+            self.logger.info(fmt_step(SYM.SKIP, "No scripts to delete"))
             return True, 0
 
         if dry_run:
             self.logger.info(
-                f"DRY RUN: Would delete {count} scripts from product #{product_number}"
+                fmt_step(
+                    SYM.SKIP,
+                    f"Dry run: would delete {count} scripts from product #{product_number}",
+                )
             )
             return True, 0
 
@@ -593,6 +604,7 @@ class ScriptAutomation(BrowserAutomation):
                 return False, deleted
 
             deleted += 1
+            self.logger.info(fmt_step(SYM.OK, f"Deleted script {deleted}"))
             self.logger.debug(
                 f"Deleted script {deleted} for product #{product_number} "
                 f"({current_count - 1} remaining)"
@@ -665,10 +677,10 @@ class ScriptAutomation(BrowserAutomation):
 
                 if success:
                     suffix = "(dry run)" if dry_run else "deleted"
-                    self._log_product_result("OK", f"{deleted} scripts {suffix}")
+                    self._log_product_result(True, f"{deleted} scripts {suffix}")
                 else:
                     self._log_product_result(
-                        "FAILED", f"Stopped after {deleted} deletions"
+                        False, f"Stopped after {deleted} deletions"
                     )
                     try:
                         await self.take_screenshot(f"product_{product_number}")
@@ -684,7 +696,7 @@ class ScriptAutomation(BrowserAutomation):
                 )
             except Exception as e:
                 error_msg = str(e)
-                self._log_product_result("ERROR", error_msg)
+                self._log_product_result(False, error_msg)
                 try:
                     await self.take_screenshot(f"product_{product_number}")
                 except Exception as screenshot_err:
@@ -796,7 +808,7 @@ class ScriptAutomation(BrowserAutomation):
                 count_before + 1, timeout_s=30.0
             )
             if confirmed:
-                self.logger.info(f"Uploaded: {audio_filename}")
+                self.logger.info(fmt_step(SYM.OK, f"Uploaded: {audio_filename}"))
             else:
                 self.logger.warning(
                     f"Upload confirmation timeout for {audio_filename} "
@@ -883,9 +895,7 @@ class ScriptAutomation(BrowserAutomation):
             filename = os.path.basename(audio_path)
             if _normalize_script_name(filename) in existing_normalized:
                 skipped_rows.append(row)
-                self.logger.info(
-                    f"  Skipping '{filename}': already present on product #{product.product_number}"
-                )
+                self.logger.info(fmt_step(SYM.SKIP, f"Already present: {filename}"))
             else:
                 rows_with_paths.append((row, audio_path))
 
@@ -903,7 +913,9 @@ class ScriptAutomation(BrowserAutomation):
 
         if missing_audio:
             for row in missing_audio:
-                self.logger.warning(f"  Audio not found for code '{row.audio_code}'")
+                self.logger.warning(
+                    fmt_step(SYM.WARN, f"Audio not found for code '{row.audio_code}'")
+                )
 
         if rows_to_upload == 0 and len(missing_audio) == 0:
             self.logger.info(
@@ -929,7 +941,9 @@ class ScriptAutomation(BrowserAutomation):
 
         if dry_run:
             for _row, audio_path in rows_with_paths:
-                self.logger.info(f"  Would upload {os.path.basename(audio_path)}")
+                self.logger.info(
+                    fmt_step(SYM.SKIP, f"Would upload {os.path.basename(audio_path)}")
+                )
             product.success = len(missing_audio) == 0
             if not product.success:
                 product.error = f"{len(missing_audio)} audio file(s) not found"
@@ -1017,12 +1031,12 @@ class ScriptAutomation(BrowserAutomation):
         suffix = "(dry run)" if dry_run else "uploaded"
         if product.scripts_skipped > 0:
             self._log_product_result(
-                "OK",
+                True,
                 f"{len(product.rows) - product.scripts_skipped}/{len(product.rows)} "
                 f"scripts {suffix} ({product.scripts_skipped} already present)",
             )
         else:
-            self._log_product_result("OK", f"{len(product.rows)} scripts {suffix}")
+            self._log_product_result(True, f"{len(product.rows)} scripts {suffix}")
 
     async def upload_all_scripts(
         self,
@@ -1074,7 +1088,10 @@ class ScriptAutomation(BrowserAutomation):
 
                 if not product.success and not dry_run:
                     self.logger.info(
-                        f"  Retrying product #{product.product_number} after page refresh..."
+                        fmt_step(
+                            SYM.RETRY,
+                            f"Retrying product #{product.product_number} after page refresh...",
+                        )
                     )
                     if await self._refresh_page():
                         self._reset_product_state(product)
@@ -1088,7 +1105,7 @@ class ScriptAutomation(BrowserAutomation):
                 if product.success:
                     self._log_product_success(product, dry_run)
                 else:
-                    self._log_product_result("FAILED", product.error or "Unknown error")
+                    self._log_product_result(False, product.error or "Unknown error")
                     try:
                         await self.take_screenshot(f"product_{product.product_number}")
                     except Exception as screenshot_err:
@@ -1096,7 +1113,7 @@ class ScriptAutomation(BrowserAutomation):
             except Exception as e:
                 product.error = str(e)
                 product.success = False
-                self._log_product_result("ERROR", str(e))
+                self._log_product_result(False, str(e))
                 try:
                     await self.take_screenshot(f"product_{product.product_number}")
                 except Exception as screenshot_err:
@@ -1444,7 +1461,10 @@ class ScriptAutomation(BrowserAutomation):
 
         if dry_run:
             self.logger.info(
-                f"DRY RUN: Would replace product #{product_number} '{product_name}'"
+                fmt_step(
+                    SYM.SKIP,
+                    f"Dry run: would replace product #{product_number} '{product_name}'",
+                )
             )
             return True
 
@@ -1538,7 +1558,7 @@ class ScriptAutomation(BrowserAutomation):
                 await asyncio.sleep(3)
 
             await asyncio.sleep(1)
-            self.logger.info(f"Successfully replaced product #{product_number}")
+            self.logger.info(fmt_step(SYM.OK, "Replaced product"))
             return True
 
         except Exception as e:
@@ -1795,7 +1815,7 @@ def generate_script_report(
     elapsed_seconds: float = 0.0,
 ) -> dict:
     """Generate and save a JSON execution report."""
-    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
+    elapsed_str = fmt_elapsed(elapsed_seconds)
     if mode == "delete" and delete_results is not None:
         successful = sum(1 for r in delete_results if r["success"])
         failed = len(delete_results) - successful
@@ -1810,29 +1830,33 @@ def generate_script_report(
             "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
-        logger.info("")
-        logger.info("=" * 70)
-        logger.info("FINAL SCRIPT REPORT (DELETE MODE)")
-        logger.info("=" * 70)
-        logger.info(
-            f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed}"
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — DELETE"))
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Total: {len(delete_results)}",
+                f"Success: {successful} {SYM.OK}",
+                f"Failed: {failed} {SYM.FAIL}",
+            ),
         )
-        logger.info(f"Scripts deleted: {total_scripts_deleted} total")
-        logger.info(f"Time: {elapsed_str}")
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Deleted: {total_scripts_deleted}",
+                f"Time: {elapsed_str}",
+            ),
+        )
         for r in delete_results:
-            status = "OK" if r["success"] else "FAILED"
-            logger.info(
-                f"  {status} Product #{r['product_number']}: "
-                f"{r['scripts_deleted']} scripts deleted"
+            logger.log(
+                REPORT,
+                fmt_result(
+                    bool(r["success"]),
+                    f"Product #{r['product_number']}: {r['scripts_deleted']} scripts deleted",
+                ),
             )
             if r.get("error"):
-                logger.info(f"      Error: {r['error']}")
-        logger.info("-" * 70)
-        logger.info(
-            f"Total: {len(delete_results)} | Success: {successful} | Failed: {failed} | "
-            f"Deleted: {total_scripts_deleted} | Time: {elapsed_str}"
-        )
-        logger.info("=" * 70)
+                logger.log(REPORT, fmt_step(SYM.WARN, f"Error: {r['error']}"))
+        logger.log(REPORT, fmt_report_footer())
     elif mode == "replace" and delete_results is not None:
         successful = sum(1 for r in delete_results if r["success"])
         replaced = sum(1 for r in delete_results if r.get("replaced", False))
@@ -1850,31 +1874,38 @@ def generate_script_report(
             "elapsed_seconds": elapsed_seconds,
             "products": delete_results,
         }
-        logger.info("")
-        logger.info("=" * 70)
-        logger.info("FINAL SCRIPT REPORT (REPLACE MODE)")
-        logger.info("=" * 70)
-        logger.info(
-            f"Total: {len(delete_results)} | Replaced: {replaced} | Failed: {failed}"
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — REPLACE"))
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Total: {len(delete_results)}",
+                f"Success: {successful} {SYM.OK}",
+                f"Failed: {failed} {SYM.FAIL}",
+            ),
         )
-        if already_populated > 0:
-            logger.info(f"Already populated (skipped): {already_populated}")
-        logger.info(f"Time: {elapsed_str}")
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Replaced: {replaced}",
+                f"Already populated: {already_populated}",
+                f"Time: {elapsed_str}",
+            ),
+        )
+        logger.log(REPORT, fmt_section("Per-product results"))
         for r in delete_results:
-            status = "OK" if r["success"] else "FAILED"
             if r.get("replaced"):
                 detail = "Replaced"
             elif r["success"]:
                 detail = "Already populated"
             else:
                 detail = r.get("error", "Unknown")
-            logger.info(f"  {status} Product #{r['product_number']}: {detail}")
-        logger.info("-" * 70)
-        logger.info(
-            f"Total: {len(delete_results)} | Replaced: {replaced} | "
-            f"Failed: {failed} | Time: {elapsed_str}"
-        )
-        logger.info("=" * 70)
+            logger.log(
+                REPORT,
+                fmt_result(
+                    bool(r["success"]), f"Product #{r['product_number']}: {detail}"
+                ),
+            )
+        logger.log(REPORT, fmt_report_footer())
     else:
         successful = sum(1 for p in products if p.success)
         failed = len(products) - successful
@@ -1901,38 +1932,35 @@ def generate_script_report(
                 for p in products
             ],
         }
-        logger.info("")
-        logger.info("=" * 70)
-        logger.info("FINAL SCRIPT REPORT (UPLOAD MODE)")
-        logger.info("=" * 70)
-        logger.info(
-            f"Total: {len(products)} | Success: {successful} | Failed: {failed}"
+        logger.log(REPORT, fmt_report_header("SCRIPT REPORT — UPLOAD"))
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Total: {len(products)}",
+                f"Success: {successful} {SYM.OK}",
+                f"Failed: {failed} {SYM.FAIL}",
+            ),
         )
-        if total_skipped > 0:
-            logger.info(f"Scripts: {total_scripts} total ({total_skipped} skipped)")
-        else:
-            logger.info(f"Scripts: {total_scripts} total")
-        logger.info(f"Time: {elapsed_str}")
+        logger.log(
+            REPORT,
+            fmt_summary(
+                f"Scripts: {total_scripts}",
+                f"Skipped: {total_skipped}",
+                f"Time: {elapsed_str}",
+            ),
+        )
+        logger.log(REPORT, fmt_section("Per-product results"))
         for p in products:
-            status = "OK" if p.success else "FAILED"
-            logger.info(
-                f"  {status} Product #{p.product_number} ({p.product_name}): "
-                f"{len(p.rows)} scripts"
+            logger.log(
+                REPORT,
+                fmt_result(
+                    p.success,
+                    f"Product #{p.product_number} ({p.product_name}): {len(p.rows)} scripts",
+                ),
             )
             if p.error:
-                logger.info(f"      Error: {p.error}")
-        logger.info("-" * 70)
-        summary_parts = [
-            f"Total: {len(products)}",
-            f"Success: {successful}",
-            f"Failed: {failed}",
-            f"Scripts: {total_scripts}",
-        ]
-        if total_skipped > 0:
-            summary_parts.append(f"Skipped: {total_skipped}")
-        summary_parts.append(f"Time: {elapsed_str}")
-        logger.info(" | ".join(summary_parts))
-        logger.info("=" * 70)
+                logger.log(REPORT, fmt_step(SYM.WARN, f"Error: {p.error}"))
+        logger.log(REPORT, fmt_report_footer())
 
     logs_path = Path(logs_dir) if logs_dir else Path("logs")
     logs_path.mkdir(exist_ok=True)
@@ -1941,7 +1969,7 @@ def generate_script_report(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"Report saved: {report_path}")
+    logger.log(REPORT, f"Report saved: {report_path}")
     return report
 
 
@@ -1966,6 +1994,9 @@ async def run_job(
     app_support_dir: str | None = None,
     log_callback: Callable[[str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
 ) -> dict:
     """Run Script automation as a job.
 
@@ -2001,36 +2032,39 @@ async def run_job(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = time.time()
+    verbosity = "quiet" if quiet else ("verbose" if verbose else "normal")
     logger = setup_logging(
         timestamp,
         logger_name="auto_script",
         log_prefix="auto_script",
         logs_dir=logs_dir,
         log_callback=log_callback,
+        color=not no_color,
+        verbosity=verbosity,
     )
 
-    logger.info("ANYLIVE SCRIPT AUTOMATION (SET LIVE CONTENT)")
-    logger.info("=" * 70)
+    mode_str = (
+        "delete" if delete_scripts else ("replace" if replace_products else "upload")
+    )
+    logger.info(fmt_banner("ANYLIVE SCRIPT AUTOMATION", Client="", Mode=mode_str))
 
     try:
         # Load configuration
         if config_path != "inline" and not os.path.exists(config_path):
             error_msg = f"Config file not found: {config_path}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(fmt_result(False, error_msg))
             return {"success": False, "report": {}, "error": error_msg}
 
         if config_path == "inline":
             config = ScriptConfig(base_url=base_url or "")
             if audio_dir:
                 config.audio_dir = audio_dir
-            logger.info(f"Using inline config with base_url: {config.base_url}")
         else:
             try:
                 config = load_script_config(
                     config_path,
                     {"audio_dir": audio_dir} if audio_dir else None,
                 )
-                logger.info(f"Loaded config: {config_path}")
             except FileNotFoundError as e:
                 logger.error(f"{e}")
                 return {"success": False, "report": {}, "error": str(e)}
@@ -2038,8 +2072,21 @@ async def run_job(
                 logger.error(f"Failed to load config: {e}")
                 return {"success": False, "report": {}, "error": str(e)}
 
+        kv = [("Config", str(config_path))]
+        if mode_str == "delete":
+            kv.append(("Mode", "delete scripts"))
+        elif mode_str == "replace":
+            kv.append(("Mode", "replace products"))
+        else:
+            kv.append(("Mode", "upload scripts"))
+        if dry_run:
+            kv.append(("Dry run", "yes"))
+        logger.info(fmt_kv(kv))
+
         if debug:
-            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+            logger.info(
+                fmt_step(SYM.WARN, "Debug mode: slow_mo + pause-on-error enabled")
+            )
 
         # Get session paths (use default client paths)
         _session_filename, _browser_data_subdir = get_live_session_paths(None)
@@ -2070,13 +2117,6 @@ async def run_job(
                 return {"success": False, "report": {}, "error": error_msg}
 
             if replace_products:
-                logger.info(
-                    f"REPLACE MODE: Replacing empty product cards "
-                    f"starting at #{start_product or 1}"
-                )
-                if dry_run:
-                    logger.info("DRY RUN MODE: No products will be replaced")
-
                 replace_results = await automation.replace_all_products(
                     start_product=start_product or 1,
                     limit=limit,
@@ -2095,13 +2135,6 @@ async def run_job(
                 )
 
             elif delete_scripts:
-                logger.info(
-                    f"DELETE MODE: Deleting scripts from products "
-                    f"starting at #{start_product or 1}"
-                )
-                if dry_run:
-                    logger.info("DRY RUN MODE: No scripts will be deleted")
-
                 delete_results = await automation.delete_all_scripts(
                     start_product=start_product or 1,
                     limit=limit,
@@ -2120,9 +2153,6 @@ async def run_job(
                 )
 
             else:
-                if dry_run:
-                    logger.info("DRY RUN MODE: No audio will be uploaded")
-
                 if not csv_path:
                     error_msg = "csv_path is required for upload mode"
                     logger.error(error_msg)
@@ -2168,20 +2198,19 @@ async def run_job(
 
         finally:
             if debug and not cancelled:
-                logger.info("")
-                logger.info("=" * 70)
-                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                logger.info(fmt_report_header("DEBUG MODE"))
+                logger.info(fmt_summary("Browser is open for inspection"))
                 await async_debug_pause(
                     "   Press Enter to close the browser and exit..."
                 )
-                logger.info("=" * 70)
+                logger.info(fmt_report_footer())
             await automation.close()
 
         return {"success": True, "report": report, "error": None}
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Job failed: {error_msg}")
+        logger.error(fmt_result(False, f"Job failed: {error_msg}"))
         return {"success": False, "report": {}, "error": error_msg}
 
 
@@ -2231,6 +2260,15 @@ async def main() -> None:
     )
     parser.add_argument("--base-url", type=str, help="Override base URL from config")
     parser.add_argument("--audio-dir", type=str, help="Override audio directory path")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Show warnings and final report only"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show debug-level output"
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable colored output"
+    )
 
     args = parser.parse_args()
 
@@ -2244,15 +2282,23 @@ async def main() -> None:
     _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    verbosity = "quiet" if args.quiet else ("verbose" if args.verbose else "normal")
     logger = setup_logging(
-        timestamp, logger_name="auto_script", log_prefix="auto_script"
+        timestamp,
+        logger_name="auto_script",
+        log_prefix="auto_script",
+        color=not args.no_color,
+        verbosity=verbosity,
     )
 
-    logger.info("ANYLIVE SCRIPT AUTOMATION (SET LIVE CONTENT)")
-    logger.info("=" * 70)
-
-    if _client:
-        logger.info(f"Using account: {_client}")
+    mode_str = (
+        "delete"
+        if args.delete_scripts
+        else ("replace" if args.replace_products else "upload")
+    )
+    logger.info(
+        fmt_banner("ANYLIVE SCRIPT AUTOMATION", Client=_client or "", Mode=mode_str)
+    )
 
     if args.setup:
         if _client:
@@ -2321,6 +2367,9 @@ async def main() -> None:
         limit=args.limit,
         audio_dir=args.audio_dir,
         base_url=getattr(args, "base_url", None),
+        quiet=args.quiet,
+        verbose=args.verbose,
+        no_color=args.no_color,
     )
 
     if not result["success"]:

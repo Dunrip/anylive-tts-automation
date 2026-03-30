@@ -37,7 +37,18 @@ from shared import (
     NAVIGATION_TIMEOUT,
     POST_AUTOSAVE_DELAY_SECONDS,
     PRE_FILL_START_DELAY_SECONDS,
+    SYM,
     async_debug_pause,
+    fmt_banner,
+    fmt_elapsed,
+    fmt_item,
+    fmt_kv,
+    fmt_report_footer,
+    fmt_report_header,
+    fmt_result,
+    fmt_section,
+    fmt_step,
+    fmt_summary,
 )
 
 SELECTORS = {
@@ -301,22 +312,31 @@ def verify_downloads(
             if stem:
                 downloaded_stems.add(stem)
 
-    logger.info("🔍 VERIFY: Checking downloads against CSV...")
+    logger.info(fmt_section("VERIFY DOWNLOADS"))
     logger.info(
-        f"   CSV expects {len(expected_codes)} audio files, "
-        f"found {len(downloaded_stems)} in {downloads_dir}"
+        fmt_summary(
+            f"CSV expected: {len(expected_codes)}",
+            f"Found: {len(downloaded_stems)}",
+            f"Dir: {downloads_dir}",
+        )
     )
 
     missing = sorted(expected_codes - downloaded_stems)
     extra = sorted(downloaded_stems - expected_codes)
 
     if missing:
-        logger.info(f"   ❌ Missing {len(missing)} files: {', '.join(missing)}")
+        logger.info(
+            fmt_step(SYM.FAIL, f"Missing {len(missing)} files: {', '.join(missing)}")
+        )
     else:
-        logger.info("   ✅ All expected audio files are present")
+        logger.info(fmt_step(SYM.OK, "All expected audio files are present"))
 
     if extra:
-        logger.info(f"   ℹ️  {len(extra)} extra files not in CSV: {', '.join(extra)}")
+        logger.info(
+            fmt_step(
+                SYM.WARN, f"{len(extra)} extra files not in CSV: {', '.join(extra)}"
+            )
+        )
 
     return missing
 
@@ -517,7 +537,7 @@ def parse_csv_data(
         # into fixed-size batches of max_scripts_per_version.
         batch_size = config.max_scripts_per_version
         logger.info(
-            f"📦 FLAT MODE: grouping all {len(script_rows)} scripts into batches of {batch_size}"
+            f"FLAT MODE: grouping all {len(script_rows)} scripts into batches of {batch_size}"
         )
         for chunk_idx in range(0, len(script_rows), batch_size):
             chunk = script_rows[chunk_idx : chunk_idx + batch_size]
@@ -611,7 +631,7 @@ class TTSAutomation:
         self.playwright = await async_playwright().start()
 
         # Always use persistent context for consistent session management
-        self.logger.info("🌐 Initializing browser with persistent context...")
+        self.logger.info("Initializing browser with persistent context...")
         user_data_dir = get_browser_data_dir()
         os.makedirs(user_data_dir, exist_ok=True)
         self.context = await self.playwright.chromium.launch_persistent_context(
@@ -637,7 +657,7 @@ class TTSAutomation:
 
         session_file = get_session_file_path()
         if is_session_valid():
-            self.logger.info("📦 Using saved session from browser_data directory")
+            self.logger.info("Using saved session from browser_data directory")
 
             if not await self.validate_session():
                 await self.close()
@@ -646,9 +666,9 @@ class TTSAutomation:
                     "  python auto_tts.py --setup"
                 )
 
-            self.logger.info("✅ Session is valid and authenticated")
+            self.logger.info(fmt_step(SYM.OK, "Session is valid and authenticated"))
         else:
-            self.logger.error("❌ No session found. Please run setup first:")
+            self.logger.error(f"{SYM.FAIL} No session found. Please run setup first:")
             self.logger.error("  python auto_tts.py --setup")
             raise Exception("No session file found")
 
@@ -667,13 +687,15 @@ class TTSAutomation:
 
             current_url = self.page.url
             if "login" in current_url.lower():
-                self.logger.error("❌ Session expired - redirected to login page")
+                self.logger.error(
+                    f"{SYM.FAIL} Session expired - redirected to login page"
+                )
                 return False
 
             self.logger.debug("✓ Session validated successfully")
             return True
         except Exception as e:
-            self.logger.error(f"❌ Session validation failed: {e}")
+            self.logger.error(f"{SYM.FAIL} Session validation failed: {e}")
             return False
 
     async def safe_click(
@@ -723,7 +745,7 @@ class TTSAutomation:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = screenshots_dir / f"error_{version_name}_{timestamp}.png"
         await self.page.screenshot(path=str(path))
-        self.logger.info(f"📸 Screenshot saved: {path}")
+        self.logger.info(fmt_step(SYM.OK, f"Screenshot saved: {path}"))
 
     async def js_click(self, text: str) -> bool:
         """Click an element containing text using pure JavaScript for maximum speed."""
@@ -1251,7 +1273,7 @@ class TTSAutomation:
         current_url = self.page.url
 
         base = self.config.base_url.split("?")[0].rstrip("/")
-        self.logger.info(f"🌐 Navigating to {base}?page=1")
+        self.logger.info(f"Navigating to {base}?page=1")
 
         target = f"{base}?page=1"
 
@@ -1295,7 +1317,7 @@ class TTSAutomation:
             pass
 
     async def create_new_version(self, name: str) -> bool:
-        self.logger.info(f"📝 Creating version: {name}")
+        self.logger.info(fmt_step(SYM.DOT, f"Creating version: {name}"))
 
         # Always ensure we're on the versions list page before trying to create.
         await self.navigate_to_scripts()
@@ -1465,11 +1487,11 @@ class TTSAutomation:
         # New UI often lands on "Provide Live Knowledge" first. Switch to Edit Script immediately.
         await self.ensure_edit_script_tab_active(timeout_seconds=1.2)
 
-        self.logger.info(f"Created: {name}")
+        self.logger.info(fmt_step(SYM.OK, "Created version from template"))
         return True
 
     async def open_version(self, name: str) -> bool:
-        self.logger.info(f"📂 Opening: {name}")
+        self.logger.info(f"Opening: {name}")
         try:
             row_selector = f'tr:has-text("{name}")'
             row = await self.page.wait_for_selector(row_selector, timeout=CLICK_TIMEOUT)
@@ -1482,7 +1504,7 @@ class TTSAutomation:
         return False
 
     async def select_voice_clone(self) -> bool:
-        self.logger.info(f"🎙️ Selecting voice: {self.config.voice_name}")
+        self.logger.info(f"Selecting voice: {self.config.voice_name}")
 
         if not await self.safe_click("voice_clone_dropdown", "Voice Clone dropdown"):
             return False
@@ -1579,11 +1601,11 @@ class TTSAutomation:
             )
             return True
         except Exception as e:
-            self.logger.warning(f"⚠️ Could not fill product info: {e}")
+            self.logger.warning(f"{SYM.WARN} Could not fill product info: {e}")
             return True
 
     async def trigger_generate_speech(self, count: int) -> int:
-        self.logger.info("🔊 Clicking Generate Speech buttons...")
+        self.logger.info("Clicking Generate Speech buttons...")
 
         triggered = 0
         buttons = await self.page.query_selector_all(
@@ -1921,7 +1943,7 @@ class TTSAutomation:
             return False
 
     async def validate_form_fields(self, expected_count: int) -> tuple[bool, str]:
-        self.logger.info("🔍 Validating form fields before save...")
+        self.logger.info(fmt_step(SYM.DOT, "Validating form fields before save..."))
 
         try:
             title_selector = 'input[aria-label="Section Title"]'
@@ -1984,7 +2006,9 @@ class TTSAutomation:
                 self.logger.error(error_msg)
                 return False, error_msg
 
-            self.logger.info(f"✓ All {expected_count} slots validated successfully")
+            self.logger.info(
+                fmt_step(SYM.OK, f"All {expected_count} slots validated successfully")
+            )
             return True, ""
 
         except Exception as e:
@@ -2003,17 +2027,17 @@ class TTSAutomation:
 
         validation_passed, error_msg = await self.validate_form_fields(expected_slots)
         if not validation_passed:
-            self.logger.error(f"❌ Validation failed: {error_msg}")
+            self.logger.error(f"{SYM.FAIL} Validation failed: {error_msg}")
             return False
 
         # Wait for auto-save to complete
-        self.logger.info("💾 Waiting for auto-save...")
+        self.logger.info(fmt_step(SYM.DOT, "Waiting for auto-save..."))
         try:
             # Fast path: if already auto-saved, return immediately.
             for selector in SELECTORS["autosave_done"]:
                 try:
                     await self.page.wait_for_selector(selector, timeout=250)
-                    self.logger.info("✅ Auto-saved successfully")
+                    self.logger.info(fmt_step(SYM.OK, "Auto-saved successfully"))
                     break
                 except Exception:
                     continue
@@ -2039,7 +2063,7 @@ class TTSAutomation:
                         await self.page.wait_for_selector(
                             selector, timeout=wait_timeout
                         )
-                        self.logger.info("✅ Auto-saved successfully")
+                        self.logger.info(fmt_step(SYM.OK, "Auto-saved successfully"))
                         break
                     except Exception:
                         continue
@@ -2074,7 +2098,9 @@ class TTSAutomation:
             if self.config.enable_product_info:
                 await self.fill_product_info()
 
-            self.logger.info(f"Processing {len(version.scripts)} slots...")
+            self.logger.info(
+                fmt_step(SYM.DOT, f"Processing {len(version.scripts)} slots...")
+            )
             # Give the form a brief moment to settle before typing slot 1.
             await asyncio.sleep(PRE_FILL_START_DELAY_SECONDS)
             successful_slots = 0
@@ -2094,7 +2120,10 @@ class TTSAutomation:
 
             version.failed_slots = failed_slots
             self.logger.info(
-                f"Completed {successful_slots}/{len(version.scripts)} slots"
+                fmt_step(
+                    SYM.OK if successful_slots > 0 else SYM.FAIL,
+                    f"Filled {successful_slots}/{len(version.scripts)} script fields",
+                )
             )
             if failed_slots:
                 self.logger.warning(f"Failed slots: {failed_slots}")
@@ -2103,10 +2132,11 @@ class TTSAutomation:
                 raise Exception("Failed to fill any slots")
 
             if self.no_save:
-                self.logger.info("🔇 NO-SAVE MODE: Skipping save")
+                self.logger.info(fmt_step(SYM.SKIP, "Skipping save (--no-save)"))
             else:
                 if not await self.save_version(len(version.scripts)):
                     raise Exception("Failed to save version")
+                self.logger.info(fmt_step(SYM.OK, "Saved"))
 
             # Go back to versions list using the in-app back button ("<") to avoid SPA state issues.
             try:
@@ -2128,8 +2158,35 @@ class TTSAutomation:
                 self.logger.warning(
                     f"PARTIAL SUCCESS: {version.name} (failed slots: {failed_slots})"
                 )
+                if self.dry_run:
+                    self.logger.info(
+                        fmt_step(
+                            SYM.SKIP,
+                            f"Skipped speech generation for {successful_slots} scripts (dry-run)",
+                        )
+                    )
+                else:
+                    self.logger.info(
+                        fmt_step(
+                            SYM.WARN,
+                            f"Generated speech for {successful_slots} scripts with partial failures",
+                        )
+                    )
             else:
                 self.logger.info(f"SUCCESS: {version.name}")
+                if self.dry_run:
+                    self.logger.info(
+                        fmt_step(
+                            SYM.SKIP,
+                            f"Skipped speech generation for {successful_slots} scripts (dry-run)",
+                        )
+                    )
+                else:
+                    self.logger.info(
+                        fmt_step(
+                            SYM.OK, f"Generated speech for {successful_slots} scripts"
+                        )
+                    )
 
             # Mark success only when all slots succeeded
             version.success = len(failed_slots) == 0
@@ -2144,12 +2201,12 @@ class TTSAutomation:
                 self.logger.warning(f"Failed to take screenshot: {screenshot_error}")
 
             version.error = str(e)
-            self.logger.error(f"❌ FAILED: {version.name} - {e}")
+            self.logger.error(fmt_step(SYM.FAIL, f"{version.name}: {e}"))
             return False
 
     async def download_all_versions(
         self,
-        limit: int = None,
+        limit: Optional[int] = None,
         replace: bool = False,
         start_version: Optional[int] = None,
         version_filter: Optional[set[int]] = None,
@@ -2166,11 +2223,12 @@ class TTSAutomation:
         """
         template_name = (self.config.version_template or "").strip()
         self.logger.info(
-            f"⬇️  DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')"
+            f"DOWNLOAD MODE: Downloading all versions (skipping '{template_name}')"
         )
         if template_name and len(template_name) < 4:
             self.logger.warning(
-                "⚠️ version_template is very short ('%s'); use a distinctive template name to avoid accidental skips.",
+                "%s version_template is very short ('%s'); use a distinctive template name to avoid accidental skips.",
+                SYM.WARN,
                 template_name,
             )
 
@@ -2179,7 +2237,7 @@ class TTSAutomation:
             os.path.dirname(os.path.abspath(__file__)), "downloads"
         )
         os.makedirs(downloads_dir, exist_ok=True)
-        self.logger.info(f"📁 Downloads will be saved to: {downloads_dir}")
+        self.logger.info(f"Downloads will be saved to: {downloads_dir}")
 
         base = self.config.base_url.split("?")[0].rstrip("/")
 
@@ -2189,7 +2247,7 @@ class TTSAutomation:
 
         while True:
             target = f"{base}?page={page_num}"
-            self.logger.info(f"📄 Scanning page {page_num} for versions...")
+            self.logger.info(f"Scanning page {page_num} for versions...")
             await self.page.goto(
                 target, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
             )
@@ -2386,12 +2444,14 @@ class TTSAutomation:
                         save_path = os.path.join(version_dl_dir, filename)
                         if os.path.exists(save_path) and not replace:
                             self.logger.info(
-                                f"  ⏭️  Already exists, skipping: {filename}"
+                                fmt_step(
+                                    SYM.SKIP, f"Already exists, skipping: {filename}"
+                                )
                             )
                             await download.cancel()
                             continue
                         await download.save_as(save_path)
-                        self.logger.info(f"  ⬇️  Saved: {filename}")
+                        self.logger.info(fmt_step(SYM.OK, f"Saved: {filename}"))
                         version_dl_count += 1
                     except Exception as e:
                         self.logger.warning(
@@ -2406,25 +2466,24 @@ class TTSAutomation:
             # Brief pause between versions.
             await asyncio.sleep(0.3)
 
-        self.logger.info("")
-        self.logger.info("=" * 70)
+        self.logger.info(fmt_report_header("DOWNLOAD COMPLETE"))
         self.logger.info(
-            f"⬇️  DOWNLOAD COMPLETE: {total_downloaded} files from {versions_processed} versions"
+            fmt_summary(
+                f"Downloaded: {total_downloaded}",
+                f"Versions: {versions_processed}",
+                f"Skipped template: {total_skipped}",
+            )
         )
-        self.logger.info(f"   Skipped: {total_skipped} (template)")
-        self.logger.info("=" * 70)
+        self.logger.info(fmt_report_footer())
         return total_downloaded
 
 
-def print_version_info(version: Version, logger: logging.Logger):
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info(f"{version.name} - {len(version.scripts)} scripts")
-    if version.products:
-        logger.info(
-            f"   Products: {', '.join(version.products[:3])}{'...' if len(version.products) > 3 else ''}"
-        )
-    logger.info("=" * 70)
+def print_version_info(
+    version: Version, index: int, total: int, logger: logging.Logger
+):
+    logger.info(
+        fmt_item(index, total, f"{version.name} ({len(version.scripts)} scripts)")
+    )
 
 
 def generate_report(
@@ -2465,39 +2524,35 @@ def generate_report(
         elapsed_seconds=elapsed_seconds,
     )
 
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info("📋 FINAL REPORT")
-    logger.info("=" * 70)
-    logger.info("")
-    logger.info(
-        f"Total: {report.total} | Success: {successful} ✅ | Partial: {partial} ⚠️ | Failed: {failed} ❌"
+    elapsed_str = fmt_elapsed(elapsed_seconds)
+    logger.log(REPORT, fmt_report_header("FINAL REPORT"))
+    logger.log(
+        REPORT,
+        fmt_summary(
+            f"Total: {report.total}",
+            f"Success: {successful} {SYM.OK}",
+            f"Failed: {failed} {SYM.FAIL}",
+        ),
     )
-    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
-    logger.info(f"Scripts: {total_scripts} total")
-    logger.info(f"Time: {elapsed_str}")
-    logger.info("")
-    logger.info("📑 VERSION → PRODUCTS MAPPING:")
-    logger.info("-" * 70)
+    logger.log(REPORT, fmt_summary(f"Scripts: {total_scripts}", f"Time: {elapsed_str}"))
+    logger.log(REPORT, "")
 
     for v in versions:
-        status = "OK" if v.success else "FAILED"
-        logger.info(f"{status} {v.name}: {len(v.scripts)} scripts")
+        ok = v.success
+        logger.log(REPORT, fmt_result(ok, f"{v.name}: {len(v.scripts)} scripts"))
         if v.error:
-            logger.info(f"      Error: {v.error}")
-        logger.info("")
+            logger.log(REPORT, f"      Error: {v.error}")
+    logger.log(REPORT, "")
+    logger.log(REPORT, fmt_report_footer())
 
-    if logs_dir is None:
-        logs_dir = Path("logs")
-    else:
-        logs_dir = Path(logs_dir)
-    logs_dir.mkdir(exist_ok=True)
-    report_path = logs_dir / f"report_{timestamp}.json"
+    logs_path = Path(logs_dir) if logs_dir is not None else Path("logs")
+    logs_path.mkdir(exist_ok=True)
+    report_path = logs_path / f"report_{timestamp}.json"
 
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
 
-    logger.info(f"📄 Report saved: {report_path}")
+    logger.log(REPORT, fmt_step(SYM.OK, f"Report saved: {report_path}"))
     return report
 
 
@@ -2516,6 +2571,9 @@ async def run_job(
     flat_mode: bool = False,
     no_save: bool = False,
     verify: bool = False,
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
     app_support_dir: Optional[str] = None,
     log_callback: Optional[Callable[[str, str], None]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
@@ -2552,20 +2610,35 @@ async def run_job(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = time.time()
-    logger = setup_logging(timestamp, logs_dir=logs_dir, log_callback=log_callback)
+    verbosity = "quiet" if quiet else ("verbose" if verbose else "normal")
+    logger = setup_logging(
+        timestamp,
+        logs_dir=logs_dir,
+        log_callback=log_callback,
+        color=not no_color,
+        verbosity=verbosity,
+    )
 
-    logger.info("🚀 ANYLIVE TTS AUTOMATION")
-    logger.info("=" * 70)
+    client_name = Path(config_path).parent.name if config_path else ""
+    mode_name = "download" if download else ("dry-run" if dry_run else "generate")
+    logger.info(
+        fmt_banner(
+            "ANYLIVE TTS AUTOMATION",
+            Client=client_name,
+            Mode=mode_name,
+            Debug="on" if debug else "",
+            Flat="on" if flat_mode else "",
+        )
+    )
 
     try:
         # Load configuration
         if not os.path.exists(config_path):
             error_msg = f"Config file not found: {config_path}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"{SYM.FAIL} {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
 
         config = load_config(config_path)
-        logger.info(f"📋 Loaded config: {config_path}")
 
         # --- Download-only workflow (separate from fill/create) ---
         if download:
@@ -2586,7 +2659,11 @@ async def run_job(
                 )
             finally:
                 if debug and not headless:
-                    logger.info("🐛 DEBUG MODE: Leaving browser open for inspection")
+                    logger.info(
+                        fmt_step(
+                            SYM.WARN, "Debug mode: leaving browser open for inspection"
+                        )
+                    )
                     if debug_callback:
                         debug_callback()
                     else:
@@ -2603,7 +2680,7 @@ async def run_job(
                     )
                     missing = verify_downloads(dl_dir, expected, logger)
                 except Exception as e:
-                    logger.error(f"❌ Verify failed: {e}")
+                    logger.error(f"{SYM.FAIL} Verify failed: {e}")
                     missing = []
             else:
                 missing = []
@@ -2618,7 +2695,7 @@ async def run_job(
         # Load and parse CSV
         if not os.path.exists(csv_path):
             error_msg = f"CSV file not found: {csv_path}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"{SYM.FAIL} {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
 
         df = load_csv(csv_path, logger)
@@ -2626,7 +2703,7 @@ async def run_job(
 
         if not versions:
             error_msg = "No versions to process"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"{SYM.FAIL} {error_msg}")
             return {"success": False, "report": None, "error": error_msg}
 
         # Apply start_version and limit
@@ -2637,18 +2714,32 @@ async def run_job(
             versions = versions[:limit]
             logger.info(f"Limited to {limit} versions")
 
-        if flat_mode:
-            logger.info(
-                f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version"
-            )
-
-        if dry_run:
-            logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
-
         _effective_debug = debug and not headless
 
+        logger.info(
+            fmt_kv(
+                [
+                    ("Config", str(config_path)),
+                    ("CSV", f"{csv_path} ({len(versions)} versions)"),
+                    ("Template", config.version_template),
+                    (
+                        "Mode",
+                        (
+                            "download"
+                            if download
+                            else ("dry-run" if dry_run else "generate")
+                        ),
+                    ),
+                    ("Flat", "on" if flat_mode else "off"),
+                    ("Debug", "on" if _effective_debug else "off"),
+                ]
+            )
+        )
+
         if _effective_debug:
-            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+            logger.info(
+                fmt_step(SYM.WARN, "Debug mode: slow_mo + pause-on-error enabled")
+            )
 
         # Run automation
         automation = TTSAutomation(
@@ -2665,17 +2756,21 @@ async def run_job(
         try:
             await automation.start_browser()
 
-            for idx, version in enumerate(versions):
+            for idx, version in enumerate(versions, start=1):
                 if cancel_check and cancel_check():
                     logger.info("Job cancelled, stopping")
                     cancelled = True
                     break
-                print_version_info(version, logger)
+                print_version_info(version, idx, len(versions), logger)
                 if progress_callback:
-                    progress_callback(idx + 1, len(versions), version.name)
+                    progress_callback(idx, len(versions), version.name)
                 result = await automation.process_version(version)
                 if not result and _effective_debug:
-                    logger.info(f"🐛 DEBUG: '{version.name}' failed. Browser paused.")
+                    logger.info(
+                        fmt_step(
+                            SYM.WARN, f"Debug: '{version.name}' failed. Browser paused."
+                        )
+                    )
                     if debug_callback:
                         debug_callback()
                     else:
@@ -2688,21 +2783,24 @@ async def run_job(
                 succeeded = sum(1 for v in versions if v.success)
                 failed = [v.name for v in versions if v.error]
                 partial = [v.name for v in versions if v.failed_slots]
-                logger.info("")
-                logger.info("=" * 70)
-                logger.info(f"📊 Results: {succeeded}/{len(versions)} succeeded")
+                logger.info(fmt_report_header("DEBUG SUMMARY"))
+                logger.info(
+                    fmt_summary(f"Results: {succeeded}/{len(versions)} succeeded")
+                )
                 if failed:
-                    logger.info(f"   ❌ Failed: {', '.join(failed)}")
+                    logger.info(fmt_summary(f"Failed: {', '.join(failed)}"))
                 if partial:
-                    logger.info(f"   ⚠️  Partial: {', '.join(partial)}")
-                logger.info("🐛 DEBUG MODE: Browser open for inspection")
+                    logger.info(fmt_summary(f"Partial: {', '.join(partial)}"))
+                logger.info(
+                    fmt_step(SYM.WARN, "Debug mode: browser open for inspection")
+                )
                 if debug_callback:
                     debug_callback()
                 else:
                     await async_debug_pause(
                         "   Press Enter to close the browser and exit..."
                     )
-                logger.info("=" * 70)
+                logger.info(fmt_report_footer())
             await automation.close()
 
         # Generate report
@@ -2719,7 +2817,7 @@ async def run_job(
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Job failed: {error_msg}")
+        logger.error(f"{SYM.FAIL} Job failed: {error_msg}")
         return {"success": False, "report": None, "error": error_msg}
 
 
@@ -2752,6 +2850,15 @@ async def main():
         "--debug",
         action="store_true",
         help="Keep browser open after execution for debugging",
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Show warnings and final report only"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show debug-level output"
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable colored output"
     )
     parser.add_argument(
         "--download",
@@ -2798,17 +2905,29 @@ async def main():
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = time.time()
-    logger = setup_logging(timestamp)
+    verbosity = "quiet" if args.quiet else ("verbose" if args.verbose else "normal")
+    logger = setup_logging(timestamp, color=not args.no_color, verbosity=verbosity)
 
-    logger.info("🚀 ANYLIVE TTS AUTOMATION")
-    logger.info("=" * 70)
+    logger.info(
+        fmt_banner(
+            "ANYLIVE TTS AUTOMATION",
+            Client=args.client or "",
+            Mode=(
+                "download"
+                if args.download
+                else ("dry-run" if args.dry_run else "generate")
+            ),
+            Debug="on" if args.debug else "",
+            Flat="on" if args.flat else "",
+        )
+    )
 
     if args.setup:
         await setup_login(logger)
         return
 
     if not is_session_valid():
-        logger.error("❌ No session found. Please run with --setup first.")
+        logger.error(f"{SYM.FAIL} No session found. Please run with --setup first.")
         logger.info("   python auto_tts.py --setup")
         return
 
@@ -2816,7 +2935,7 @@ async def main():
     if args.verify and not args.download:
         dl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
         if not os.path.isdir(dl_dir):
-            logger.error(f"❌ Downloads directory not found: {dl_dir}")
+            logger.error(f"{SYM.FAIL} Downloads directory not found: {dl_dir}")
             return
 
         config_path = None
@@ -2834,7 +2953,7 @@ async def main():
         try:
             config = load_config(config_path, cli_overrides if cli_overrides else None)
         except Exception as e:
-            logger.error(f"❌ {e}")
+            logger.error(f"{SYM.FAIL} {e}")
             return
 
         csv_from_config = None
@@ -2846,7 +2965,7 @@ async def main():
         try:
             csv_path = find_csv_file(args.csv or csv_from_config)
         except (FileNotFoundError, ValueError) as e:
-            logger.error(f"❌ {e}")
+            logger.error(f"{SYM.FAIL} {e}")
             return
 
         df = load_csv(csv_path, logger)
@@ -2856,7 +2975,7 @@ async def main():
             try:
                 product_filter = parse_version_spec(args.versions)
             except ValueError as e:
-                logger.error(f"❌ Invalid --versions spec: {e}")
+                logger.error(f"{SYM.FAIL} Invalid --versions spec: {e}")
                 return
 
         expected = collect_expected_audio_codes(df, config, logger, product_filter)
@@ -2871,10 +2990,12 @@ async def main():
             try:
                 version_filter = parse_version_spec(args.versions)
             except ValueError as e:
-                logger.error(f"❌ Invalid --versions spec: {e}")
+                logger.error(f"{SYM.FAIL} Invalid --versions spec: {e}")
                 return
             if args.start_version is not None:
-                logger.warning("⚠️ --start-version is ignored when --versions is active")
+                logger.warning(
+                    f"{SYM.WARN} --start-version is ignored when --versions is active"
+                )
 
         config_path = None
         if args.client:
@@ -2893,10 +3014,19 @@ async def main():
         try:
             config = load_config(config_path, cli_overrides if cli_overrides else None)
         except Exception as e:
-            logger.error(f"❌ {e}")
+            logger.error(f"{SYM.FAIL} {e}")
             return
 
-        logger.info(f"📋 Loaded config: {config_path}")
+        logger.info(
+            fmt_kv(
+                [
+                    ("Config", str(config_path)),
+                    ("CSV", str(args.csv or "auto-detect")),
+                    ("Template", config.version_template),
+                    ("Mode", "download"),
+                ]
+            )
+        )
         automation = TTSAutomation(config=config, headless=args.headless, logger=logger)
 
         try:
@@ -2924,10 +3054,12 @@ async def main():
                     )
                     verify_downloads(dl_dir, expected, logger)
                 except (FileNotFoundError, ValueError) as e:
-                    logger.error(f"❌ Cannot verify without CSV: {e}")
+                    logger.error(f"{SYM.FAIL} Cannot verify without CSV: {e}")
         finally:
             if args.debug:
-                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                logger.info(
+                    fmt_step(SYM.WARN, "Debug mode: browser is open for inspection")
+                )
                 await async_debug_pause(
                     "   Press Enter to close the browser and exit..."
                 )
@@ -2954,14 +3086,13 @@ async def main():
 
     try:
         config = load_config(config_path, cli_overrides if cli_overrides else None)
-        logger.info(f"📋 Loaded config: {config_path}")
         if cli_overrides:
             logger.debug(f"Applied CLI overrides: {cli_overrides}")
     except FileNotFoundError as e:
-        logger.error(f"❌ {e}")
+        logger.error(f"{SYM.FAIL} {e}")
         return
     except Exception as e:
-        logger.error(f"❌ Failed to load config: {e}")
+        logger.error(f"{SYM.FAIL} Failed to load config: {e}")
         return
 
     # CSV selection: CLI flag > config.csv > autodetect
@@ -2976,14 +3107,14 @@ async def main():
 
         csv_path = find_csv_file(args.csv or csv_from_config)
     except (FileNotFoundError, ValueError) as e:
-        logger.error(f"❌ {e}")
+        logger.error(f"{SYM.FAIL} {e}")
         return
 
     df = load_csv(csv_path, logger)
     versions = parse_csv_data(df, config, logger, flat_mode=args.flat)
 
     if not versions:
-        logger.error("❌ No versions to process")
+        logger.error(f"{SYM.FAIL} No versions to process")
         return
 
     if args.start_version is not None:
@@ -2993,16 +3124,21 @@ async def main():
         versions = versions[: args.limit]
         logger.info(f"Limited to {args.limit} versions")
 
-    if args.flat:
-        logger.info(
-            f"📦 FLAT MODE: Scripts packed sequentially, {config.max_scripts_per_version} per version"
+    logger.info(
+        fmt_kv(
+            [
+                ("Config", str(config_path)),
+                ("CSV", f"{csv_path} ({len(versions)} versions)"),
+                ("Template", config.version_template),
+                ("Mode", "dry-run" if args.dry_run else "generate"),
+                ("Flat", "on" if args.flat else "off"),
+                ("Debug", "on" if args.debug else "off"),
+            ]
         )
-
-    if args.dry_run:
-        logger.info("🔇 DRY RUN MODE: Generate Speech will be skipped")
+    )
 
     if args.debug:
-        logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+        logger.info(fmt_step(SYM.WARN, "Debug mode: slow_mo + pause-on-error enabled"))
 
     automation = TTSAutomation(
         config=config,
@@ -3016,12 +3152,15 @@ async def main():
     try:
         await automation.start_browser()
 
-        for version in versions:
-            print_version_info(version, logger)
+        for idx, version in enumerate(versions, start=1):
+            print_version_info(version, idx, len(versions), logger)
             result = await automation.process_version(version)
             if not result and args.debug:
                 logger.info(
-                    f"🐛 DEBUG: '{version.name}' failed. Browser paused for inspection."
+                    fmt_step(
+                        SYM.WARN,
+                        f"Debug: '{version.name}' failed. Browser paused for inspection.",
+                    )
                 )
                 await async_debug_pause("   Press Enter to continue to next version...")
 
@@ -3030,16 +3169,17 @@ async def main():
             succeeded = sum(1 for v in versions if v.success)
             failed = [v.name for v in versions if v.error]
             partial = [v.name for v in versions if v.failed_slots]
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info(f"📊 Results: {succeeded}/{len(versions)} succeeded")
+            logger.info(fmt_report_header("DEBUG SUMMARY"))
+            logger.info(fmt_summary(f"Results: {succeeded}/{len(versions)} succeeded"))
             if failed:
-                logger.info(f"   ❌ Failed: {', '.join(failed)}")
+                logger.info(fmt_summary(f"Failed: {', '.join(failed)}"))
             if partial:
-                logger.info(f"   ⚠️  Partial: {', '.join(partial)}")
-            logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                logger.info(fmt_summary(f"Partial: {', '.join(partial)}"))
+            logger.info(
+                fmt_step(SYM.WARN, "Debug mode: browser is open for inspection")
+            )
             await async_debug_pause("   Press Enter to close the browser and exit...")
-            logger.info("=" * 70)
+            logger.info(fmt_report_footer())
         await automation.close()
 
     generate_report(

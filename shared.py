@@ -9,10 +9,13 @@ import glob
 import json
 import logging
 import os
+import re
 import shutil
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 import pandas as pd
@@ -135,11 +138,262 @@ def get_browser_data_dir(subdir: str = "state/browser_data") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Console output formatting
+# ---------------------------------------------------------------------------
+
+REPORT: int = 25
+logging.addLevelName(REPORT, "REPORT")
+
+
+class _Ansi:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    CYAN = "\033[36m"
+    BOLD_WHITE = "\033[1;37m"
+
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+_color_enabled: bool = True
+
+
+def _supports_color() -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("TERM") == "dumb":
+        return False
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+
+def set_color_enabled(enabled: bool) -> None:
+    global _color_enabled
+    _color_enabled = enabled
+
+
+def _c(text: str, *codes: str) -> str:
+    """Wrap text in ANSI codes if color is enabled."""
+    if not _color_enabled or not codes:
+        return text
+    return "".join(codes) + text + _Ansi.RESET
+
+
+def strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+def _visible_len(text: str) -> int:
+    return len(strip_ansi(text))
+
+
+def _pad(text: str, width: int) -> str:
+    """Right-pad to *width* visible characters, accounting for ANSI."""
+    return text + " " * max(0, width - _visible_len(text))
+
+
+SYM = SimpleNamespace(
+    OK="✓",
+    FAIL="✗",
+    RETRY="↻",
+    SKIP="⊘",
+    ARROW="→",
+    DOT="·",
+    WARN="⚠",
+)
+
+_SYM_COLORS: dict[str, str] = {
+    "✓": _Ansi.GREEN,
+    "✗": _Ansi.RED,
+    "↻": _Ansi.YELLOW,
+    "⊘": _Ansi.DIM,
+    "⚠": _Ansi.YELLOW,
+}
+
+
+def fmt_banner(title: str, **context: str) -> str:
+    """Format a startup banner with box drawing.
+
+    >>> fmt_banner("ANYLIVE TTS", Client="myco", Mode="generate")
+    ┌────────────────────────────────────────────────────────┐
+    │  ANYLIVE TTS                                           │
+    │  Client: myco · Mode: generate                         │
+    └────────────────────────────────────────────────────────┘
+    """
+    ctx_parts = [f"{k}: {v}" for k, v in context.items() if v]
+    ctx_str = (f" {SYM.DOT} ").join(ctx_parts) if ctx_parts else ""
+
+    title_content = f"  {title}"
+    ctx_content = f"  {ctx_str}" if ctx_str else ""
+
+    min_width = 54
+    inner = max(len(title_content), len(ctx_content), min_width) + 2
+
+    bc = _Ansi.DIM
+    lines: list[str] = [""]
+    lines.append(_c("┌" + "─" * inner + "┐", bc))
+    lines.append(
+        _c("│", bc) + _pad(_c(title_content, _Ansi.BOLD_WHITE), inner) + _c("│", bc)
+    )
+    if ctx_content:
+        lines.append(_c("│", bc) + _pad(ctx_content, inner) + _c("│", bc))
+    lines.append(_c("└" + "─" * inner + "┘", bc))
+    return "\n".join(lines)
+
+
+def fmt_kv(pairs: list[tuple[str, str]], indent: int = 2) -> str:
+    """Format aligned key-value pairs with colored keys.
+
+    >>> fmt_kv([("Config", "tts.json"), ("CSV", "data.csv")])
+      Config  tts.json
+      CSV     data.csv
+    """
+    if not pairs:
+        return ""
+    max_key = max(len(k) for k, _ in pairs)
+    lines: list[str] = []
+    for key, value in pairs:
+        colored_key = _c(key.ljust(max_key), _Ansi.CYAN)
+        lines.append(" " * indent + colored_key + "  " + value)
+    return "\n".join(lines)
+
+
+def fmt_section(label: str, width: int = 56) -> str:
+    """Format a section divider with label.
+
+    >>> fmt_section("Processing 8 versions")
+    ─── Processing 8 versions ─────────────────────────
+    """
+    prefix = "─── "
+    suffix_len = max(1, width - len(prefix) - len(label) - 1)
+    return (
+        "\n"
+        + _c(prefix, _Ansi.DIM)
+        + _c(label, _Ansi.BOLD_WHITE)
+        + _c(" " + "─" * suffix_len, _Ansi.DIM)
+    )
+
+
+def fmt_item(index: int, total: int, label: str) -> str:
+    """Format an item header with progress counter.
+
+    >>> fmt_item(1, 8, "01_ProductA (5 scripts)")
+     [1/8] 01_ProductA (5 scripts)
+    """
+    counter = _c(f"[{index}/{total}]", _Ansi.DIM)
+    return f"\n {counter} {_c(label, _Ansi.BOLD_WHITE)}"
+
+
+def fmt_step(symbol: str, message: str, elapsed: str = "") -> str:
+    """Format an indented step line with colored symbol.
+
+    >>> fmt_step(SYM.OK, "Filled 5/5 fields", "3.2s")
+           ✓ Filled 5/5 fields  3.2s
+    """
+    color = _SYM_COLORS.get(symbol, "")
+    colored_sym = _c(symbol, color) if color else symbol
+    line = f"       {colored_sym} {message}"
+    if elapsed:
+        line += "  " + _c(elapsed, _Ansi.DIM)
+    return line
+
+
+def fmt_result(ok: bool, detail: str) -> str:
+    """Format a result line with arrow and status.
+
+    >>> fmt_result(True, "3 scripts uploaded")
+      → OK: 3 scripts uploaded
+    """
+    arrow = _c(SYM.ARROW, _Ansi.DIM)
+    status = _c("OK", _Ansi.GREEN) if ok else _c("FAILED", _Ansi.RED)
+    return f"  {arrow} {status}: {detail}"
+
+
+def fmt_elapsed(seconds: float) -> str:
+    """Format elapsed seconds for display.
+
+    Returns ``'8.1s'`` for short durations, ``'2m 34s'`` for longer ones.
+    """
+    if seconds < 59.95:
+        return f"{seconds:.1f}s"
+    total_secs = int(round(seconds))
+    minutes = total_secs // 60
+    secs = total_secs % 60
+    return f"{minutes}m {secs:02d}s"
+
+
+def fmt_report_header(title: str, width: int = 56) -> str:
+    """Format report opening: separator + title + separator."""
+    sep = _c("─" * width, _Ansi.DIM)
+    return f"\n{sep}\n  {_c(title, _Ansi.BOLD_WHITE)}\n{sep}"
+
+
+def fmt_report_footer(width: int = 56) -> str:
+    """Format report closing separator."""
+    return _c("─" * width, _Ansi.DIM)
+
+
+def fmt_summary(*parts: str) -> str:
+    """Format a summary line with dot separators.
+
+    >>> fmt_summary("Total: 8", "Success: 7 ✓", "Failed: 1 ✗")
+      Total: 8 · Success: 7 ✓ · Failed: 1 ✗
+    """
+    dot = _c(f" {SYM.DOT} ", _Ansi.DIM)
+    return "  " + dot.join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-class EmojiFormatter(logging.Formatter):
+
+
+class ConsoleFormatter(logging.Formatter):
+    """Console formatter: passes through messages, dims DEBUG level."""
+
     def format(self, record: logging.LogRecord) -> str:
-        return f"{self.formatTime(record, '%H:%M:%S')} | {record.levelname} | {record.getMessage()}"
+        msg = record.getMessage()
+        if record.levelno <= logging.DEBUG:
+            return _c(msg, _Ansi.DIM)
+        return msg
+
+
+def EmojiFormatter(*args: Any, **kwargs: Any) -> ConsoleFormatter:
+    """Deprecated: use :class:`ConsoleFormatter` instead."""
+    warnings.warn(
+        "EmojiFormatter is deprecated, use ConsoleFormatter",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return ConsoleFormatter(*args, **kwargs)
+
+
+class PlainFormatter(logging.Formatter):
+    """Formatter that strips ANSI codes.  Used for file and callback handlers."""
+
+    def __init__(
+        self,
+        template: str = "{time} | {level} | {message}",
+        time_fmt: str = "%Y-%m-%d %H:%M:%S",
+    ) -> None:
+        super().__init__()
+        self._template = template
+        self._time_fmt = time_fmt
+
+    def format(self, record: logging.LogRecord) -> str:
+        msg = strip_ansi(record.getMessage())
+        time_str = self.formatTime(record, self._time_fmt)
+        s = self._template.format(time=time_str, level=record.levelname, message=msg)
+        if (
+            record.exc_info
+            and isinstance(record.exc_info, tuple)
+            and record.exc_info[0] is not None
+        ):
+            s += "\n" + strip_ansi(self.formatException(record.exc_info))
+        if record.stack_info:
+            s += "\n" + strip_ansi(self.formatStack(record.stack_info))
+        return s
 
 
 _LEVEL_MAP: dict[str, str] = {"WARNING": "WARN", "CRITICAL": "ERROR"}
@@ -149,7 +403,7 @@ class CallbackLogHandler(logging.Handler):
     def __init__(self, callback: Callable[[str, str], None]) -> None:
         super().__init__()
         self.callback = callback
-        self.setFormatter(EmojiFormatter())
+        self.setFormatter(PlainFormatter())
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -167,7 +421,25 @@ def setup_logging(
     log_prefix: str = "auto_tts",
     logs_dir: Optional[str] = None,
     log_callback: Optional[Callable[[str, str], None]] = None,
+    color: bool = True,
+    verbosity: str = "normal",
 ) -> logging.Logger:
+    """Configure logging with console, file, and optional callback handlers.
+
+    Args:
+        color: Enable ANSI colors on console.  Auto-disabled when stdout is
+            not a TTY or the ``NO_COLOR`` env-var is set.
+        verbosity: ``"quiet"`` (report + warnings only), ``"normal"`` (info),
+            or ``"verbose"`` (debug on console).
+    """
+    set_color_enabled(color and _supports_color())
+
+    console_level = {
+        "quiet": REPORT,
+        "normal": logging.INFO,
+        "verbose": logging.DEBUG,
+    }.get(verbosity, logging.INFO)
+
     if logs_dir is None:
         logs_path = Path("logs")
     else:
@@ -178,20 +450,26 @@ def setup_logging(
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 
+    # Console — clean output, no timestamps (formatting functions provide structure)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(EmojiFormatter())
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(ConsoleFormatter())
     logger.addHandler(console_handler)
 
+    # File — detailed with timestamps, ANSI codes stripped
     file_handler = logging.FileHandler(
         logs_path / f"{log_prefix}_{timestamp}.log", encoding="utf-8"
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
-        logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        PlainFormatter(
+            template="{time} | {level} | {message}",
+            time_fmt="%Y-%m-%d %H:%M:%S",
+        )
     )
     logger.addHandler(file_handler)
 
+    # Callback — for app/GUI integration, ANSI codes stripped
     if log_callback:
         callback_handler = CallbackLogHandler(log_callback)
         callback_handler.setLevel(logging.DEBUG)

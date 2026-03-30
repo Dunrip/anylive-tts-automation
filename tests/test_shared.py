@@ -14,6 +14,24 @@ from shared import (
     is_session_valid,
     get_browser_data_dir,
     set_app_support_dir,
+    _c,
+    _Ansi,
+    strip_ansi,
+    set_color_enabled,
+    SYM,
+    ConsoleFormatter,
+    EmojiFormatter,
+    PlainFormatter,
+    fmt_banner,
+    fmt_kv,
+    fmt_section,
+    fmt_item,
+    fmt_step,
+    fmt_result,
+    fmt_elapsed,
+    fmt_summary,
+    fmt_report_header,
+    fmt_report_footer,
 )
 
 
@@ -231,3 +249,179 @@ class TestScrapeUserProfile:
             assert "timestamp" in written_data
             assert "display_name" not in written_data
             assert "email" not in written_data
+
+
+# ---------------------------------------------------------------------------
+# Color utilities
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _restore_color():
+    """Ensure color state is reset between tests."""
+    set_color_enabled(True)
+    yield
+    set_color_enabled(True)
+
+
+class TestStripAnsi:
+    def test_removes_basic_codes(self) -> None:
+        assert strip_ansi("\033[31mhello\033[0m") == "hello"
+
+    def test_removes_nested_codes(self) -> None:
+        assert strip_ansi("\033[1m\033[31mbold\033[0m") == "bold"
+
+    def test_passthrough_plain_text(self) -> None:
+        assert strip_ansi("no ansi here") == "no ansi here"
+
+
+class TestColorControl:
+    def test_enabled_wraps_ansi(self) -> None:
+        set_color_enabled(True)
+        assert "\033[31m" in _c("x", _Ansi.RED)
+
+    def test_disabled_returns_plain(self) -> None:
+        set_color_enabled(False)
+        assert _c("x", _Ansi.RED) == "x"
+
+    def test_no_codes_returns_plain(self) -> None:
+        assert _c("x") == "x"
+
+
+class TestConsoleFormatter:
+    def test_debug_dimmed(self) -> None:
+        record = logging.LogRecord(
+            name="test",
+            level=logging.DEBUG,
+            pathname="",
+            lineno=0,
+            msg="test message",
+            args=(),
+            exc_info=None,
+        )
+        formatter = ConsoleFormatter()
+        assert "\033[2m" in formatter.format(record)
+
+    def test_info_passthrough(self) -> None:
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test message",
+            args=(),
+            exc_info=None,
+        )
+        formatter = ConsoleFormatter()
+        assert formatter.format(record) == "test message"
+
+
+class TestPlainFormatter:
+    def test_strips_ansi_from_message(self) -> None:
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="\033[31mred text\033[0m",
+            args=(),
+            exc_info=None,
+        )
+        formatter = PlainFormatter()
+        assert "\033[" not in formatter.format(record)
+
+    def test_default_time_fmt_is_full_date(self) -> None:
+        assert PlainFormatter()._time_fmt == "%Y-%m-%d %H:%M:%S"
+
+
+class TestEmojiFormatterDeprecation:
+    def test_warns_on_construction(self) -> None:
+        with pytest.warns(DeprecationWarning, match="deprecated"):
+            result = EmojiFormatter()
+        assert type(result).__name__ == "ConsoleFormatter"
+
+
+class TestFmtBanner:
+    def test_contains_title_and_box_chars(self) -> None:
+        result = fmt_banner("HELLO")
+        assert "HELLO" in result
+        assert "┌" in result
+        assert "└" in result
+
+    def test_includes_context_values(self) -> None:
+        assert "Foo: bar" in fmt_banner("T", Foo="bar")
+
+    def test_no_context_line_when_empty(self) -> None:
+        assert ":" not in strip_ansi(fmt_banner("T"))
+
+
+class TestFmtKv:
+    def test_alignment(self) -> None:
+        lines = strip_ansi(fmt_kv([("A", "1"), ("LongKey", "2")])).splitlines()
+        assert lines[0].index("1") == lines[1].index("2")
+
+    def test_empty_list(self) -> None:
+        assert fmt_kv([]) == ""
+
+
+class TestFmtSection:
+    def test_contains_label(self) -> None:
+        assert "Processing" in strip_ansi(fmt_section("Processing"))
+
+
+class TestFmtItem:
+    def test_counter_format(self) -> None:
+        result = strip_ansi(fmt_item(1, 5, "hello"))
+        assert "[1/5]" in result
+        assert "hello" in result
+
+
+class TestFmtStep:
+    def test_ok_symbol(self) -> None:
+        result = strip_ansi(fmt_step(SYM.OK, "done"))
+        assert "✓" in result
+        assert "done" in result
+
+    def test_with_elapsed(self) -> None:
+        assert "3.2s" in strip_ansi(fmt_step(SYM.OK, "done", "3.2s"))
+
+
+class TestFmtResult:
+    def test_ok_true(self) -> None:
+        result = strip_ansi(fmt_result(True, "all good"))
+        assert "OK" in result
+        assert "all good" in result
+
+    def test_ok_false(self) -> None:
+        result = strip_ansi(fmt_result(False, "broke"))
+        assert "FAILED" in result
+        assert "broke" in result
+
+
+class TestFmtElapsed:
+    def test_under_60(self) -> None:
+        assert fmt_elapsed(8.1) == "8.1s"
+
+    def test_over_60(self) -> None:
+        assert fmt_elapsed(154) == "2m 34s"
+
+    def test_boundary_59_95(self) -> None:
+        assert fmt_elapsed(59.95) == "1m 00s"
+
+    def test_exactly_zero(self) -> None:
+        assert fmt_elapsed(0) == "0.0s"
+
+
+class TestFmtSummaryAndReport:
+    def test_summary_multiple_parts(self) -> None:
+        result = strip_ansi(fmt_summary("A", "B"))
+        assert "A" in result
+        assert "·" in result
+        assert "B" in result
+
+    def test_report_header_contains_title(self) -> None:
+        assert "REPORT" in strip_ansi(fmt_report_header("REPORT"))
+
+    def test_report_footer_is_separator(self) -> None:
+        stripped = strip_ansi(fmt_report_footer())
+        assert stripped and all(c == "─" for c in stripped)
