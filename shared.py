@@ -574,11 +574,13 @@ class BrowserAutomation:
                 "--disable-features=VizDisplayCompositor",
             ],
         )
+        assert self.context is not None
         self.page = (
             self.context.pages[0]
             if self.context.pages
             else await self.context.new_page()
         )
+        assert self.page is not None
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
 
         if is_session_valid(self.session_filename):
@@ -602,6 +604,7 @@ class BrowserAutomation:
             await self.playwright.stop()
 
     async def validate_session(self) -> bool:
+        assert self.page is not None
         try:
             self.logger.debug("Validating session...")
             await self.page.goto(
@@ -627,6 +630,7 @@ class BrowserAutomation:
         timeout: int = CLICK_TIMEOUT,
         force: bool = False,
     ) -> bool:
+        assert self.page is not None
         selectors = self.SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
             try:
@@ -645,6 +649,7 @@ class BrowserAutomation:
         return False
 
     async def safe_fill(self, selector_key: str, value: str, description: str) -> bool:
+        assert self.page is not None
         selectors = self.SELECTORS.get(selector_key, [selector_key])
         for selector in selectors:
             try:
@@ -661,6 +666,7 @@ class BrowserAutomation:
         return False
 
     async def take_screenshot(self, label: str) -> None:
+        assert self.page is not None
         screenshots_dir = Path(self.screenshots_dir)
         screenshots_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -674,9 +680,11 @@ class BrowserAutomation:
         AnyLive uses controlled inputs; .fill() may not commit.
         Strategy per attempt: fill/type -> verify -> JS -> verify -> clipboard paste -> verify.
         """
+        assert self.page is not None
 
         async def _clipboard_paste(el, val: str) -> bool:
             try:
+                assert self.page is not None
                 await self.page.evaluate(
                     """async (text) => {
                         try { await navigator.clipboard.writeText(text); return true; }
@@ -687,6 +695,7 @@ class BrowserAutomation:
             except Exception:
                 pass
             try:
+                assert self.page is not None
                 await el.scroll_into_view_if_needed()
                 await el.click(force=True)
                 await asyncio.sleep(0.03)

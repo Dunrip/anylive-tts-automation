@@ -24,6 +24,7 @@ import pandas as pd
 
 from shared import (
     BrowserAutomation,
+    REPORT,
     SYM,
     async_debug_pause,
     ensure_client_config,
@@ -334,6 +335,7 @@ class FAQAutomation(BrowserAutomation):
 
     async def navigate_to_product_qa(self) -> bool:
         """Navigate to Product Q&A tab."""
+        assert self.page is not None
         current = self.page.url
         target = self.config.base_url.rstrip("/")
         if not current.rstrip("/").startswith(target):
@@ -389,6 +391,7 @@ class FAQAutomation(BrowserAutomation):
         Returns the product container Locator or None.
         """
         num_str = str(product_number)
+        assert self.page is not None
         self.logger.debug(f"Looking for product #{product_number}")
 
         # Clean up any stale markers from previous calls
@@ -630,6 +633,7 @@ class FAQAutomation(BrowserAutomation):
         the OSS upload completed and the server persisted the file.
         """
         row_num = row_index + 1
+        assert self.page is not None
         audio_filename = os.path.basename(audio_path)
         self.logger.debug(f"Uploading audio for row {row_num}: {audio_path}")
 
@@ -670,6 +674,7 @@ class FAQAutomation(BrowserAutomation):
         3. Hidden ``input[type=file]`` fallback indexed by ``row_index``.
         """
         row_num = row_index + 1
+        assert self.page is not None
 
         # Strategy 1: Click upload-audio button (new empty rows)
         try:
@@ -1212,7 +1217,7 @@ async def run_job(
             logger=logger,
             dry_run=dry_run,
             debug=debug,
-            browser_data_subdir=_browser_data_subdir,
+            browser_data_subdir=_browser_data_subdir or LIVE_BROWSER_DATA,
             session_filename=_session_filename,
         )
 

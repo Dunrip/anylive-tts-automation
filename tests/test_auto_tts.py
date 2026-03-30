@@ -104,17 +104,6 @@ class TestFilterVersionsFromProduct:
         assert [v.name for v in result] == ["5_ProductB"]
 
 
-def _make_version(product_number: str, name: str) -> Version:
-    """Create a minimal Version for testing."""
-    return Version(
-        name=name,
-        products=[name],
-        scripts=["script"],
-        audio_codes=["code"],
-        product_number=product_number,
-    )
-
-
 class TestParseVersionSpec:
     """Tests for parse_version_spec()."""
 
