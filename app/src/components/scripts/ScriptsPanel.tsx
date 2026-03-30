@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
-import { ProgressBar } from "../common/ProgressBar";
+import { ProgressBar } from '../common/ProgressBar';
+import { RunSummary } from '../common/RunSummary';
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
@@ -30,6 +31,8 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
   const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
   const [replaceError, setReplaceError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [jobStartTime, setJobStartTime] = useState<number | undefined>();
+  const [showSummary, setShowSummary] = useState(true);
   const [options, setOptions] = useState<{
     headless: boolean;
     dry_run: boolean;
@@ -58,6 +61,8 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
 
   const handleRun = async (): Promise<void> => {
     if (!csvPath || !sidecarUrl || automation.isRunning) return;
+    setJobStartTime(Date.now());
+    setShowSummary(true);
     await automation.startRun({
       sidecarUrl,
       endpoint: "/api/scripts/run",
@@ -132,7 +137,7 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        Script Automation
+        Script Automation{client !== "default" && <span className="text-[var(--text-muted)] font-normal"> · {client}</span>}
       </h2>
 
        {/* Base URL (shared with FAQ) */}
@@ -367,6 +372,15 @@ export function ScriptsPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange
             </div>
           ))}
         </div>
+      )}
+
+      {!automation.isRunning && showSummary && (
+        <RunSummary
+          versions={automation.versions}
+          startTime={jobStartTime}
+          csvFileName={csvPath?.split("/").pop() || undefined}
+          onDismiss={() => setShowSummary(false)}
+        />
       )}
     </div>
   );

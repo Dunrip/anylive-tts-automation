@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
-import { ProgressBar } from "../common/ProgressBar";
+import { ProgressBar } from '../common/ProgressBar';
+import { RunSummary } from '../common/RunSummary';
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
@@ -63,6 +64,7 @@ export function TTSPanel({
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [jobStartTime, setJobStartTime] = useState<number | undefined>();
+  const [showSummary, setShowSummary] = useState(true);
   const wasRunningRef = useRef(false);
   const automation = useAutomation();
   const ws = useWebSocket(automation.wsUrl);
@@ -115,6 +117,9 @@ export function TTSPanel({
     ws.clearMessages();
     resetProcessedCount();
     setJobStartTime(Date.now());
+    setShowSummary(true);
+    resetProcessedCount();
+    setJobStartTime(Date.now());
 
     await automation.startRun({
       sidecarUrl,
@@ -145,7 +150,7 @@ export function TTSPanel({
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        TTS Automation
+        TTS Automation{client !== "default" && <span className="text-[var(--text-muted)] font-normal"> · {client}</span>}
       </h2>
 
       {/* Base URL */}
@@ -404,6 +409,15 @@ export function TTSPanel({
             ))}
           </div>
         </div>
+      )}
+
+      {!automation.isRunning && showSummary && (
+        <RunSummary
+          versions={automation.versions}
+          startTime={jobStartTime}
+          csvFileName={csvPath?.split("/").pop() || undefined}
+          onDismiss={() => setShowSummary(false)}
+        />
       )}
     </div>
   );

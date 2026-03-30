@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { AutomationType, CSVPreviewResponse } from "../../lib/types";
 import { cn } from "@/lib/utils";
 import { FileSpreadsheet, X } from "lucide-react";
@@ -25,6 +25,40 @@ export function CSVPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const loadFilePreview = async (filePath: string): Promise<void> => {
+    setSelectedPath(filePath);
+    setError(null);
+
+    if (sidecarUrl && configPath) {
+      setLoading(true);
+      try {
+        const resp = await fetch(`${sidecarUrl}/api/csv/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            csv_path: filePath,
+            config_path: configPath,
+            ...(automationType ? { automation_type: automationType } : {}),
+          }),
+        });
+        if (resp.ok) {
+          const data: CSVPreviewResponse = await resp.json();
+          setPreview(data);
+          onFileSelected?.(filePath, data);
+        } else {
+          setError("Failed to load CSV preview");
+        }
+      } catch {
+        setError("Could not connect to sidecar");
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      onFileSelected?.(filePath, { rows: 0, products: 0, estimated_versions: 0, preview: [], errors: [] });
+    }
+  };
 
   const handleSelectFile = async (): Promise<void> => {
     try {
@@ -36,39 +70,15 @@ export function CSVPicker({
 
       if (!selected || typeof selected !== "string") return;
 
-      setSelectedPath(selected);
-      setError(null);
-
-      if (sidecarUrl && configPath) {
-        setLoading(true);
-        try {
-          const resp = await fetch(`${sidecarUrl}/api/csv/preview`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              csv_path: selected,
-              config_path: configPath,
-              ...(automationType ? { automation_type: automationType } : {}),
-            }),
-          });
-          if (resp.ok) {
-            const data: CSVPreviewResponse = await resp.json();
-            setPreview(data);
-            onFileSelected?.(selected, data);
-          } else {
-            setError("Failed to load CSV preview");
-          }
-        } catch {
-          setError("Could not connect to sidecar");
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        onFileSelected?.(selected, { rows: 0, products: 0, estimated_versions: 0, preview: [], errors: [] });
-      }
+      await loadFilePreview(selected);
     } catch {
       setError("Failed to open file dialog");
     }
+  };
+
+  const handleDroppedFile = async (filePath: string): Promise<void> => {
+    if (!filePath.toLowerCase().endsWith(".csv")) return;
+    await loadFilePreview(filePath);
   };
 
   const handleClear = (): void => {
@@ -77,6 +87,38 @@ export function CSVPicker({
     setError(null);
     onClear?.();
   };
+
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+
+    const setup = async (): Promise<void> => {
+      if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      const unlisten = await currentWindow.onDragDropEvent((event) => {
+        if (event.payload.type === "over" || event.payload.type === "enter") {
+          setIsDragOver(true);
+        } else if (event.payload.type === "leave") {
+          setIsDragOver(false);
+        } else if (event.payload.type === "drop") {
+          setIsDragOver(false);
+          if (selectedPath) return;
+          const paths = event.payload.paths;
+          const csvFile = paths.find((p) => p.toLowerCase().endsWith(".csv"));
+          if (csvFile) {
+            void handleDroppedFile(csvFile);
+          }
+        }
+      });
+      unlistenFn = unlisten;
+    };
+
+    void setup();
+
+    return () => {
+      unlistenFn?.();
+    };
+  }, [selectedPath]);
 
   return (
     <div data-testid="csv-picker" className="flex flex-col gap-2">
@@ -100,21 +142,44 @@ export function CSVPicker({
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          data-testid="select-csv-button"
-          onClick={handleSelectFile}
-          disabled={loading}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOver(false);
+          }}
           className={cn(
-            "inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer bg-transparent border-none p-0",
-            loading && "opacity-50 cursor-wait"
+            "rounded-lg px-3 py-2 transition-colors",
+            isDragOver
+              ? "border-2 border-dashed border-[var(--primary)] bg-[var(--bg-elevated)] text-center"
+              : "border border-transparent"
           )}
         >
-          <FileSpreadsheet className="size-4" />
-          <span className="underline underline-offset-2 decoration-[var(--border-active)]">
-            {loading ? "Loading..." : "Select CSV file"}
-          </span>
-        </button>
+          {isDragOver ? (
+            <div className="flex flex-col items-center gap-1">
+              <FileSpreadsheet className="size-5 text-[var(--primary)]" />
+              <span className="text-sm text-[var(--primary)]">Drop CSV file here</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              data-testid="select-csv-button"
+              onClick={handleSelectFile}
+              disabled={loading}
+              className={cn(
+                "inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer bg-transparent border-none p-0",
+                loading && "opacity-50 cursor-wait"
+              )}
+            >
+              <FileSpreadsheet className="size-4" />
+              <span className="underline underline-offset-2 decoration-[var(--border-active)]">
+                {loading ? "Loading..." : "Select CSV file"}
+              </span>
+              <span className="text-[var(--text-muted)] text-xs no-underline">or drag & drop</span>
+            </button>
+          )}
+        </div>
       )}
 
       {error && (

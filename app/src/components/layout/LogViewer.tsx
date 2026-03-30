@@ -202,6 +202,9 @@ export function LogViewer({
           {filteredMessages.length} messages
         </span>
 
+        {!isCollapsed && (
+          <>
+
         <div className="flex items-center gap-0.5">
           {(["INFO", "WARN", "ERROR", "DEBUG"] as LogLevel[]).map((level) => {
             const isActive = enabledLevels.has(level);
@@ -267,6 +270,8 @@ export function LogViewer({
             Resume
           </Button>
         ) : null}
+          </>
+        )}
       </div>
 
       {!isCollapsed ? (

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
-import { ProgressBar } from "../common/ProgressBar";
+import { ProgressBar } from '../common/ProgressBar';
+import { RunSummary } from '../common/RunSummary';
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
@@ -27,6 +28,8 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
   const [csvPreview, setCsvPreview] = useState<CSVPreviewResponse | null>(null);
   const [audioDir, setAudioDir] = useState<string>("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [jobStartTime, setJobStartTime] = useState<number | undefined>();
+  const [showSummary, setShowSummary] = useState(true);
   const [options, setOptions] = useState<{
     headless: boolean;
     dry_run: boolean;
@@ -58,6 +61,8 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
 
   const handleRun = async (): Promise<void> => {
     if (!csvPath || !sidecarUrl || automation.isRunning) return;
+    setJobStartTime(Date.now());
+    setShowSummary(true);
     await automation.startRun({
       sidecarUrl,
       endpoint: "/api/faq/run",
@@ -81,7 +86,7 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        FAQ Automation
+        FAQ Automation{client !== "default" && <span className="text-[var(--text-muted)] font-normal"> · {client}</span>}
       </h2>
 
        {/* Base URL (shared with Scripts) */}
@@ -241,6 +246,15 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
             </div>
           ))}
         </div>
+      )}
+
+      {!automation.isRunning && showSummary && (
+        <RunSummary
+          versions={automation.versions}
+          startTime={jobStartTime}
+          csvFileName={csvPath?.split("/").pop() || undefined}
+          onDismiss={() => setShowSummary(false)}
+        />
       )}
     </div>
   );
