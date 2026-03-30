@@ -24,8 +24,19 @@ import pandas as pd
 
 from shared import (
     BrowserAutomation,
+    SYM,
     async_debug_pause,
     ensure_client_config,
+    fmt_banner,
+    fmt_elapsed,
+    fmt_item,
+    fmt_kv,
+    fmt_report_footer,
+    fmt_report_header,
+    fmt_result,
+    fmt_section,
+    fmt_step,
+    fmt_summary,
     get_last_client,
     get_live_session_paths,
     save_last_client,
@@ -461,7 +472,7 @@ class FAQAutomation(BrowserAutomation):
         responds (~1-2 s). We poll for the new input rather than using a fixed
         sleep to avoid swallowed clicks.
         """
-        self.logger.info(f"Adding {count} Q&A entries...")
+        self.logger.info(fmt_step(SYM.RETRY, f"Adding {count} Q&A entries"))
 
         add_btn = product_section.get_by_role("button", name="Add", exact=True)
         question_inputs = product_section.get_by_placeholder("enter the question")
@@ -469,7 +480,11 @@ class FAQAutomation(BrowserAutomation):
         for i in range(count):
             try:
                 if await add_btn.count() == 0:
-                    self.logger.error(f"Could not find Add button for entry {i + 1}")
+                    self.logger.error(
+                        fmt_step(
+                            SYM.FAIL, f"Could not find Add button for entry {i + 1}"
+                        )
+                    )
                     return False
 
                 count_before = await question_inputs.count()
@@ -498,16 +513,21 @@ class FAQAutomation(BrowserAutomation):
 
                 if not added:
                     self.logger.error(
-                        f"New row did not appear after Add click {i + 1} "
-                        f"(expected {target}, got {await question_inputs.count()})"
+                        fmt_step(
+                            SYM.FAIL,
+                            f"New row did not appear after Add click {i + 1} "
+                            f"(expected {target}, got {await question_inputs.count()})",
+                        )
                     )
                     return False
 
             except Exception as e:
-                self.logger.error(f"Failed to add Q&A entry {i + 1}: {e}")
+                self.logger.error(
+                    fmt_step(SYM.FAIL, f"Failed to add Q&A entry {i + 1}: {e}")
+                )
                 return False
 
-        self.logger.info(f"Added {count} Q&A entries")
+        self.logger.info(fmt_step(SYM.OK, f"Added {count} Q&A entries"))
         return True
 
     async def fill_qa_row(
@@ -532,8 +552,11 @@ class FAQAutomation(BrowserAutomation):
 
             if row_index >= input_count:
                 self.logger.error(
-                    f"Could not find question input for row {row_num} "
-                    f"(found {input_count} inputs)"
+                    fmt_step(
+                        SYM.FAIL,
+                        f"Could not find question input for row {row_num} "
+                        f"(found {input_count} inputs)",
+                    )
                 )
                 return False
 
@@ -542,7 +565,9 @@ class FAQAutomation(BrowserAutomation):
             await target_input.fill(question)
             self.logger.debug(f"Filled question for row {row_num}: {question[:50]}")
         except Exception as e:
-            self.logger.error(f"Error filling question row {row_num}: {e}")
+            self.logger.error(
+                fmt_step(SYM.FAIL, f"Error filling question row {row_num}: {e}")
+            )
             return False
 
         # Upload audio file
@@ -551,12 +576,21 @@ class FAQAutomation(BrowserAutomation):
                 ok = await self._upload_audio(product_section, row_index, audio_path)
                 if not ok:
                     self.logger.warning(
-                        f"Audio upload failed for row {row_num}, continuing"
+                        fmt_step(
+                            SYM.FAIL,
+                            f"Audio upload failed for row {row_num}, continuing",
+                        )
                     )
             except Exception as e:
-                self.logger.warning(f"Audio upload error for row {row_num}: {e}")
+                self.logger.warning(
+                    fmt_step(SYM.FAIL, f"Audio upload error for row {row_num}: {e}")
+                )
         elif audio_path and self.dry_run:
-            self.logger.info(f"DRY RUN: Would upload {audio_path} for row {row_num}")
+            self.logger.info(
+                fmt_step(
+                    SYM.SKIP, f"Dry-run: would upload {audio_path} for row {row_num}"
+                )
+            )
 
         return True
 
@@ -653,7 +687,9 @@ class FAQAutomation(BrowserAutomation):
                 if await self._wait_for_upload_confirmation(
                     product_section, audio_filename
                 ):
-                    self.logger.info(f"Uploaded audio for row {row_num}")
+                    self.logger.info(
+                        fmt_step(SYM.OK, f"Uploaded audio for row {row_num}")
+                    )
                     return True
                 if console_msgs:
                     self.logger.debug(f"Console during upload: {console_msgs}")
@@ -680,7 +716,9 @@ class FAQAutomation(BrowserAutomation):
                 if await self._wait_for_upload_confirmation(
                     product_section, audio_filename
                 ):
-                    self.logger.info(f"Replaced audio for row {row_num}")
+                    self.logger.info(
+                        fmt_step(SYM.OK, f"Replaced audio for row {row_num}")
+                    )
                     return True
                 self.logger.warning(
                     f"Replacement confirmation timeout for row {row_num}"
@@ -702,7 +740,10 @@ class FAQAutomation(BrowserAutomation):
                     product_section, audio_filename
                 ):
                     self.logger.info(
-                        f"Uploaded audio for row {row_num} (via hidden input)"
+                        fmt_step(
+                            SYM.OK,
+                            f"Uploaded audio for row {row_num} (via hidden input)",
+                        )
                     )
                     return True
                 self.logger.warning(
@@ -712,7 +753,9 @@ class FAQAutomation(BrowserAutomation):
         except Exception as e:
             self.logger.debug(f"Hidden input strategy failed for row {row_num}: {e}")
 
-        self.logger.warning(f"Could not upload audio for row {row_num}")
+        self.logger.warning(
+            fmt_step(SYM.FAIL, f"Could not upload audio for row {row_num}")
+        )
         return False
 
     async def _upload_missing_audio(
@@ -731,8 +774,11 @@ class FAQAutomation(BrowserAutomation):
             return (0, 0)
 
         self.logger.info(
-            f"Product #{product_faq.product_number}: {missing_count} rows "
-            f"have questions but missing audio, uploading..."
+            fmt_step(
+                SYM.RETRY,
+                f"Product #{product_faq.product_number}: {missing_count} rows "
+                f"have questions but missing audio, uploading",
+            )
         )
 
         # Determine which rows are missing audio by checking if the
@@ -754,7 +800,10 @@ class FAQAutomation(BrowserAutomation):
             )
             if not audio_path:
                 self.logger.warning(
-                    f"No audio file for row {row_idx + 1} (code: {faq_row.audio_code})"
+                    fmt_step(
+                        SYM.FAIL,
+                        f"No audio file for row {row_idx + 1} (code: {faq_row.audio_code})",
+                    )
                 )
                 continue
             # Skip if audio filename already visible (already uploaded)
@@ -778,29 +827,43 @@ class FAQAutomation(BrowserAutomation):
                     uploaded += 1
             except Exception as e:
                 self.logger.warning(
-                    f"Failed to upload audio for row {row_idx + 1}: {e}"
+                    fmt_step(
+                        SYM.FAIL, f"Failed to upload audio for row {row_idx + 1}: {e}"
+                    )
                 )
 
             # Re-find section after upload (DOM may have changed)
             section = await self.find_product_section(product_faq.product_number)
             if section is None:
                 self.logger.error(
-                    f"Lost product #{product_faq.product_number} "
-                    f"after uploading audio for row {row_idx + 1}"
+                    fmt_step(
+                        SYM.FAIL,
+                        f"Lost product #{product_faq.product_number} "
+                        f"after uploading audio for row {row_idx + 1}",
+                    )
                 )
                 break
 
         self.logger.info(
-            f"Product #{product_faq.product_number}: uploaded {uploaded}/"
-            f"{len(rows_needing_audio)} missing audio files"
+            fmt_step(
+                SYM.OK if uploaded == len(rows_needing_audio) else SYM.FAIL,
+                f"Product #{product_faq.product_number}: uploaded {uploaded}/"
+                f"{len(rows_needing_audio)} missing audio files",
+            )
         )
         return (len(rows_needing_audio), uploaded)
 
-    async def process_product(self, product_faq: ProductFAQ) -> bool:
+    async def process_product(
+        self, product_faq: ProductFAQ, index: int, total: int
+    ) -> bool:
         """Process all Q&A entries for a single product."""
         self.logger.info(
-            f"Processing product #{product_faq.product_number}: "
-            f"{product_faq.product_name} ({len(product_faq.rows)} questions)"
+            fmt_item(
+                index,
+                total,
+                f"Product #{product_faq.product_number} — "
+                f"{product_faq.product_name} ({len(product_faq.rows)} questions)",
+            )
         )
 
         try:
@@ -810,7 +873,7 @@ class FAQAutomation(BrowserAutomation):
                 product_faq.error = (
                     f"Product #{product_faq.product_number} not found on page"
                 )
-                self.logger.error(product_faq.error)
+                self.logger.error(fmt_step(SYM.FAIL, product_faq.error))
                 return False
 
             # Check for existing Q&A rows (from previous runs or partial fills)
@@ -837,9 +900,10 @@ class FAQAutomation(BrowserAutomation):
                     )
                     if needed == 0:
                         self.logger.info(
-                            f"Product #{product_faq.product_number} already "
-                            f"has {filled_count} filled rows with audio, "
-                            f"skipping"
+                            fmt_step(
+                                SYM.SKIP,
+                                f"Already has {filled_count} filled rows with audio",
+                            )
                         )
                     elif uploaded < needed:
                         product_faq.error = (
@@ -848,16 +912,21 @@ class FAQAutomation(BrowserAutomation):
                     # else: all uploads succeeded, logged inside method
                 else:
                     self.logger.info(
-                        f"Product #{product_faq.product_number} already has "
-                        f"{filled_count} filled rows, skipping (dry-run)"
+                        fmt_step(
+                            SYM.SKIP,
+                            f"Already has {filled_count} filled rows, skipping (dry-run)",
+                        )
                     )
                 product_faq.success = product_faq.error is None
                 return product_faq.success
             elif filled_count > 0:
                 fill_offset = filled_count
                 self.logger.warning(
-                    f"Product #{product_faq.product_number} has {filled_count} "
-                    f"filled rows, will fill remaining {rows_needed - filled_count}"
+                    fmt_step(
+                        SYM.WARN,
+                        f"Product #{product_faq.product_number} has {filled_count} "
+                        f"filled rows, will fill remaining {rows_needed - filled_count}",
+                    )
                 )
 
             # We need (rows_needed - fill_offset) total rows to fill.
@@ -866,13 +935,16 @@ class FAQAutomation(BrowserAutomation):
             rows_to_add = rows_needed - existing_count
             if rows_to_add > 0:
                 self.logger.info(
-                    f"Need {rows_needed} total rows, {existing_count} exist "
-                    f"({filled_count} filled, {existing_count - filled_count} empty), "
-                    f"clicking Add {rows_to_add} times"
+                    fmt_step(
+                        SYM.RETRY,
+                        f"Need {rows_needed} total rows, {existing_count} exist "
+                        f"({filled_count} filled, {existing_count - filled_count} empty), "
+                        f"clicking Add {rows_to_add} times",
+                    )
                 )
                 if not await self.add_qa_entries(section, rows_to_add):
                     product_faq.error = "Failed to add Q&A entries"
-                    self.logger.error(product_faq.error)
+                    self.logger.error(fmt_step(SYM.FAIL, product_faq.error))
                     return False
 
             # Fill only the unfilled rows (starting from fill_offset).
@@ -901,14 +973,22 @@ class FAQAutomation(BrowserAutomation):
                     )
                     if section is None:
                         self.logger.error(
-                            f"Lost product #{product_faq.product_number} "
-                            f"after filling row {i + 1}"
+                            fmt_step(
+                                SYM.FAIL,
+                                f"Lost product #{product_faq.product_number} "
+                                f"after filling row {i + 1}",
+                            )
                         )
                         break
 
             self.logger.info(
-                f"Product #{product_faq.product_number}: "
-                f"{successful}/{rows_needed} questions filled"
+                fmt_step(SYM.OK, f"Filled {successful}/{rows_needed} questions")
+            )
+            self.logger.info(
+                fmt_result(
+                    successful == rows_needed,
+                    f"{successful}/{rows_needed} questions filled",
+                )
             )
 
             product_faq.success = successful == rows_needed
@@ -919,7 +999,10 @@ class FAQAutomation(BrowserAutomation):
         except Exception as e:
             product_faq.error = str(e)
             self.logger.error(
-                f"Error processing product #{product_faq.product_number}: {e}"
+                fmt_step(
+                    SYM.FAIL,
+                    f"Error processing product #{product_faq.product_number}: {e}",
+                )
             )
             try:
                 await self.take_screenshot(f"product_{product_faq.product_number}")
@@ -962,21 +1045,24 @@ def generate_faq_report(
         ],
     }
 
+    elapsed_str = fmt_elapsed(elapsed_seconds)
+    logger.info(fmt_report_header("FINAL FAQ REPORT"))
+    logger.info(
+        fmt_summary(
+            f"Total: {len(products)}",
+            f"Success: {successful} {SYM.OK}",
+            f"Failed: {failed} {SYM.FAIL}",
+        )
+    )
+    logger.info(fmt_summary(f"Questions: {total_questions}", f"Time: {elapsed_str}"))
     logger.info("")
-    logger.info("=" * 70)
-    logger.info("FINAL FAQ REPORT")
-    logger.info("=" * 70)
-    logger.info(f"Total: {len(products)} | Success: {successful} | Failed: {failed}")
-    elapsed_str = f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60):02d}s"
-    logger.info(f"Questions: {total_questions} total")
-    logger.info(f"Time: {elapsed_str}")
 
     for p in products:
-        status = "OK" if p.success else "FAILED"
-        logger.info(
-            f"  {status} Product #{p.product_number} ({p.product_name}): "
-            f"{len(p.rows)} questions"
+        ok = not p.error
+        detail = (
+            f"Product #{p.product_number} ({p.product_name}): {len(p.rows)} questions"
         )
+        logger.info(fmt_result(ok, detail))
         if p.error:
             logger.info(f"      Error: {p.error}")
 
@@ -987,7 +1073,9 @@ def generate_faq_report(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    logger.info(f"Report saved: {report_path}")
+    logger.info("")
+    logger.info(f"  Report saved: {report_path}")
+    logger.info(fmt_report_footer())
     return report
 
 
@@ -998,6 +1086,7 @@ async def run_job(
     config_path: str,
     csv_path: str,
     *,
+    client: str | None = None,
     headless: bool = False,
     dry_run: bool = False,
     debug: bool = False,
@@ -1005,6 +1094,9 @@ async def run_job(
     limit: int | None = None,
     audio_dir: str | None = None,
     app_support_dir: str | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
     log_callback: Callable[[str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
@@ -1027,21 +1119,23 @@ async def run_job(
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = time.time()
+    verbosity = "quiet" if quiet else ("verbose" if verbose else "normal")
     logger = setup_logging(
         timestamp,
         logger_name="auto_faq",
         log_prefix="auto_faq",
         log_callback=log_callback,
+        color=not no_color,
+        verbosity=verbosity,
     )
 
-    logger.info("ANYLIVE FAQ AUTOMATION")
-    logger.info("=" * 70)
+    logger.info(fmt_banner("ANYLIVE FAQ AUTOMATION", Client=client or ""))
 
     try:
         # Load configuration
         if not os.path.exists(config_path):
             error_msg = f"Config file not found: {config_path}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
 
         cli_overrides: dict = {}
@@ -1052,20 +1146,19 @@ async def run_job(
             config = load_faq_config(
                 config_path, cli_overrides if cli_overrides else None
             )
-            logger.info(f"Loaded config: {config_path}")
         except FileNotFoundError as e:
             error_msg = str(e)
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
         except Exception as e:
             error_msg = f"Failed to load config: {e}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
 
         # Load CSV
         if not os.path.exists(csv_path):
             error_msg = f"CSV file not found: {csv_path}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
 
         try:
@@ -1073,12 +1166,12 @@ async def run_job(
             products = parse_faq_csv(df, config, logger)
         except Exception as e:
             error_msg = f"Failed to parse CSV: {e}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
 
         if not products:
             error_msg = "No products to process"
-            logger.error(f"❌ {error_msg}")
+            logger.error(error_msg)
             return {"success": False, "report": None, "error": error_msg}
 
         # Apply start-product filter (by product number, not index)
@@ -1086,17 +1179,21 @@ async def run_job(
             start_product = 1
         if start_product > 1:
             products = [p for p in products if p.product_number >= start_product]
-            logger.info(f"Starting from product #{start_product}")
 
         if limit:
             products = products[:limit]
-            logger.info(f"Limited to {limit} products")
 
+        kv = [("Config", str(config_path)), ("CSV", str(csv_path))]
         if dry_run:
-            logger.info("DRY RUN MODE: Audio upload will be skipped")
-
+            kv.append(("Mode", "dry-run"))
         if debug:
-            logger.info("🐛 DEBUG MODE: slow_mo + pause-on-error enabled")
+            kv.append(("Debug", "on"))
+        if start_product and start_product > 1:
+            kv.append(("Start Product", str(start_product)))
+        if limit:
+            kv.append(("Limit", str(limit)))
+        logger.info(fmt_kv(kv))
+        logger.info(fmt_section(f"Processing {len(products)} products"))
 
         # Determine browser data directory
         _browser_data_subdir = None
@@ -1122,26 +1219,21 @@ async def run_job(
 
             if not await automation.navigate_to_product_qa():
                 error_msg = "Failed to navigate to Product Q&A page"
-                logger.error(f"❌ {error_msg}")
+                logger.error(error_msg)
                 return {"success": False, "report": None, "error": error_msg}
 
-            for product in products:
+            for idx, product in enumerate(products, start=1):
                 if cancel_check and cancel_check():
                     logger.info("Job cancelled, stopping")
                     cancelled = True
                     break
-                logger.info("")
-                logger.info("=" * 70)
-                logger.info(
-                    f"Product #{product.product_number}: {product.product_name} "
-                    f"({len(product.rows)} questions)"
-                )
-                logger.info("=" * 70)
-                result = await automation.process_product(product)
+                result = await automation.process_product(product, idx, len(products))
                 if not result and debug:
                     logger.info(
-                        f"🐛 DEBUG: Product #{product.product_number} failed. "
-                        f"Browser paused for inspection."
+                        fmt_step(
+                            SYM.WARN,
+                            f"Debug pause: Product #{product.product_number} failed",
+                        )
                     )
                     await async_debug_pause(
                         "   Press Enter to continue to next product..."
@@ -1151,16 +1243,22 @@ async def run_job(
             if debug and not cancelled:
                 succeeded = sum(1 for p in products if p.success)
                 failed = [f"#{p.product_number}" for p in products if p.error]
-                logger.info("")
-                logger.info("=" * 70)
-                logger.info(f"📊 Results: {succeeded}/{len(products)} succeeded")
+                logger.info(fmt_report_header("DEBUG RESULTS"))
+                logger.info(
+                    fmt_summary(
+                        f"Succeeded: {succeeded}/{len(products)}",
+                        f"Failed: {len(failed)} {SYM.FAIL}",
+                    )
+                )
                 if failed:
-                    logger.info(f"   ❌ Failed: {', '.join(failed)}")
-                logger.info("🐛 DEBUG MODE: Browser is open for inspection.")
+                    logger.info(fmt_summary(f"Failed IDs: {', '.join(failed)}"))
+                logger.info(
+                    fmt_step(SYM.WARN, "Debug mode: browser is open for inspection")
+                )
                 await async_debug_pause(
                     "   Press Enter to close the browser and exit..."
                 )
-                logger.info("=" * 70)
+                logger.info(fmt_report_footer())
             await automation.close()
 
         # Generate report
@@ -1176,7 +1274,7 @@ async def run_job(
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Job failed: {error_msg}")
+        logger.error(f"Job failed: {error_msg}")
         return {"success": False, "report": None, "error": error_msg}
 
 
@@ -1214,6 +1312,15 @@ async def main() -> None:
         help="Client name (loads configs/{NAME}/live.json)",
     )
     parser.add_argument("--base-url", type=str, help="Override base URL")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Show warnings and final report only"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show debug-level output"
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable colored output"
+    )
 
     args = parser.parse_args()
 
@@ -1225,13 +1332,23 @@ async def main() -> None:
     _session_filename, _browser_data_subdir = get_live_session_paths(_client)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger = setup_logging(timestamp, logger_name="auto_faq", log_prefix="auto_faq")
+    verbosity = "quiet" if args.quiet else ("verbose" if args.verbose else "normal")
+    logger = setup_logging(
+        timestamp,
+        logger_name="auto_faq",
+        log_prefix="auto_faq",
+        color=not args.no_color,
+        verbosity=verbosity,
+    )
 
-    logger.info("ANYLIVE FAQ AUTOMATION")
-    logger.info("=" * 70)
-
+    logger.info(fmt_banner("ANYLIVE FAQ AUTOMATION", Client=_client or ""))
+    kv_main: list[tuple[str, str]] = []
     if _client:
-        logger.info(f"Using account: {_client}")
+        kv_main.append(("Client", _client))
+    if args.setup:
+        kv_main.append(("Mode", "setup"))
+    if kv_main:
+        logger.info(fmt_kv(kv_main))
 
     if args.setup:
         if _explicit_client:
@@ -1281,6 +1398,7 @@ async def main() -> None:
     result = await run_job(
         config_path=config_path,
         csv_path=csv_path,
+        client=_client,
         headless=args.headless,
         dry_run=args.dry_run,
         debug=args.debug,
@@ -1288,6 +1406,9 @@ async def main() -> None:
         limit=args.limit,
         audio_dir=args.audio_dir,
         app_support_dir=None,
+        quiet=args.quiet,
+        verbose=args.verbose,
+        no_color=args.no_color,
         log_callback=None,
     )
 
