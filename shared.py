@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -311,10 +312,11 @@ def fmt_elapsed(seconds: float) -> str:
 
     Returns ``'8.1s'`` for short durations, ``'2m 34s'`` for longer ones.
     """
-    if seconds < 60:
+    if seconds < 59.95:
         return f"{seconds:.1f}s"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
+    total_secs = int(round(seconds))
+    minutes = total_secs // 60
+    secs = total_secs % 60
     return f"{minutes}m {secs:02d}s"
 
 
@@ -354,8 +356,14 @@ class ConsoleFormatter(logging.Formatter):
         return msg
 
 
-# Backward-compatible alias for code that references the old name.
-EmojiFormatter = ConsoleFormatter
+def EmojiFormatter(*args: Any, **kwargs: Any) -> ConsoleFormatter:
+    """Deprecated: use :class:`ConsoleFormatter` instead."""
+    warnings.warn(
+        "EmojiFormatter is deprecated, use ConsoleFormatter",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return ConsoleFormatter(*args, **kwargs)
 
 
 class PlainFormatter(logging.Formatter):
@@ -364,7 +372,7 @@ class PlainFormatter(logging.Formatter):
     def __init__(
         self,
         template: str = "{time} | {level} | {message}",
-        time_fmt: str = "%H:%M:%S",
+        time_fmt: str = "%Y-%m-%d %H:%M:%S",
     ) -> None:
         super().__init__()
         self._template = template
