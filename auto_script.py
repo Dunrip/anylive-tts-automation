@@ -1985,8 +1985,9 @@ async def run_job(
     app_support_dir: str | None = None,
     log_callback: Callable[[str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
-    color: bool = True,
-    verbosity: str = "normal",
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
 ) -> dict:
     """Run Script automation as a job.
 
@@ -2022,13 +2023,14 @@ async def run_job(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     start_time = time.time()
+    verbosity = "quiet" if quiet else ("verbose" if verbose else "normal")
     logger = setup_logging(
         timestamp,
         logger_name="auto_script",
         log_prefix="auto_script",
         logs_dir=logs_dir,
         log_callback=log_callback,
-        color=color,
+        color=not no_color,
         verbosity=verbosity,
     )
 
@@ -2356,8 +2358,9 @@ async def main() -> None:
         limit=args.limit,
         audio_dir=args.audio_dir,
         base_url=getattr(args, "base_url", None),
-        color=not args.no_color,
-        verbosity=verbosity,
+        quiet=args.quiet,
+        verbose=args.verbose,
+        no_color=args.no_color,
     )
 
     if not result["success"]:
