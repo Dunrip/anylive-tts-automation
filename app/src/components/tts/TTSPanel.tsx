@@ -118,8 +118,6 @@ export function TTSPanel({
     resetProcessedCount();
     setJobStartTime(Date.now());
     setShowSummary(true);
-    resetProcessedCount();
-    setJobStartTime(Date.now());
 
     await automation.startRun({
       sidecarUrl,
