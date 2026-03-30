@@ -162,7 +162,6 @@ input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
 
-
 /* Disabled buttons need visible container on dark backgrounds */
 button:disabled[data-slot="button"],
 button:disabled[data-slot="button"][data-variant="default"] {

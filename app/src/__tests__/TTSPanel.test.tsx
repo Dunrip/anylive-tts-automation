@@ -4,6 +4,7 @@ import { StatusBadge } from "../components/common/StatusBadge";
 import { ProgressBar } from "../components/common/ProgressBar";
 import { TTSPanel } from "../components/tts/TTSPanel";
 import { useAutomation } from "../hooks/useAutomation";
+import { TooltipProvider } from "../components/ui/tooltip";
 
 vi.mock("../hooks/useNotification", () => ({
   useNotification: () => ({ sendJobNotification: vi.fn() }),
@@ -107,20 +108,32 @@ describe("TTSPanel", () => {
   });
 
   it("renders TTS panel with run button", () => {
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("tts-panel")).toBeTruthy();
     expect(screen.getByTestId("run-button")).toBeTruthy();
     expect(screen.queryByTestId("stop-button")).toBeNull();
   });
 
   it("run button is disabled without CSV", () => {
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     const runBtn = screen.getByTestId("run-button") as HTMLButtonElement;
     expect(runBtn.disabled).toBe(true);
   });
 
   it("renders options checkboxes", () => {
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("option-headless")).toBeTruthy();
     expect(screen.getByTestId("option-dry_run")).toBeTruthy();
     expect(screen.getByTestId("option-debug")).toBeTruthy();
@@ -141,7 +154,11 @@ describe("TTSPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<TTSPanel client="default" sidecarUrl="http://localhost:1234" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" sidecarUrl="http://localhost:1234" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("cancel-button")).toBeTruthy();
     expect(screen.getByTestId("run-button").textContent).toBe("Running...");
   });
@@ -162,13 +179,21 @@ describe("TTSPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob,
     });
-    render(<TTSPanel client="default" sidecarUrl="http://localhost:1234" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" sidecarUrl="http://localhost:1234" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("cancel-button"));
     expect(cancelJob).toHaveBeenCalledWith("http://localhost:1234");
   });
 
   it("toggle advanced shows and hides start-version and limit fields", () => {
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.queryByTestId("option-start-version")).toBeNull();
     expect(screen.queryByTestId("option-limit")).toBeNull();
 
@@ -195,7 +220,11 @@ describe("TTSPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     const banner = screen.getByTestId("automation-error");
     expect(banner).toBeTruthy();
     expect(banner.textContent).toBe("Something went wrong");
@@ -219,7 +248,11 @@ describe("TTSPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("version-list")).toBeTruthy();
     expect(screen.getByText("V1")).toBeTruthy();
     expect(screen.getByText("V2")).toBeTruthy();
@@ -240,12 +273,20 @@ describe("TTSPanel", () => {
       pollJobStatus: vi.fn(),
       cancelJob: vi.fn(),
     });
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("progress-bar")).toBeTruthy();
   });
 
   it("toggling download mode switches options UI to download-specific checkboxes", () => {
-    render(<TTSPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("option-dry_run")).toBeTruthy();
     expect(screen.queryByTestId("option-replace")).toBeNull();
 
@@ -255,7 +296,11 @@ describe("TTSPanel", () => {
   });
 
   it("run button enabled in download mode without CSV when sidecarUrl provided", () => {
-    render(<TTSPanel client="default" sidecarUrl="http://localhost:1234" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" sidecarUrl="http://localhost:1234" />
+      </TooltipProvider>
+    );
     const runBtn = screen.getByTestId("run-button") as HTMLButtonElement;
     expect(runBtn.disabled).toBe(true);
 
@@ -264,7 +309,11 @@ describe("TTSPanel", () => {
   });
 
   it("run button shows Download text in download mode", () => {
-    render(<TTSPanel client="default" sidecarUrl="http://localhost:1234" />);
+    render(
+      <TooltipProvider>
+        <TTSPanel client="default" sidecarUrl="http://localhost:1234" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("option-download"));
     expect(screen.getByTestId("run-button").textContent).toBe("Download");
   });

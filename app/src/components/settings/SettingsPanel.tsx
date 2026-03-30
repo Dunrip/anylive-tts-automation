@@ -4,6 +4,7 @@ import type { TTSConfig, LiveConfig } from "../../lib/types";
 import { fetchWithTimeout } from "../../lib/fetchWithTimeout";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OptionSwitch } from "@/components/common/OptionSwitch";
 
 interface SettingsPanelProps {
   client: string;
@@ -174,6 +175,10 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
     }));
   };
 
+  const isDirty =
+    JSON.stringify(ttsConfig) !== JSON.stringify(originalTts) ||
+    JSON.stringify(liveConfig) !== JSON.stringify(originalLive);
+
   return (
     <div data-testid="settings-panel" className="p-4 h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-5">
@@ -181,9 +186,14 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
           Settings — {client}
         </h2>
         <div className="flex gap-2 items-center">
-          <Button data-testid="save-button" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+          <div className="relative">
+            <Button data-testid="save-button" variant="success" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+            {isDirty && !saving && saveStatus === "idle" && (
+              <span className="absolute -top-1 -right-1 size-1.5 rounded-full bg-[var(--warning)]" />
+            )}
+          </div>
           <Button data-testid="reset-button" variant="outline" onClick={handleReset}>Reset</Button>
-          {saveStatus === "saved" && <span data-testid="save-success" className="text-xs text-[var(--success)]">Saved</span>}
+          {saveStatus === "saved" && <span data-testid="save-success" className="text-xs text-[var(--success)]">✓ Saved</span>}
           {saveStatus === "error" && <span data-testid="save-error" className="text-xs text-[var(--error)]">Save failed</span>}
           {loadError && <span data-testid="load-error" className="text-xs text-[var(--error)]">{loadError}</span>}
         </div>
@@ -210,14 +220,22 @@ export function SettingsPanel({ client, sidecarUrl }: SettingsPanelProps): React
                <input id="settings-max-scripts" data-testid="input-max-scripts" type="number" value={ttsConfig.max_scripts_per_version} onChange={(e) => updateTts("max_scripts_per_version", parseInt(e.target.value, 10))} min={1} max={50} className={cn(inputClasses, "w-[120px]")} />
              </div>
             <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
-                <input data-testid="toggle-voice-selection" type="checkbox" checked={ttsConfig.enable_voice_selection ?? false} onChange={(e) => updateTts("enable_voice_selection", e.target.checked)} />
-                Enable Voice Selection
-              </label>
-              <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer">
-                <input data-testid="toggle-product-info" type="checkbox" checked={ttsConfig.enable_product_info ?? false} onChange={(e) => updateTts("enable_product_info", e.target.checked)} />
-                Enable Product Info
-              </label>
+              <OptionSwitch
+                id="settings-voice-selection"
+                testId="toggle-voice-selection"
+                checked={ttsConfig.enable_voice_selection ?? false}
+                onCheckedChange={(checked) => updateTts("enable_voice_selection", checked)}
+                label="Enable Voice Selection"
+                description="Show voice dropdown when creating versions"
+              />
+              <OptionSwitch
+                id="settings-product-info"
+                testId="toggle-product-info"
+                checked={ttsConfig.enable_product_info ?? false}
+                onCheckedChange={(checked) => updateTts("enable_product_info", checked)}
+                label="Enable Product Info"
+                description="Include product name and selling point fields"
+              />
             </div>
           </div>
           <div className={sectionClasses}>

@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
-import { ProgressBar } from "../common/ProgressBar";
+import { ProgressBar } from '../common/ProgressBar';
+import { RunSummary } from '../common/RunSummary';
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
 import { useNotification } from "../../hooks/useNotification";
 import { Button } from "@/components/ui/button";
-
+import { OptionSwitch } from "@/components/common/OptionSwitch";
 import { cn } from "@/lib/utils";
 import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 
@@ -38,7 +39,6 @@ interface RunOptions {
   version_filter: string;
 }
 
-type BooleanOptionKey = "headless" | "dry_run" | "debug" | "download" | "replace" | "verify" | "flat_mode" | "no_save";
 
 export function TTSPanel({
   client,
@@ -64,6 +64,7 @@ export function TTSPanel({
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [jobStartTime, setJobStartTime] = useState<number | undefined>();
+  const [showSummary, setShowSummary] = useState(true);
   const wasRunningRef = useRef(false);
   const automation = useAutomation();
   const ws = useWebSocket(automation.wsUrl);
@@ -116,6 +117,7 @@ export function TTSPanel({
     ws.clearMessages();
     resetProcessedCount();
     setJobStartTime(Date.now());
+    setShowSummary(true);
 
     await automation.startRun({
       sidecarUrl,
@@ -140,17 +142,13 @@ export function TTSPanel({
     });
   };
 
-  const toggleOption = (key: BooleanOptionKey): void => {
-    setOptions((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   return (
     <div
       data-testid="tts-panel"
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
     >
       <h2 className="text-base font-semibold text-[var(--text-primary)] m-0">
-        TTS Automation
+        TTS Automation{client !== "default" && <span className="text-[var(--text-muted)] font-normal"> · {client}</span>}
       </h2>
 
       {/* Base URL */}
@@ -200,15 +198,14 @@ export function TTSPanel({
       ) : null}
 
       <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[var(--bg-surface)] border border-[var(--border-default)]">
-        <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer font-medium">
-          <input type="checkbox"
-            data-testid="option-download"
-            checked={options.download}
-            onChange={() => toggleOption("download")}
-           
-          />
-          Download Mode
-        </label>
+        <OptionSwitch
+          id="tts-option-download"
+          testId="option-download"
+          checked={options.download}
+          onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, download: checked }))}
+          label="Download Mode"
+          description="Download audio files from existing versions instead of creating new ones"
+        />
         <span className="text-xs text-[var(--text-muted)]">
           {options.download ? "Download files from existing versions" : "Create and fill new versions"}
         </span>
@@ -217,18 +214,30 @@ export function TTSPanel({
       {options.download ? (
         <div className="flex flex-col gap-3">
           <div className="flex gap-4 flex-wrap">
-            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
-              <input type="checkbox" data-testid="option-headless"  checked={options.headless} onChange={() => toggleOption("headless")} />
-              Headless
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
-              <input type="checkbox" data-testid="option-replace"  checked={options.replace} onChange={() => toggleOption("replace")} />
-              Replace existing
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer">
-              <input type="checkbox" data-testid="option-verify"  checked={options.verify} onChange={() => toggleOption("verify")} />
-              Verify after
-            </label>
+            <OptionSwitch
+              id="tts-option-headless"
+              testId="option-headless"
+              checked={options.headless}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, headless: checked }))}
+              label="Headless"
+              description="Run browser in background without visible window"
+            />
+            <OptionSwitch
+              id="tts-option-replace"
+              testId="option-replace"
+              checked={options.replace}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, replace: checked }))}
+              label="Replace existing"
+              description="Re-download files that already exist locally"
+            />
+            <OptionSwitch
+              id="tts-option-verify"
+              testId="option-verify"
+              checked={options.verify}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, verify: checked }))}
+              label="Verify after"
+              description="Verify downloaded files match the CSV after download"
+            />
           </div>
            <div className="flex flex-col gap-1">
              <label htmlFor="tts-version-filter" className="text-xs text-[var(--text-muted)]">Version filter</label>
@@ -246,24 +255,30 @@ export function TTSPanel({
       ) : (
         <>
           <div className="flex gap-4 flex-wrap">
-            {[
-              { key: "headless" as BooleanOptionKey, label: "Headless" },
-              { key: "dry_run" as BooleanOptionKey, label: "Dry Run" },
-              { key: "debug" as BooleanOptionKey, label: "Debug" },
-            ].map(({ key, label }) => (
-              <label
-                key={key}
-                className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] cursor-pointer"
-              >
-                <input type="checkbox"
-                  data-testid={`option-${key}`}
-                  checked={options[key]}
-                  onChange={() => toggleOption(key)}
-                 
-                />
-                {label}
-              </label>
-            ))}
+            <OptionSwitch
+              id="tts-option-headless-run"
+              testId="option-headless"
+              checked={options.headless}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, headless: checked }))}
+              label="Headless"
+              description="Run browser in background without visible window"
+            />
+            <OptionSwitch
+              id="tts-option-dry_run"
+              testId="option-dry_run"
+              checked={options.dry_run}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, dry_run: checked }))}
+              label="Dry Run"
+              description="Fill forms without generating speech or saving"
+            />
+            <OptionSwitch
+              id="tts-option-debug"
+              testId="option-debug"
+              checked={options.debug}
+              onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, debug: checked }))}
+              label="Debug"
+              description="Slow motion with pause-on-error for troubleshooting"
+            />
           </div>
 
           <div>
@@ -312,16 +327,24 @@ export function TTSPanel({
                      />
                   </div>
                 </div>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-                    <input type="checkbox" data-testid="option-flat_mode"  checked={options.flat_mode} onChange={() => toggleOption("flat_mode")} />
-                    Flat mode
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer">
-                    <input type="checkbox" data-testid="option-no_save"  checked={options.no_save} onChange={() => toggleOption("no_save")} />
-                    No save
-                  </label>
-                </div>
+                 <div className="flex gap-4">
+                   <OptionSwitch
+                     id="tts-option-flat_mode"
+                     testId="option-flat_mode"
+                     checked={options.flat_mode}
+                     onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, flat_mode: checked }))}
+                     label="Flat mode"
+                     description="Pack scripts sequentially ignoring product boundaries"
+                   />
+                   <OptionSwitch
+                     id="tts-option-no_save"
+                     testId="option-no_save"
+                     checked={options.no_save}
+                     onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, no_save: checked }))}
+                     label="No save"
+                     description="Generate speech but skip saving the version"
+                   />
+                 </div>
               </div>
             )}
           </div>
@@ -384,6 +407,15 @@ export function TTSPanel({
             ))}
           </div>
         </div>
+      )}
+
+      {!automation.isRunning && showSummary && (
+        <RunSummary
+          versions={automation.versions}
+          startTime={jobStartTime}
+          csvFileName={csvPath?.split("/").pop() || undefined}
+          onDismiss={() => setShowSummary(false)}
+        />
       )}
     </div>
   );

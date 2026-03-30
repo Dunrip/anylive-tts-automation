@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ScriptsPanel } from "../components/scripts/ScriptsPanel";
 import { useAutomation } from "../hooks/useAutomation";
 import type { JobStatus, WSMessage } from "../lib/types";
+import { TooltipProvider } from "../components/ui/tooltip";
 
 vi.mock("../components/common/CSVPicker", () => ({
   CSVPicker: () => <div data-testid="csv-picker-mock" />,
@@ -35,7 +36,11 @@ describe("ScriptsPanel", () => {
   });
 
   it("renders scripts panel with run, replace, and delete buttons", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("scripts-panel")).toBeTruthy();
     expect(screen.getByTestId("scripts-run-button")).toBeTruthy();
     expect(screen.getByTestId("replace-products-button")).toBeTruthy();
@@ -43,7 +48,11 @@ describe("ScriptsPanel", () => {
   });
 
   it("shows delete confirmation dialog when delete button clicked", () => {
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     expect(screen.getByTestId("delete-confirm-dialog")).toBeTruthy();
     expect(screen.getByTestId("confirm-delete-button")).toBeTruthy();
@@ -51,7 +60,11 @@ describe("ScriptsPanel", () => {
   });
 
   it("hides delete confirmation dialog when cancel clicked", () => {
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     expect(screen.getByTestId("delete-confirm-dialog")).toBeTruthy();
     fireEvent.click(screen.getByTestId("cancel-delete-button"));
@@ -59,7 +72,11 @@ describe("ScriptsPanel", () => {
   });
 
   it("shows replace confirmation dialog when replace button clicked", () => {
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("replace-products-button"));
     expect(screen.getByTestId("replace-confirm-dialog")).toBeTruthy();
     expect(screen.getByTestId("confirm-replace-button")).toBeTruthy();
@@ -67,7 +84,11 @@ describe("ScriptsPanel", () => {
   });
 
   it("hides replace confirmation dialog when cancel clicked", () => {
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("replace-products-button"));
     expect(screen.getByTestId("replace-confirm-dialog")).toBeTruthy();
     fireEvent.click(screen.getByTestId("cancel-replace-button"));
@@ -92,7 +113,11 @@ describe("ScriptsPanel", () => {
       polledMessages: [],
     });
 
-    render(<ScriptsPanel client="default" sidecarUrl={sidecarUrl} />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl={sidecarUrl} />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("replace-products-button"));
     fireEvent.click(screen.getByTestId("confirm-replace-button"));
 
@@ -126,7 +151,11 @@ describe("ScriptsPanel", () => {
       polledMessages: [],
     });
 
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("replace-products-button")).toBeDisabled();
   });
 });
@@ -161,13 +190,21 @@ describe("ScriptsPanel — delete flow branches", () => {
       isRunning: true,
       jobId: "job-1",
     });
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("delete-scripts-button")).toBeDisabled();
   });
 
   it("handleDelete: fetch ok → dialog closes, no error shown", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     fireEvent.click(screen.getByTestId("confirm-delete-button"));
     await waitFor(() =>
@@ -183,7 +220,11 @@ describe("ScriptsPanel — delete flow branches", () => {
       ok: false,
       json: () => Promise.resolve({ detail: "Server rejected delete" }),
     });
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     fireEvent.click(screen.getByTestId("confirm-delete-button"));
     await waitFor(() =>
@@ -196,7 +237,11 @@ describe("ScriptsPanel — delete flow branches", () => {
       ok: false,
       json: () => Promise.resolve({}),
     });
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     fireEvent.click(screen.getByTestId("confirm-delete-button"));
     await waitFor(() =>
@@ -208,7 +253,11 @@ describe("ScriptsPanel — delete flow branches", () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
       new TypeError("Network error")
     );
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("delete-scripts-button"));
     fireEvent.click(screen.getByTestId("confirm-delete-button"));
     await waitFor(() =>
@@ -228,7 +277,11 @@ describe("ScriptsPanel — replace flow branches", () => {
       ...makeDefaultState(),
       startRun: vi.fn().mockRejectedValue(new Error("connection failed")),
     });
-    render(<ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" sidecarUrl="http://127.0.0.1:8080" />
+      </TooltipProvider>
+    );
     fireEvent.click(screen.getByTestId("replace-products-button"));
     fireEvent.click(screen.getByTestId("confirm-replace-button"));
     await waitFor(() =>
@@ -250,7 +303,11 @@ describe("ScriptsPanel — progress and version list branches", () => {
       jobId: "job-1",
       progress: { current: 0, total: 5 },
     });
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("progress-bar")).toBeTruthy();
   });
 
@@ -260,12 +317,20 @@ describe("ScriptsPanel — progress and version list branches", () => {
       isRunning: false,
       progress: { current: 3, total: 5 },
     });
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("progress-bar")).toBeTruthy();
   });
 
   it("does not render progress bar when not running and current=0", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.queryByTestId("progress-bar")).toBeNull();
   });
 
@@ -277,14 +342,22 @@ describe("ScriptsPanel — progress and version list branches", () => {
         { name: "Script B", status: "failed" as const },
       ],
     });
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.getByTestId("scripts-version-list")).toBeTruthy();
     expect(screen.getByText("Script A")).toBeTruthy();
     expect(screen.getByText("Script B")).toBeTruthy();
   });
 
   it("does not render version list when versions is empty", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.queryByTestId("scripts-version-list")).toBeNull();
   });
 });
@@ -296,7 +369,11 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   });
 
   it("advanced toggle reveals and hides start-product, limit, and audio-dir fields", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     expect(screen.queryByTestId("scripts-option-start-product")).toBeNull();
     expect(screen.queryByTestId("scripts-option-limit")).toBeNull();
     expect(screen.queryByTestId("scripts-option-audio-dir")).toBeNull();
@@ -311,7 +388,11 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   });
 
   it("headless checkbox toggles between checked and unchecked", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     const cb = screen.getByTestId("scripts-option-headless") as HTMLInputElement;
     expect(cb.checked).toBe(false);
     fireEvent.click(cb);
@@ -321,7 +402,11 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   });
 
   it("dry_run checkbox starts unchecked and toggles on click", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     const cb = screen.getByTestId("scripts-option-dry_run") as HTMLInputElement;
     expect(cb.checked).toBe(false);
     fireEvent.click(cb);
@@ -329,7 +414,11 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   });
 
   it("debug checkbox starts unchecked and toggles on click", () => {
-    render(<ScriptsPanel client="default" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" />
+      </TooltipProvider>
+    );
     const cb = screen.getByTestId("scripts-option-debug") as HTMLInputElement;
     expect(cb.checked).toBe(false);
     fireEvent.click(cb);
@@ -339,11 +428,13 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   it("base URL input fires onBaseUrlChange callback with new value", () => {
     const onBaseUrlChange = vi.fn();
     render(
-      <ScriptsPanel
-        client="default"
-        baseUrl="https://initial.example.com"
-        onBaseUrlChange={onBaseUrlChange}
-      />
+      <TooltipProvider>
+        <ScriptsPanel
+          client="default"
+          baseUrl="https://initial.example.com"
+          onBaseUrlChange={onBaseUrlChange}
+        />
+      </TooltipProvider>
     );
     fireEvent.change(screen.getByTestId("input-scripts-base-url"), {
       target: { value: "https://new.example.com" },
@@ -352,7 +443,11 @@ describe("ScriptsPanel — advanced options and URL branches", () => {
   });
 
   it("renders base URL input with provided baseUrl value", () => {
-    render(<ScriptsPanel client="default" baseUrl="https://test.example.com" />);
+    render(
+      <TooltipProvider>
+        <ScriptsPanel client="default" baseUrl="https://test.example.com" />
+      </TooltipProvider>
+    );
     const input = screen.getByTestId("input-scripts-base-url") as HTMLInputElement;
     expect(input.value).toBe("https://test.example.com");
   });

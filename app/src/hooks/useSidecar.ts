@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 
 const HEALTH_CHECK_INTERVAL_MS = 10_000;
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
@@ -92,6 +93,7 @@ export function useSidecar(): SidecarState {
             throw new Error(`Health check returned ${response.status}`);
           }
 
+          const wasDisconnected = consecutiveFailures >= HEALTH_CHECK_FAILURE_THRESHOLD;
           consecutiveFailures = 0;
           setState((prev) => {
             if (!prev.isReady) {
@@ -99,16 +101,20 @@ export function useSidecar(): SidecarState {
             }
             return prev;
           });
+          if (wasDisconnected) {
+            toast.success("Sidecar reconnected", { id: "sidecar-health" });
+          }
         } catch (err) {
           clearTimeout(abortTimeoutId);
           consecutiveFailures += 1;
 
-          if (consecutiveFailures >= HEALTH_CHECK_FAILURE_THRESHOLD) {
+          if (consecutiveFailures === HEALTH_CHECK_FAILURE_THRESHOLD) {
             setState((prev) => ({
               ...prev,
               isReady: false,
               error: `Sidecar health check failed: ${String(err)}`,
             }));
+            toast.error("Sidecar disconnected", { id: "sidecar-health" });
           }
         }
       })();
