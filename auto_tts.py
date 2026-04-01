@@ -37,6 +37,7 @@ from shared import (
     NAVIGATION_TIMEOUT,
     POST_AUTOSAVE_DELAY_SECONDS,
     PRE_FILL_START_DELAY_SECONDS,
+    REPORT,
     SYM,
     async_debug_pause,
     fmt_banner,
