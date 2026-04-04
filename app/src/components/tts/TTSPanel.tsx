@@ -3,6 +3,7 @@ import { CSVPicker } from "../common/CSVPicker";
 import { StatusBadge } from "../common/StatusBadge";
 import { ProgressBar } from '../common/ProgressBar';
 import { RunSummary } from '../common/RunSummary';
+import { ErrorBanner } from '../common/ErrorBanner';
 import { useAutomation } from "../../hooks/useAutomation";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useAutomationPanel } from "../../hooks/useAutomationPanel";
@@ -10,6 +11,8 @@ import { useNotification } from "../../hooks/useNotification";
 import { Button } from "@/components/ui/button";
 import { OptionSwitch } from "@/components/common/OptionSwitch";
 import { cn } from "@/lib/utils";
+import { openFolder } from "../../lib/openFolder";
+import { FolderOpen } from "lucide-react";
 import type { CSVPreviewResponse, WSMessage } from "../../lib/types";
 
 interface TTSPanelProps {
@@ -180,12 +183,7 @@ export function TTSPanel({
       />
 
       {automation.error ? (
-        <div
-          data-testid="automation-error"
-          className="px-2.5 py-2 rounded-md border border-[var(--error)] text-[var(--error)] text-xs bg-[color-mix(in_srgb,var(--error)_10%,transparent)]"
-        >
-          {automation.error}
-        </div>
+        <ErrorBanner error={automation.error} sidecarUrl={sidecarUrl} testId="automation-error" client={client} platform="tts" />
       ) : null}
 
       {automation.isRunning && automation.wsUrl && hasConnectedRef.current && !ws.isConnected ? (
@@ -209,6 +207,17 @@ export function TTSPanel({
         <span className="text-xs text-[var(--text-muted)]">
           {options.download ? "Download files from existing versions" : "Create and fill new versions"}
         </span>
+        {options.download && '__TAURI_INTERNALS__' in window && (
+          <button
+            data-testid="open-downloads-folder"
+            type="button"
+            onClick={() => { void openFolder("downloads"); }}
+            className="ml-auto shrink-0 p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title="Open downloads folder"
+          >
+            <FolderOpen className="size-4" />
+          </button>
+        )}
       </div>
 
       {options.download ? (
@@ -414,6 +423,7 @@ export function TTSPanel({
           versions={automation.versions}
           startTime={jobStartTime}
           csvFileName={csvPath?.split("/").pop() || undefined}
+          downloadDir="downloads"
           onDismiss={() => setShowSummary(false)}
         />
       )}

@@ -30,7 +30,8 @@ def _get_chromium_path() -> Path | None:
         # Check if any chromium directory exists
         if cache_dir.exists():
             for item in cache_dir.iterdir():
-                if "chromium" in item.name.lower():
+                # Match "chromium-XXXX" but not "chromium_headless_shell-XXXX"
+                if item.name.lower().startswith("chromium-") and item.is_dir():
                     return item
     except Exception:
         pass
@@ -69,9 +70,9 @@ async def install_chromium() -> dict:
             # In packaged mode: use Playwright's internal driver
             from playwright._impl._driver import compute_driver_executable
 
-            driver_exe = compute_driver_executable()
+            node_path, cli_js = compute_driver_executable()
             result = subprocess.run(
-                [str(driver_exe), "install", "chromium"],
+                [str(node_path), str(cli_js), "install", "chromium"],
                 capture_output=True,
                 text=True,
                 timeout=300,

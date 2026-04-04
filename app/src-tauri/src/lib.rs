@@ -177,6 +177,47 @@ fn create_client_config(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_cwd() -> Result<String, String> {
+    std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_in_finder(path: String) -> Result<(), String> {
+    use std::path::PathBuf;
+    let resolved = if PathBuf::from(&path).is_absolute() {
+        PathBuf::from(&path)
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(&path)
+    };
+    // Walk up to find the path (handles CWD being in src-tauri during dev)
+    let mut candidate = resolved.clone();
+    if !candidate.exists() {
+        if let Ok(cwd) = std::env::current_dir() {
+            for ancestor in cwd.ancestors().skip(1) {
+                let try_path = ancestor.join(&path);
+                if try_path.exists() {
+                    candidate = try_path;
+                    break;
+                }
+            }
+        }
+    }
+    if candidate.exists() {
+        std::process::Command::new("open")
+            .arg(candidate)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err(format!("Path not found: {}", path))
+    }
+}
+
+#[tauri::command]
 fn get_sidecar_port(state: tauri::State<SidecarPort>) -> Result<u16, String> {
     let guard = state.port.lock().map_err(|e| e.to_string())?;
     guard.ok_or_else(|| "Sidecar not ready yet".to_string())
@@ -204,6 +245,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -358,7 +400,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_sidecar_port, list_client_configs, read_client_config, save_client_config, delete_client_config, create_client_config])
+        .invoke_handler(tauri::generate_handler![get_cwd, open_in_finder, get_sidecar_port, list_client_configs, read_client_config, save_client_config, delete_client_config, create_client_config])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {

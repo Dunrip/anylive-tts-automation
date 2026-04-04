@@ -1,6 +1,9 @@
 import React from "react";
 import type { JobStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { FolderOpen } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { openFolder } from "@/lib/openFolder";
 
 interface VersionEntry {
   name: string;
@@ -11,6 +14,7 @@ interface RunSummaryProps {
   versions: VersionEntry[];
   startTime?: number;
   csvFileName?: string;
+  downloadDir?: string;
   onDismiss: () => void;
 }
 
@@ -40,10 +44,12 @@ export function RunSummary({
   versions,
   startTime,
   csvFileName,
+  downloadDir,
   onDismiss,
 }: RunSummaryProps): React.ReactElement | null {
   const nonPending = versions.filter((v) => v.status !== "pending");
   if (versions.length === 0 || nonPending.length === 0) return null;
+  const isInTauri = isTauri();
 
   const successCount = versions.filter((v) => v.status === "success").length;
   const failedCount = versions.filter((v) => v.status === "failed").length;
@@ -92,6 +98,19 @@ export function RunSummary({
       )}
 
       <div className="flex-1" />
+
+      {downloadDir != null && isInTauri && (
+        <button
+          type="button"
+          data-testid="open-downloads-button"
+          onClick={() => { void openFolder(downloadDir); }}
+          aria-label="Open downloads folder"
+          className="flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer bg-transparent border-none p-0 leading-none"
+        >
+          <FolderOpen className="w-3.5 h-3.5" />
+          <span>Open folder</span>
+        </button>
+      )}
 
       <button
         type="button"

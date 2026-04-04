@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import type { AutomationType, CSVPreviewResponse } from "../../lib/types";
 import { cn } from "@/lib/utils";
-import { FileSpreadsheet, X } from "lucide-react";
+import { FileSpreadsheet, FolderOpen, X } from "lucide-react";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { isTauri } from "@tauri-apps/api/core";
+import { openContainingFolder } from "../../lib/openFolder";
 
 interface CSVPickerProps {
   onFileSelected?: (path: string, preview: CSVPreviewResponse) => void;
@@ -131,6 +133,17 @@ export function CSVPicker({
           >
             {selectedPath.split("/").pop() || selectedPath}
           </span>
+          {isTauri() && (
+            <button
+              type="button"
+              data-testid="open-folder-button"
+              onClick={() => { void openContainingFolder(selectedPath); }}
+              aria-label="Open containing folder"
+              className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer bg-transparent border-none"
+            >
+              <FolderOpen className="size-3.5" />
+            </button>
+          )}
           <button
             type="button"
             data-testid="clear-csv-button"

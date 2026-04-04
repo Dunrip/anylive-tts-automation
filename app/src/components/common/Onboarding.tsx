@@ -26,6 +26,18 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
   const [loginStatus, setLoginStatus] = useState<StepStatus>(sessionValid ? "done" : "idle");
   const [loginMessage, setLoginMessage] = useState("");
 
+  // Auto-complete if session is already valid when reaching login step
+  useEffect(() => {
+    if (step === "login" && sessionValid && loginStatus !== "loading") {
+      setLoginStatus("done");
+      setLoginMessage("Session already active.");
+      const timer = setTimeout(() => {
+        onComplete({ sessionValid: true, displayName: null, email: null });
+      }, 900);
+      return () => clearTimeout(timer);
+    }
+  }, [step, sessionValid, loginStatus, onComplete]);
+
   // Step 1: auto-advance from check → chromium (or login if chromium already done)
   useEffect(() => {
     if (step !== "check") return;
@@ -45,23 +57,30 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
   }, [step, chromiumInstalled, sessionValid, onComplete]);
 
   const chromiumTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const chromiumTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const [chromiumElapsed, setChromiumElapsed] = useState(0);
 
   const handleInstallChromium = async (): Promise<void> => {
     setChromiumStatus("loading");
-    setChromiumMessage("Installing Chromium browser...");
+    setChromiumElapsed(0);
+    setChromiumMessage("Downloading Chromium browser (~150 MB). This may take a minute...");
+    chromiumTimerRef.current = setInterval(() => setChromiumElapsed((s) => s + 1), 1000);
     try {
       const resp = await fetch(`${sidecarUrl}/api/setup/install-chromium`, { method: "POST" });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       if (data.status === "installed" || data.status === "already_installed") {
+        if (chromiumTimerRef.current) clearInterval(chromiumTimerRef.current);
         setChromiumStatus("done");
         setChromiumMessage("Chromium installed successfully.");
         chromiumTimeoutRef.current = setTimeout(() => setStep("login"), 800);
       } else {
+        if (chromiumTimerRef.current) clearInterval(chromiumTimerRef.current);
         setChromiumStatus("error");
         setChromiumMessage(data.error || "Installation failed. Try again.");
       }
     } catch {
+      if (chromiumTimerRef.current) clearInterval(chromiumTimerRef.current);
       setChromiumStatus("error");
       setChromiumMessage("Could not connect to sidecar.");
     }
@@ -73,7 +92,11 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
     setLoginStatus("loading");
     setLoginMessage("Opening browser for login...");
     try {
-      const resp = await fetch(`${sidecarUrl}/api/session/login`, { method: "POST" });
+      const resp = await fetch(`${sidecarUrl}/api/session/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "tts" }),
+      });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       if (data.status === "ok") {
@@ -99,6 +122,7 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
   useEffect(() => {
     return () => {
       if (chromiumTimeoutRef.current) clearTimeout(chromiumTimeoutRef.current);
+      if (chromiumTimerRef.current) clearInterval(chromiumTimerRef.current);
       if (loginTimeoutRef.current) clearTimeout(loginTimeoutRef.current);
     };
   }, []);
@@ -197,12 +221,16 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
                   "text-[var(--text-secondary)]"
                 )}>
                   {chromiumMessage}
+                  {chromiumStatus === "loading" && chromiumElapsed > 0 && (
+                    <span className="text-[var(--text-muted)] ml-1">({chromiumElapsed}s)</span>
+                  )}
                 </p>
               )}
 
               {chromiumStatus !== "done" && (
                 <Button
                   data-testid="install-chromium-button"
+                  variant="success"
                   onClick={handleInstallChromium}
                   disabled={chromiumStatus === "loading"}
                   className="w-fit"
@@ -241,6 +269,7 @@ export function Onboarding({ sidecarUrl, chromiumInstalled, sessionValid, onComp
               {loginStatus !== "done" && (
                 <Button
                   data-testid="login-button"
+                  variant="success"
                   onClick={handleLogin}
                   disabled={loginStatus === "loading"}
                   className="w-fit"

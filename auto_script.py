@@ -26,6 +26,7 @@ import pandas as pd
 from shared import (
     BrowserAutomation,
     SYM,
+    REPORT,
     async_debug_pause,
     ensure_client_config,
     fmt_banner,
