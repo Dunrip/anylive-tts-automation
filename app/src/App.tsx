@@ -23,6 +23,7 @@ function App(): React.ReactElement {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userDisplayName, setUserDisplayName] = useState<string | null>(null);
   const [sessionValid, setSessionValid] = useState<boolean>(false);
+  const [liveSessionValid, setLiveSessionValid] = useState<boolean>(false);
   const [chromiumInstalled, setChromiumInstalled] = useState<boolean | null>(null);
   const [loginInProgress, setLoginInProgress] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -91,6 +92,22 @@ function App(): React.ReactElement {
   }, [sidecar.sidecarUrl, selectedClient]);
 
   useEffect(() => {
+    if (!sidecar.sidecarUrl || !selectedClient) return;
+
+    const controller = new AbortController();
+    fetchWithTimeout(`${sidecar.sidecarUrl}/api/session/${selectedClient}/live`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data: SessionStatus) => {
+        setLiveSessionValid(data.valid);
+      })
+      .catch((err: unknown) => {
+        if (err != null && (err as { name?: unknown }).name === "AbortError") return;
+        setLiveSessionValid(false);
+      });
+    return () => { controller.abort(); };
+  }, [sidecar.sidecarUrl, selectedClient]);
+
+  useEffect(() => {
     if (!sidecar.sidecarUrl) return;
 
     const controller = new AbortController();
@@ -112,17 +129,29 @@ function App(): React.ReactElement {
     setLoginInProgress(true);
     setLoginError(null);
     try {
-      const resp = await fetch(`${sidecar.sidecarUrl}/api/session/login`, { method: "POST" });
+      const platform = activePanel === "faq" || activePanel === "scripts" ? "live" : "tts";
+      const resp = await fetch(`${sidecar.sidecarUrl}/api/session/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, client: selectedClient }),
+      });
       if (!resp.ok) throw new Error(`Login request failed: ${resp.status}`);
       const data = await resp.json();
       if (data.status === "ok") {
-        const sessionResp = await fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`);
-        if (!sessionResp.ok) throw new Error(`Session fetch failed: ${sessionResp.status}`);
-        const sessionData: SessionStatus = await sessionResp.json();
-        setSessionValid(sessionData.valid);
-        if (sessionData.valid) {
-          setUserDisplayName(sessionData.display_name);
-          setUserEmail(sessionData.email);
+        if (platform === "live") {
+          const sessionResp = await fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/live`);
+          if (!sessionResp.ok) throw new Error(`Session fetch failed: ${sessionResp.status}`);
+          const sessionData: SessionStatus = await sessionResp.json();
+          setLiveSessionValid(sessionData.valid);
+        } else {
+          const sessionResp = await fetch(`${sidecar.sidecarUrl}/api/session/${selectedClient}/tts`);
+          if (!sessionResp.ok) throw new Error(`Session fetch failed: ${sessionResp.status}`);
+          const sessionData: SessionStatus = await sessionResp.json();
+          setSessionValid(sessionData.valid);
+          if (sessionData.valid) {
+            setUserDisplayName(sessionData.display_name);
+            setUserEmail(sessionData.email);
+          }
         }
       }
     } catch (err) {
@@ -170,6 +199,7 @@ function App(): React.ReactElement {
             selectedClient={selectedClient}
             onClientChange={setSelectedClient}
             sessionValid={sessionValid}
+            liveSessionValid={liveSessionValid}
             sidecarUrl={sidecar.sidecarUrl}
             userEmail={userEmail}
             userDisplayName={userDisplayName}

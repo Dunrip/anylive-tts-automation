@@ -20,6 +20,7 @@ router = APIRouter()
 
 class LoginRequest(BaseModel):
     platform: str = "tts"
+    client: str = "default"
 
 
 @router.post("/session/login")
@@ -30,8 +31,6 @@ async def trigger_login(request: LoginRequest | None = None) -> dict:
         set_app_support_dir,
         setup_login,
         SESSION_FILE,
-        LIVE_SESSION_FILE,
-        LIVE_BROWSER_DATA,
         LIVE_LOGIN_URL,
     )
 
@@ -44,10 +43,11 @@ async def trigger_login(request: LoginRequest | None = None) -> dict:
 
     # Determine platform and map to appropriate constants
     platform = request.platform if request else "tts"
+    client = request.client if request else "default"
     if platform == "live":
         login_url = LIVE_LOGIN_URL
-        session_filename = LIVE_SESSION_FILE
-        browser_data_subdir = LIVE_BROWSER_DATA
+        session_filename = f"state/session_state_faq_{client}.json" if client else "state/session_state_faq.json"
+        browser_data_subdir = f"state/browser_data_faq_{client}" if client else "state/browser_data_faq"
     else:
         # Default to TTS
         login_url = "https://app.anylive.jp"

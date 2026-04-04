@@ -11,6 +11,7 @@ interface SidebarProps {
   selectedClient: string;
   onClientChange: (client: string) => void;
   sessionValid: boolean;
+  liveSessionValid: boolean;
   sidecarUrl?: string | null;
   onRelogin?: () => void;
   loginError?: string | null;
@@ -88,6 +89,7 @@ export function Sidebar({
   selectedClient,
   onClientChange,
   sessionValid,
+  liveSessionValid,
   sidecarUrl,
   onRelogin,
   loginError,
@@ -111,15 +113,15 @@ export function Sidebar({
       setCreateError(null);
     }
   }, [selectedClient]);
-  const overallHealthy = sidecarConnected && sessionValid;
+  const overallHealthy = sidecarConnected && (activePanel === "faq" || activePanel === "scripts" ? liveSessionValid : sessionValid);
   const statusLabel = !sidecarConnected
     ? "Sidecar Connecting"
-    : sessionValid
+    : (activePanel === "faq" || activePanel === "scripts" ? liveSessionValid : sessionValid)
       ? (userDisplayName ?? "Ready")
       : "Session Expired";
   const statusDetail = !sidecarConnected
     ? "Waiting for local sidecar"
-    : sessionValid
+    : (activePanel === "faq" || activePanel === "scripts" ? liveSessionValid : sessionValid)
       ? (userEmail ?? "Sidecar and session are active")
       : "Sidecar connected, login required";
 
@@ -332,7 +334,7 @@ export function Sidebar({
             v{appVersion}
           </div>
         )}
-        {sidecarConnected && !sessionValid && (
+        {sidecarConnected && !(activePanel === "faq" || activePanel === "scripts" ? liveSessionValid : sessionValid) && (
           <>
             {onRelogin && (
               <Button data-testid="relogin-button" size="xs" onClick={onRelogin} className="w-full">Re-login</Button>

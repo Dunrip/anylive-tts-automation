@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { OptionSwitch } from "@/components/common/OptionSwitch";
 import { cn } from "@/lib/utils";
 
+import { FolderOpen } from "lucide-react";
+import { ErrorBanner } from "../common/ErrorBanner";
+import { isTauri } from "@tauri-apps/api/core";
+import { openFolder } from "../../lib/openFolder";
 interface FAQPanelProps {
   client: string;
   sidecarUrl?: string | null;
@@ -117,15 +121,28 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
          <label htmlFor="faq-audio-dir" className="text-xs text-[var(--text-secondary)] block mb-1">
            Audio Directory (optional)
          </label>
-         <input
-           id="faq-audio-dir"
-           data-testid="audio-dir-input"
-           type="text"
-           value={audioDir}
-           onChange={(e) => setAudioDir(e.target.value)}
-           placeholder="downloads/"
-           className="w-full px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border"
-         />
+         <div className="flex items-center gap-1">
+           <input
+             id="faq-audio-dir"
+             data-testid="audio-dir-input"
+             type="text"
+             value={audioDir}
+             onChange={(e) => setAudioDir(e.target.value)}
+             placeholder="downloads/"
+             className="flex-1 px-2.5 py-1.5 bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md text-sm box-border min-w-0"
+           />
+           {isTauri() && (
+             <button
+               type="button"
+               data-testid="open-audio-dir-button"
+               onClick={() => { void openFolder(audioDir || "downloads"); }}
+               aria-label="Open audio directory"
+               className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer bg-transparent border-none shrink-0"
+             >
+               <FolderOpen className="size-4" />
+             </button>
+           )}
+         </div>
       </div>
 
       {/* Options */}
@@ -219,9 +236,7 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
 
       {/* Error banner */}
       {automation.error && (
-        <div data-testid="faq-error" className="px-3 py-2 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[var(--error)] rounded-md text-sm text-[var(--error)]">
-          {automation.error}
-        </div>
+        <ErrorBanner error={automation.error} sidecarUrl={sidecarUrl} testId="faq-error" client={client} platform="live" />
       )}
 
       {/* Progress */}
@@ -253,6 +268,7 @@ export function FAQPanel({ client, sidecarUrl, baseUrl = "", onBaseUrlChange, on
           versions={automation.versions}
           startTime={jobStartTime}
           csvFileName={csvPath?.split("/").pop() || undefined}
+          downloadDir={audioDir || "downloads"}
           onDismiss={() => setShowSummary(false)}
         />
       )}

@@ -15,6 +15,7 @@ const defaultProps = {
   selectedClient: "default",
   onClientChange: vi.fn(),
   sessionValid: true,
+  liveSessionValid: false,
 };
 
 describe("Sidebar", () => {

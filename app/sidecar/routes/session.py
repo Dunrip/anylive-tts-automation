@@ -11,8 +11,14 @@ router = APIRouter()
 
 
 def _get_session_file(client: str, site: str) -> Path:
-    del client, site
     from server import get_app_data_dir
+
+    if site in ("live", "faq"):
+        filename = f"session_state_faq_{client}.json" if client else "session_state_faq.json"
+        return get_app_data_dir() / "state" / filename
+
+    if site == "tts":
+        return get_app_data_dir() / "state" / "session_state.json"
 
     return get_app_data_dir() / "state" / "session_state.json"
 

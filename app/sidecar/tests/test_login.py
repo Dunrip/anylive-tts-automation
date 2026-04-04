@@ -133,7 +133,7 @@ async def test_login_platform_live() -> None:
     }
 
     with TemporaryDirectory() as tmpdir:
-        session_file = Path(tmpdir) / "state" / "session_state_faq.json"
+        session_file = Path(tmpdir) / "state" / "session_state_faq_default.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
         session_file.write_text(json.dumps(session_data))
 
@@ -152,12 +152,53 @@ async def test_login_platform_live() -> None:
                         )
 
         assert response.status_code == 200
-        # Verify setup_login was called with LIVE constants
         mock_setup.assert_called_once()
         call_kwargs = mock_setup.call_args[1]
         assert call_kwargs["login_url"] == "https://live.app.anylive.jp"
-        assert call_kwargs["session_filename"] == "state/session_state_faq.json"
-        assert call_kwargs["browser_data_subdir"] == "state/browser_data_faq"
+        assert call_kwargs["session_filename"] == "state/session_state_faq_default.json"
+        assert call_kwargs["browser_data_subdir"] == "state/browser_data_faq_default"
+        assert call_kwargs["gui_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_login_platform_live_uses_client_specific_session_paths() -> None:
+    from server import app
+
+    session_data = {
+        "setup_complete": True,
+        "display_name": "Brand User",
+        "email": "brand@example.com",
+    }
+
+    with TemporaryDirectory() as tmpdir:
+        session_file = Path(tmpdir) / "state" / "session_state_faq_brandA.json"
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_text(json.dumps(session_data))
+
+        with patch("shared.setup_login", new_callable=AsyncMock) as mock_setup:
+            with patch("server.get_app_data_dir", return_value=Path(tmpdir)):
+                with patch("services.job_manager.job_manager") as mock_job_manager:
+                    mock_job_manager.is_running = False
+                    mock_setup.return_value = None
+
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app), base_url="http://test"
+                    ) as client:
+                        response = await client.post(
+                            "/api/session/login",
+                            json={"platform": "live", "client": "brandA"},
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["display_name"] == "Brand User"
+        assert data["email"] == "brand@example.com"
+        mock_setup.assert_called_once()
+        call_kwargs = mock_setup.call_args[1]
+        assert call_kwargs["login_url"] == "https://live.app.anylive.jp"
+        assert call_kwargs["session_filename"] == "state/session_state_faq_brandA.json"
+        assert call_kwargs["browser_data_subdir"] == "state/browser_data_faq_brandA"
         assert call_kwargs["gui_mode"] is True
 
 
